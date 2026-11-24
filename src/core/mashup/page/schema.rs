@@ -39,7 +39,7 @@ pub(crate) struct Page {
     /// Input parameters (name to base type) of a page that is shown inside another, such as a
     /// collection cell; bind to one with `{bind: param.<name>}`.
     #[serde(default)]
-    pub(crate) parameters: BTreeMap<String, Spanned<String>>,
+    pub(crate) parameters: BTreeMap<String, Spanned<Parameter>>,
     #[serde(default)]
     pub(crate) data: BTreeMap<String, Spanned<Source>>,
     #[serde(default)]
@@ -50,6 +50,42 @@ pub(crate) struct Page {
     pub(crate) bindings: Vec<Spanned<Binding>>,
     #[serde(skip)]
     pub(crate) contracts: Vec<super::components::Requirement>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum Parameter {
+    Short(String),
+    Long(ParameterDetails),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ParameterDetails {
+    #[serde(rename = "type")]
+    pub(crate) base_type: String,
+    pub(crate) direction: Option<String>,
+    pub(crate) description: Option<String>,
+    pub(crate) data_shape: Option<String>,
+}
+
+impl Parameter {
+    pub(crate) fn declaration(&self) -> String {
+        match self {
+            Self::Short(text) => text.clone(),
+            Self::Long(details) => {
+                let mut text = details.base_type.clone();
+                if let Some(shape) = &details.data_shape {
+                    text.push_str(&format!(":{shape}"));
+                }
+                text.push_str(&format!(
+                    ":{}",
+                    details.direction.as_deref().unwrap_or("IN")
+                ));
+                text
+            }
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]

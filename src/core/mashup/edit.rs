@@ -2660,7 +2660,11 @@ pub(crate) fn new_widget(widget: &Widget, number: u64, alone: bool) -> Value {
     let mut properties: Map<String, Value> = widget.defaults.clone();
     let dropped = if widget.type_id == "flexcontainer" {
         Some(&catalog.dropped.flexcontainer)
-    } else if widget.has_contract() && !widget.function && !widget.extension && !widget.legacy {
+    } else if widget.has_contract()
+        && (!widget.function || widget.type_id.starts_with("ptcs"))
+        && !widget.extension
+        && !widget.legacy
+    {
         Some(&catalog.dropped.ptcs)
     } else {
         None

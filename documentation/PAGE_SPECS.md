@@ -99,6 +99,33 @@ that loads with the page and also refreshes says `on: load, refresh: 5` (seconds
 widget takes `props` for what its own fields do not cover. A tab may carry `props` for its own
 container. A bound property can read a widget's selected rows: `{bind: orders.SelectedRows.Name}`.
 
+A parameter can also use the long form to keep its description. `direction` defaults to `IN`;
+an INFOTABLE parameter supplies `data_shape`. Derive preserves descriptions in this form, in
+both the entity's ParameterDefinitions and Composer's parameter cache:
+
+```yaml
+parameters:
+  sectionName: {type: STRING, direction: BOTH, description: Section title}
+  rows: {type: INFOTABLE, data_shape: Acme.Rows_DS, direction: OUT, description: Visible rows}
+```
+
+Service result fields can bind to mashup parameters, including BOTH parameters in a binding
+cycle. Result DataShapes resolve from the solution, cached platform fields, or the known
+platform `MenuEntry` shape. A server-provided shape declared under `entities.DataShapes` in
+`requirements.toml` can also be used; without its fields the build warns that field types cannot
+be checked offline. An INFOTABLE result with no DataShape supports whole-table bindings and
+carries field bindings with the same warning.
+
+Raw collection widgets declare extra properties through `MashupGlobalPropertyBinding`
+(`{name: baseType}`, as JSON or JSON text). Those properties bind both ways. A menu button in
+`ItemConfigurationMode: widgetProperties` declares `<menuId>_Clicked` events and
+`<menuId>_Visible` / `<menuId>_Disabled` properties from its static `Data.rows`. With bound Data,
+the build carries per-item wiring and warns that the ids cannot be checked offline.
+
+When adopting an as-built contained mashup, a static value left over from a removed child
+parameter produces an orphan-parameter warning and keeps the source bytes. New authored
+contained-mashup parameter settings still use the child's checked contract.
+
 The spec rule version is required and pinned to `v1`. Ordinary `mashup new` commands
 also default to v1; pass `--rules legacy` (MCP `rules: "legacy"`) to opt out. Existing
 mashups retain their `twacoPageRules` during add, set and recipe edits; no marker means legacy.
@@ -169,6 +196,9 @@ same column recipe as `mashup recipe columns --editable-column Notes` with
 `status_message` is a function widget placed beside the layout. `message` is literal text or
 `{bind: ...}` and maps to `Message`; `message_type` maps to `MessageType` and accepts `error`,
 `info` (the default) or `warning`. `show: <id>` invokes its `ShowMessage` service.
+
+Catalogue function widgets, including logout and confirmation dialogs, also sit beside the
+layout when a spec lists their raw `widget:` nodes in a slot. Derive preserves that placement.
 
 `rich_text` uses native `ptcsrte`: `content` maps to bindable `Data`, `read_only` to `ReadOnly`,
 `show_toolbar` to the inverse of `HideToolbar`, and `font_size` to `DefaultFontSize`. Font size

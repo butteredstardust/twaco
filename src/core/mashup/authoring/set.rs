@@ -77,6 +77,13 @@ pub(super) fn plan_set_loaded(
     let found = document
         .find_exact(&request.widget)
         .map_err(AuthoringError::Edit)?;
+    let mut configured = document.at(&found.path)["Properties"].clone();
+    for (name, value) in &request.properties {
+        configured[name] = match value {
+            Value::String(text) => serde_json::from_str(text).unwrap_or_else(|_| value.clone()),
+            _ => value.clone(),
+        };
+    }
     let mut properties = request.properties.clone();
     let mut notes = menubar_properties(&document, &found.type_id, &found.id, &mut properties)?;
     notes.extend(menubar_limit(
@@ -308,6 +315,21 @@ pub(super) fn plan_set_loaded(
             continue;
         }
         let widget = widget.expect("non-root has a catalogue widget");
+        if let Some(contract) = widgets::dynamic_property(
+            &found.type_id,
+            &configured,
+            name,
+            widgets::property_bound(document.value(), &found.id, "Data"),
+        ) {
+            let mut dynamic = widget.clone();
+            dynamic
+                .properties
+                .get_or_insert_default()
+                .insert(name.clone(), contract);
+            let value = property_value(&dynamic, name, supplied.clone())?;
+            change_property(&mut document, &found.path, name, value, &mut changed);
+            continue;
+        }
         if [
             "Id",
             "Type",

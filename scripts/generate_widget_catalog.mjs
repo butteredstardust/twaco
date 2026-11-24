@@ -167,6 +167,7 @@ for (const [type, extra] of Object.entries(overlay.widgets)) {
   const fromBuilder = extra.function === true || extra.builder === true;
   const contract = extra.contract ?? contracts[type] ?? (fromBuilder ? builderContract(type) : undefined);
   if (contract) {
+    if (contract.flags?.functionWidget === true) entry.function = true;
     const properties = {};
     for (const [name, definition] of Object.entries(contract.properties ?? {})) {
       if (definition && typeof definition === "object") properties[name] = property(definition);

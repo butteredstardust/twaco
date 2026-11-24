@@ -826,6 +826,16 @@ fn check_ui_end(
         return; // an extension or legacy widget: not judged
     };
     let wrapped = serde_json::json!({ "Properties": properties });
+    if let Some(contract) = widgets::dynamic_property(type_id, properties, property, false) {
+        if !(if source {
+            contract.source
+        } else {
+            contract.target
+        }) {
+            problems.push(direction(binding, id, property, source));
+        }
+        return;
+    }
     if widget.function {
         if let Some((can_source, can_target, _)) = function_property(&wrapped, type_id, property) {
             if !(if source { can_source } else { can_target }) {

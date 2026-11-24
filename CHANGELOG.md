@@ -6,6 +6,12 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Mashup adoption accepts service result fields bound to mashup parameters, legacy contained
+  mashup contracts, platform or declared server-provided result DataShapes, collection global
+  properties and menu-button item wiring. Missing result DataShapes and orphan contained
+  parameter values warn while keeping adoption bytes. Derive keeps parameter descriptions
+  through a new long form and places logout and confirmation functions beside the layout.
+
 - Adoption fidelity on a real solution: bindings written by an older Composer (lower-case property types, no
   `SourceDetails`) match what a build generates and keep their bytes; defaults the source does not state
   (`CustomClass`, `TooltipField`, empty function-widget inputs) and numbers stored as text are no difference;

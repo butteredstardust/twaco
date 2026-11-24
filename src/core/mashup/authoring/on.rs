@@ -184,11 +184,12 @@ pub(crate) fn plan_on(solution: &Solution, request: &OnRequest) -> Result<OnPlan
     let event = mashup::address::imply_ui(&document, &request.event);
     refuse_unknown_cell_menu_item(solution, &document, &event)?;
     // Only a binding this call added; older ones were reported when they were made.
-    let warnings = crate::core::bindings::selected_rows_hints(document.value())
+    let mut warnings: Vec<_> = crate::core::bindings::selected_rows_hints(document.value())
         .into_iter()
         .filter(|(index, _)| *index >= before)
         .map(|(_, message)| message)
         .collect();
+    warnings.extend(widgets::configuration_warnings(document.value()));
     let edit = finish_edit(loaded, document, "mashup on")?;
     Ok(OnPlan {
         edit,
@@ -383,7 +384,14 @@ pub(super) fn resolve_trigger(
             });
         }
         let catalog = event_contract(&found.id, &found.type_id)?;
-        if !catalog.has_event(event) {
+        if !catalog.has_event(event)
+            && !widgets::dynamic_event(
+                &found.type_id,
+                &document.at(&found.path)["Properties"],
+                event,
+                widgets::property_bound(document.value(), &found.id, "Data"),
+            )
+        {
             return Err(AuthoringError::Invalid(format!(
                 "widget `{}` has no event {}; its events are {}",
                 found.id,
@@ -532,6 +540,7 @@ fn resolve_data_call(
     }
     let (entity, service) = resolve_service(model, platform, &entity_service)?;
     Ok(End::Data {
+        warning: None,
         entity: entity.name.clone(),
         collection: entity.collection.clone(),
         service,

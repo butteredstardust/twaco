@@ -4844,6 +4844,9 @@ fn the_q3_page_container_floor_covers_the_sum_of_its_sections() {
 
 #[path = "dynamic_tests.rs"]
 mod dynamic;
+
+#[path = "adoption_contract_tests.rs"]
+mod adoption_contract;
 #[test]
 fn grid_columns_author_textarea_and_boolean_whitespace_with_type_validation() {
     let (dir, solution) = solution();

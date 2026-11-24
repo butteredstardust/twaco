@@ -60,6 +60,7 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
         }
     }
     let mut run = Run::new(&content);
+    run.notes.extend(widgets::configuration_warnings(&content));
     run.carry_styles = carry_styles;
     run.exact = exact;
     let parameters = run.parameters(&root["Properties"]);
@@ -372,8 +373,11 @@ fn inputs(widget: &Value) -> Vec<String> {
 
 /// Whether a spec can write this property of the widget: one the catalogue knows, or an input the
 /// widget declares.
-fn known_property(widget: &Value, property: &str) -> bool {
+fn known_property(widget: &Value, property: &str, data_bound: bool) -> bool {
     let type_id = kind(widget);
+    if widgets::dynamic_property(type_id, &widget["Properties"], property, data_bound).is_some() {
+        return true;
+    }
     if crate::core::mashup::authoring::function_property(widget, type_id, property).is_some() {
         return true;
     }
@@ -661,7 +665,23 @@ impl<'a> Run<'a> {
                         _ => {}
                     }
                 }
-                out.insert(name.into(), json!(text));
+                let description = definition["Description"].as_str().unwrap_or("");
+                let value = if description.is_empty() {
+                    json!(text)
+                } else {
+                    let mut details = json!({"type": base, "description": description});
+                    if self.exact {
+                        if let Some(direction) = definition["Aspects"]["bindingDirection"].as_str()
+                        {
+                            details["direction"] = json!(direction);
+                        }
+                        if let Some(shape) = definition["Aspects"]["dataShape"].as_str() {
+                            details["data_shape"] = json!(shape);
+                        }
+                    }
+                    details
+                };
+                out.insert(name.into(), value);
                 self.parameters.insert(name.into());
             }
         }
@@ -734,6 +754,11 @@ impl<'a> Run<'a> {
     /// the widget's remaining bound properties.
     fn props(&mut self, widget: &Value, skip: &[&str]) -> Map<String, Value> {
         let type_id = kind(widget);
+        let data_bound = widgets::property_bound(
+            self.content,
+            prop(widget, "Id").as_str().unwrap_or_default(),
+            "Data",
+        );
         let mut base = Map::new();
         if let Some(known) = widgets::catalog().by_type(type_id) {
             base.extend(known.defaults.clone());
@@ -770,11 +795,11 @@ impl<'a> Run<'a> {
             if base.get(key).is_some_and(|d| same(d, value)) {
                 continue;
             }
-            if key == "MashupParameters" {
+            if key == "MashupParameters" && !(self.exact && type_id == "mashupcontainer") {
                 // Managed by the contained mashup; `embed` writes it.
                 continue;
             }
-            if !known_property(widget, key) && !self.exact {
+            if !known_property(widget, key, data_bound) && !self.exact {
                 self.unknown.insert((
                     prop(widget, "Id").as_str().unwrap_or("").into(),
                     key.clone(),
@@ -816,7 +841,7 @@ impl<'a> Run<'a> {
             })
             .collect();
         for i in pending {
-            if !known_property(widget, &self.links[i].target.3) {
+            if !known_property(widget, &self.links[i].target.3, data_bound) {
                 continue;
             }
             if self

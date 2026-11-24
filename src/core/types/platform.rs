@@ -46,6 +46,9 @@ impl Remote for Client {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Platform {
+    /// Cached DataShape fields, keyed by shape and field name, for offline result bindings.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) data_shapes: BTreeMap<String, BTreeMap<String, PlatformValue>>,
     #[serde(default)]
     pub(crate) things: BTreeMap<String, PlatformMeta>,
     #[serde(default)]

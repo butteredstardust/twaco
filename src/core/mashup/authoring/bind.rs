@@ -127,7 +127,15 @@ pub(super) fn bind_in(
     }
     let (mut from_base, mut to_base) = (base(&from), base(&to));
     // A widget the catalogue does not know has no type of its own: it takes the other end's.
-    if document.verbatim() {
+    if document.verbatim()
+        || matches!(
+            &from,
+            End::Data {
+                warning: Some(_),
+                ..
+            }
+        )
+    {
         if from_base.is_empty() {
             from_base = to_base;
         } else if to_base.is_empty() {
@@ -169,6 +177,15 @@ pub(super) fn bind_in(
         warnings.push(format!(
             "{from_raw} is {from_base} but {to_raw} is {to_base}; the runtime coerces it"
         ));
+    }
+    for end in [&from, &to] {
+        if let End::Data {
+            warning: Some(warning),
+            ..
+        } = end
+        {
+            warnings.push(warning.clone());
+        }
     }
     for (end, section) in [(&from, &source_section), (&to, &target_section)] {
         if matches!(end, End::Data { .. }) && super::source::unbound_dynamic(document, section) {
@@ -240,6 +257,9 @@ pub(super) fn bind_in(
     insert(&mut binding, "TargetId", Value::String(target_id));
     insert(&mut binding, "TargetSection", Value::String(target_section));
     document.bindings_mut().push(Value::Object(binding));
+    warnings.extend(crate::core::widgets::configuration_warnings(
+        document.value(),
+    ));
     if let Some(note) = enable_grid_selection(document, &from) {
         warnings.push(note);
     }
@@ -544,6 +564,7 @@ pub(super) fn bind_entity_slot(
         &mut Vec::new(),
     )?;
     let to = End::Data {
+        warning: None,
         entity: entity.into(),
         collection: String::new(),
         service: String::new(),

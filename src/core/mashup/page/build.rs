@@ -638,7 +638,7 @@ fn plan_from(
             .map(|(path, bytes)| (path.clone(), Some(bytes.clone()))),
     );
     let mut created_cells = Vec::new();
-    let mut cell_notices = Vec::new();
+    let mut cell_notices = generated.warnings.clone();
     if let Some(tokens) = &spec.tokens {
         if spec
             .page

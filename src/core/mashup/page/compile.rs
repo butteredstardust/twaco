@@ -17,6 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Artifacts {
+    pub(crate) warnings: Vec<String>,
     pub(crate) entity: Vec<u8>,
     pub(crate) content: String,
     pub(crate) css: String,
@@ -127,21 +128,37 @@ fn compile_nested(
         .as_ref()
         .map(|t| (t.value.clone(), base.to_path_buf()));
     for (name, base_type) in &page.parameters {
+        if matches!(&base_type.value, schema::Parameter::Long(details) if details.base_type == "INFOTABLE" && details.data_shape.is_none())
+        {
+            return Err(Error::at(
+                base_type.referenced,
+                format!("INFOTABLE parameter {name} needs data_shape"),
+            ));
+        }
+        let declaration = base_type.value.declaration();
         // `TYPE`, `TYPE:DIRECTION`, `INFOTABLE:DataShape` or `INFOTABLE:DataShape:DIRECTION`;
         // a parameter with no direction is an input.
-        let segments = base_type.value.split(':').count();
+        let segments = declaration.split(':').count();
         let text = if segments
-            > if base_type.value.starts_with("INFOTABLE:") {
+            > if declaration.starts_with("INFOTABLE:") {
                 2
             } else {
                 1
             } {
-            format!("{name}:{}", base_type.value)
+            format!("{name}:{declaration}")
         } else {
-            format!("{name}:{}:IN", base_type.value)
+            format!("{name}:{declaration}:IN")
         };
         session
-            .add_parameter(&text)
+            .add_parameter_described(
+                &text,
+                match &base_type.value {
+                    schema::Parameter::Long(details) => {
+                        details.description.as_deref().unwrap_or("")
+                    }
+                    schema::Parameter::Short(_) => "",
+                },
+            )
             .map_err(|e| Error::at(base_type.referenced, e))?;
     }
     if let Some(layout) = &page.layout {
@@ -299,6 +316,54 @@ fn compile_nested(
         &mut allocator,
         &mut ids,
     )?;
+    // Static initial rows can coexist with a bound Data property. Install that binding before
+    // checking the controls and events it creates, then restore its normal declaration order.
+    let mut menu_data = BTreeMap::new();
+    for (index, binding) in page.bindings.iter().enumerate() {
+        let binding = &binding.value;
+        let target = binding
+            .to
+            .value
+            .strip_prefix("ui:")
+            .unwrap_or(&binding.to.value);
+        let Some(node) = target.strip_suffix(".Data") else {
+            continue;
+        };
+        let Some(id) = ids.get(node) else {
+            continue;
+        };
+        let found = session
+            .document
+            .find_exact(id)
+            .map_err(|e| Error::at(binding.to.referenced, e))?;
+        if found.type_id != "ptcsmenubutton"
+            || session.document.at(&found.path)["Properties"]["ItemConfigurationMode"]
+                != "widgetProperties"
+        {
+            continue;
+        }
+        let before = session.document.bindings_mut().len();
+        let from = address(page, &ids, &binding.from.value, binding.from.referenced)?;
+        session
+            .bind(
+                solution,
+                &model,
+                platform.as_ref(),
+                &from,
+                &format!("ui:{id}.Data"),
+            )
+            .map_err(|e| Error::at(binding.to.referenced, e))?;
+        let made = session.document.bindings_mut();
+        menu_data.insert(
+            index,
+            (made.len() > before).then(|| {
+                made.last().expect("new binding")["Id"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string()
+            }),
+        );
+    }
     wire_nodes(
         solution,
         project,
@@ -409,7 +474,17 @@ fn compile_nested(
             .on(&model, platform.as_ref(), &from, &to)
             .map_err(|e| Error::at(on.referenced, e))?;
     }
-    for binding in &page.bindings {
+    for (index, binding) in page.bindings.iter().enumerate() {
+        if let Some(made) = menu_data.get(&index) {
+            if let Some(id) = made {
+                let bindings = session.document.bindings_mut();
+                if let Some(at) = bindings.iter().position(|binding| binding["Id"] == *id) {
+                    let binding = bindings.remove(at);
+                    bindings.push(binding);
+                }
+            }
+            continue;
+        }
         let binding = &binding.value;
         let from = address(page, &ids, &binding.from.value, binding.from.referenced)?;
         let to = address(page, &ids, &binding.to.value, binding.to.referenced)?;
@@ -450,7 +525,15 @@ fn compile_nested(
     session
         .sync()
         .map_err(|e| Error::at(spec.page.referenced, e))?;
+    session
+        .warnings
+        .extend(crate::core::widgets::configuration_warnings(
+            session.document.value(),
+        ));
+    session.warnings.sort();
+    session.warnings.dedup();
     Ok(Artifacts {
+        warnings: session.warnings,
         entity: session.entity,
         content: session.document.to_content(),
         css: session.css,
@@ -740,6 +823,52 @@ fn add(
         })
         .map(|(k, v)| (k.clone(), option_text(node, k, &v.value)))
         .collect();
+    let menu_data_bound = node.widget()? == "ptcsmenubutton"
+        && (body
+            .props
+            .get("Data")
+            .is_some_and(|value| binding(&value.value).is_some())
+            || page.bindings.iter().any(|binding| {
+                binding
+                    .value
+                    .to
+                    .value
+                    .strip_prefix("ui:")
+                    .unwrap_or(&binding.value.to.value)
+                    == format!("{}.Data", body.id.value)
+            }));
+    let configuration = Value::Object(
+        body.props
+            .iter()
+            .map(|(key, value)| (key.clone(), value.value.clone()))
+            .collect(),
+    );
+    let mut dynamic_values = Vec::new();
+    if menu_data_bound {
+        let widget = crate::core::widgets::catalog()
+            .by_type("ptcsmenubutton")
+            .expect("menu button");
+        for (name, value) in &body.props {
+            if binding(&value.value).is_none() {
+                if let Some(contract) = crate::core::widgets::dynamic_property(
+                    "ptcsmenubutton",
+                    &configuration,
+                    name,
+                    true,
+                ) {
+                    let mut dynamic = widget.clone();
+                    dynamic
+                        .properties
+                        .get_or_insert_default()
+                        .insert(name.clone(), contract);
+                    let checked = authoring::property_value(&dynamic, name, value.value.clone())
+                        .map_err(|e| Error::at(value.referenced, e))?;
+                    dynamic_values.push((name.clone(), checked));
+                }
+            }
+        }
+        props.retain(|(name, _)| !dynamic_values.iter().any(|(dynamic, _)| dynamic == name));
+    }
     if page.layout.is_some() && body.native.is_none() {
         // An as-built page carries properties the catalogue does not list; they are set after
         // placement, as the page has them.
@@ -903,19 +1032,28 @@ fn add(
             )
             .map_err(|e| Error::at(key_location(body, &e.to_string(), loc), e))?
     };
-    // `set` refuses a name; an as-built page states the one the source has.
+    // The configuration must precede binding checks: collections and menu buttons create
+    // their dynamic properties from it. As-built properties are also restored after layout.
     if page.layout.is_some() {
-        if let Some(name) = body.props.get("DisplayName").map(|v| &v.value) {
-            if name.is_string() {
-                let path = session
-                    .document
-                    .find_exact(&placed)
-                    .map_err(|e| Error::at(loc, e))?
-                    .path;
-                session
-                    .document
-                    .set_property(&path, "DisplayName", name.clone());
+        let path = session
+            .document
+            .find_exact(&placed)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        for (key, value) in &body.props {
+            if binding(&value.value).is_none() {
+                super::elements::set_or_remove(&mut session.document, &path, key, &value.value);
             }
+        }
+    }
+    if !dynamic_values.is_empty() {
+        let path = session
+            .document
+            .find_exact(&placed)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        for (key, value) in dynamic_values {
+            session.document.set_property(&path, &key, value);
         }
     }
     if let Some(op) = op {

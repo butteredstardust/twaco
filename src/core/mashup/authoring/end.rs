@@ -32,6 +32,7 @@ pub(super) enum End {
         member: Option<String>,
         base: String,
         property_type: String,
+        warning: Option<String>,
     },
 }
 
@@ -47,7 +48,13 @@ pub(super) fn resolve_end(
     match address {
         Address::Ui { widget, property } => {
             let found = document.find_exact(&widget).map_err(AuthoringError::Edit)?;
-            if found.type_id == "mashupcontainer" {
+            if found.type_id == "mashupcontainer"
+                && (property == "Name"
+                    || widgets::catalog()
+                        .by_type(&found.type_id)
+                        .and_then(|widget| widget.property(&property))
+                        .is_none())
+            {
                 return resolve_container_end(
                     document, solution, found, property, source, refreshed,
                 );
@@ -71,6 +78,29 @@ pub(super) fn resolve_end(
                 });
             }
             let catalog = widgets::catalog().by_type(&found.type_id).filter(|w| w.has_contract()).ok_or_else(|| AuthoringError::Refused(format!("widget `{}` has type `{}`, whose contract is not in the embedded ThingWorx 10.2 catalogue; twaco will not create a binding for it", found.id, found.type_id)))?;
+            if let Some(contract) = widgets::dynamic_property(
+                &found.type_id,
+                &document.at(&found.path)["Properties"],
+                &property,
+                widgets::property_bound(document.value(), &found.id, "Data"),
+            ) {
+                if !(if source {
+                    contract.source
+                } else {
+                    contract.target
+                }) {
+                    return Err(AuthoringError::Refused(format!(
+                        "ui:{}.{property} is not a {} property",
+                        found.id,
+                        if source { "source" } else { "target" }
+                    )));
+                }
+                return Ok(End::Ui {
+                    id: found.id,
+                    property,
+                    base: contract.base_type.unwrap_or_default(),
+                });
+            }
             if catalog.function {
                 if let Some((can_source, can_target, base)) =
                     function_property(document.at(&found.path), &found.type_id, &property)
@@ -207,6 +237,7 @@ pub(super) fn resolve_end(
                     member: Some("EntityName".into()),
                     base: "THINGNAME".into(),
                     property_type: "Entity".into(),
+                    warning: None,
                 });
             }
             if !source && selected_rows {
@@ -225,6 +256,7 @@ pub(super) fn resolve_end(
                     .map(str::to_string)
             });
             if source {
+                let mut warning = None;
                 let (base, property_type) = match member.as_deref() {
                     None if found.result.base_type != "INFOTABLE" => {
                         let alias = alias
@@ -238,50 +270,26 @@ pub(super) fn resolve_end(
                     }
                     None => (found.result.base_type.clone(), "InfoTable".to_string()),
                     Some(name) => {
-                        // A result field may share a parameter's name; the field is the source.
-                        let shape = found.result.data_shape.as_deref().map(|shape_name| {
-                            (
-                                shape_name,
-                                model
-                                    .data_shapes
-                                    .iter()
-                                    .find(|shape| shape.name == shape_name),
-                            )
-                        });
-                        let field = shape
-                            .and_then(|(_, shape)| shape)
-                            .and_then(|shape| shape.fields.iter().find(|field| field.name == name));
-                        match (field, shape) {
-                            (Some(field), _) => (field.base_type.clone(), "Field".to_string()),
-                            // A scalar result arrives as the one field `result` of its rows.
-                            (None, None)
-                                if name == "result" && found.result.base_type != "INFOTABLE" =>
-                            {
-                                (found.result.base_type.clone(), "Field".to_string())
-                            }
-                            _ if found.parameters.iter().any(|p| p.name == name) => {
-                                return Err(AuthoringError::Invalid(format!(
-                                    "data:{entity_service}.{name} is a parameter, not a data source"
-                                )));
-                            }
-                            (None, None) => {
-                                return Err(AuthoringError::Refused(format!(
-                                    "{service} has no result DataShape"
-                                )));
-                            }
-                            (None, Some((shape_name, None))) => {
-                                return Err(AuthoringError::Refused(format!(
-                                    "result DataShape {shape_name} is not in the repository"
-                                )));
-                            }
-                            (None, Some((shape_name, Some(_)))) => {
-                                return Err(AuthoringError::Refused(format!(
-                                    "result DataShape {shape_name} has no field {name}"
-                                )));
-                            }
-                        }
+                        let (base, unchecked) = result_field(
+                            context,
+                            solution,
+                            &found,
+                            &service,
+                            &entity_service,
+                            name,
+                        )?;
+                        warning = unchecked;
+                        (base, "Field".into())
                     }
                 };
+                if found.result.base_type == "INFOTABLE"
+                    && found.result.data_shape.is_none()
+                    && warning.is_none()
+                {
+                    warning = Some(format!(
+                        "{service} has no result DataShape; whole INFOTABLE bindings are supported"
+                    ));
+                }
                 Ok(End::Data {
                     entity: entity.name.clone(),
                     collection: entity.collection.clone(),
@@ -292,6 +300,7 @@ pub(super) fn resolve_end(
                     member,
                     base,
                     property_type,
+                    warning,
                 })
             } else {
                 let name = member.ok_or_else(|| {
@@ -319,9 +328,112 @@ pub(super) fn resolve_end(
                     member: Some(name),
                     base: parameter.value.base_type.clone(),
                     property_type: "Parameter".into(),
+                    warning: None,
                 })
             }
         }
+    }
+}
+
+/// A known result field is checked against its local, cached or platform contract. Missing
+/// metadata is carried only for an unshaped INFOTABLE or a declared server-provided shape.
+fn result_field(
+    context: &AuthoringContext<'_>,
+    solution: Option<&Solution>,
+    found: &types::Service,
+    service: &str,
+    address: &str,
+    name: &str,
+) -> Result<(String, Option<String>), AuthoringError> {
+    let parameter_error = || {
+        AuthoringError::Invalid(format!(
+            "data:{address}.{name} is a parameter, not a data source"
+        ))
+    };
+    let Some(shape_name) = found.result.data_shape.as_deref() else {
+        if found.result.base_type == "INFOTABLE" {
+            return Ok((
+                String::new(),
+                Some(format!(
+                    "{service} has no result DataShape; field {name} cannot be type-checked"
+                )),
+            ));
+        }
+        if name == "result" {
+            return Ok((found.result.base_type.clone(), None));
+        }
+        if found
+            .parameters
+            .iter()
+            .any(|parameter| parameter.name == name)
+        {
+            return Err(parameter_error());
+        }
+        return Err(AuthoringError::Refused(format!(
+            "{service} has no result field {name}; use result for a scalar result"
+        )));
+    };
+    let missing =
+        || AuthoringError::Refused(format!("result DataShape {shape_name} has no field {name}"));
+    // A result field can share a service parameter's name. The result contract wins.
+    if let Some(shape) = context
+        .model
+        .data_shapes
+        .iter()
+        .find(|shape| shape.name == shape_name)
+    {
+        if let Some(field) = shape.fields.iter().find(|field| field.name == name) {
+            return Ok((field.base_type.clone(), None));
+        }
+        return Err(
+            if found
+                .parameters
+                .iter()
+                .any(|parameter| parameter.name == name)
+            {
+                parameter_error()
+            } else {
+                missing()
+            },
+        );
+    }
+    if let Some(fields) = context
+        .platform
+        .and_then(|platform| platform.data_shapes.get(shape_name))
+    {
+        return fields
+            .get(name)
+            .map(|field| (field.base_type.clone(), None))
+            .ok_or_else(missing);
+    }
+    if shape_name == "MenuEntry" {
+        return menu_entry_field(name)
+            .map(|base| (base.into(), None))
+            .ok_or_else(missing);
+    }
+    let declared = solution
+        .and_then(|solution| crate::core::requirements::load(solution).ok())
+        .is_some_and(|contract| {
+            contract
+                .entities
+                .get("DataShapes")
+                .is_some_and(|shapes| shapes.iter().any(|shape| shape == shape_name))
+        });
+    if declared {
+        return Ok((String::new(), Some(format!("result DataShape {shape_name} is declared server-provided; field {name} cannot be type-checked offline"))));
+    }
+    Err(AuthoringError::Refused(format!("result DataShape {shape_name} is not in the repository; add it or declare it in requirements.toml")))
+}
+
+/// The system menu shape ships with both supported Composer versions, even in an export that
+/// omits platform entities. A repository or cached definition takes precedence.
+fn menu_entry_field(name: &str) -> Option<&'static str> {
+    match name {
+        "menuId" | "parentMenuId" | "linkType" | "linkDestination" | "linkTarget" | "title"
+        | "description" => Some("STRING"),
+        "imageURL" => Some("IMAGELINK"),
+        "isDefault" | "isDisabled" | "isHidden" => Some("BOOLEAN"),
+        _ => None,
     }
 }
 
@@ -333,6 +445,50 @@ fn resolve_container_end(
     source: bool,
     refreshed: &mut Vec<String>,
 ) -> Result<End, AuthoringError> {
+    if property == "Name" {
+        if source {
+            return Err(AuthoringError::Refused(format!(
+                "ui:{}.Name is a target-only MASHUPNAME property",
+                found.id
+            )));
+        }
+        return Ok(End::Ui {
+            id: found.id,
+            property,
+            base: "MASHUPNAME".into(),
+        });
+    }
+    // Composer caches the child contract on the widget, including for an external child or
+    // a dynamically selected mashup. Prefer the repository definition whenever it is available.
+    let target = document.at(&found.path)["Properties"]["Name"]
+        .as_str()
+        .unwrap_or("");
+    let target_present = solution.is_some_and(|s| load_existing(s, target).is_ok());
+    if !target_present {
+        if let Some(entry) = document.at(&found.path)["Properties"]["MashupParameters"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|entry| entry["ParameterName"] == property)
+        {
+            let direction = entry["ParmDef"]["aspects"]["bindingDirection"]
+                .as_str()
+                .or_else(|| entry["Aspects"]["bindingDirection"].as_str())
+                .unwrap_or("BOTH");
+            if source && direction == "IN" || !source && direction == "OUT" {
+                return Err(AuthoringError::Refused(format!(
+                    "{property} is an {} of {target}",
+                    if source { "input" } else { "output" }
+                )));
+            }
+            let base = entry["BaseType"].as_str().unwrap_or("").to_string();
+            return Ok(End::Ui {
+                id: found.id,
+                property,
+                base,
+            });
+        }
+    }
     let child = document.at(&found.path)["Properties"]["Name"]
         .as_str()
         .filter(|name| !name.is_empty())
@@ -358,19 +514,6 @@ fn resolve_container_end(
     })?;
     let child_document = parse_loaded(&loaded)?;
     let definitions = contained_parameters(&loaded, &child_document)?;
-    if property == "Name" {
-        if source {
-            return Err(AuthoringError::Refused(format!(
-                "ui:{}.Name is a target-only MASHUPNAME property",
-                found.id
-            )));
-        }
-        return Ok(End::Ui {
-            id: found.id,
-            property,
-            base: "MASHUPNAME".into(),
-        });
-    }
     let definition = definitions.iter().find(|definition| definition.name == property && definition.visible)
         .ok_or_else(|| AuthoringError::Unknown(format!(
             "contained mashup `{}` has no bindable parameter {property}; bindable parameters are {}",
@@ -629,7 +772,10 @@ pub(super) fn allowed(from: &End, to: &End) -> bool {
             End::Ui { .. },
             End::Ui { .. } | End::Mashup { .. } | End::Data { .. }
         ) | (End::Mashup { .. }, End::Ui { .. } | End::Data { .. })
-            | (End::Data { .. }, End::Ui { .. } | End::Data { .. })
+            | (
+                End::Data { .. },
+                End::Ui { .. } | End::Mashup { .. } | End::Data { .. }
+            )
     )
 }
 
