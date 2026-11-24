@@ -766,7 +766,7 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
         std::fs::create_dir_all(root.join("Things")).unwrap();
         std::fs::create_dir_all(root.join("DataShapes")).unwrap();
         std::fs::write(root.join("Things/Acme.Manager.xml"), r#"<Entities><Things><Thing name="Acme.Manager" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetSteps"><ResultType baseType="INFOTABLE" aspect.dataShape="Acme.Steps_DS"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#).unwrap();
-        std::fs::write(root.join("DataShapes/Acme.Steps_DS.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Steps_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="number" baseType="INTEGER"/><FieldDefinition name="caption" baseType="STRING"/><FieldDefinition name="state" baseType="STRING"/><FieldDefinition name="interactive" baseType="BOOLEAN"/><FieldDefinition name="mashup" baseType="MASHUPNAME"/><FieldDefinition name="start" baseType="DATETIME"/><FieldDefinition name="description" baseType="TEXT"/><FieldDefinition name="Notes" baseType="TEXT"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
+        std::fs::write(root.join("DataShapes/Acme.Steps_DS.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Steps_DS" projectName="Acme"><FieldDefinitions><FieldDefinition name="number" baseType="INTEGER"/><FieldDefinition name="caption" baseType="STRING"/><FieldDefinition name="state" baseType="STRING"/><FieldDefinition name="interactive" baseType="BOOLEAN"/><FieldDefinition name="mashup" baseType="MASHUPNAME"/><FieldDefinition name="start" baseType="DATETIME"/><FieldDefinition name="description" baseType="TEXT"/><FieldDefinition name="Notes" baseType="STRING"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
         invoke(
             root,
             mcp,
@@ -924,7 +924,7 @@ fn recipe_options_plan_and_apply_through_cli_and_mcp() {
                         .iter()
                         .find(|c| c["FieldName"] == "description")
                         .unwrap();
-                    assert_eq!(default_text["cellEditor"], "textarea");
+                    assert_eq!(default_text["cellEditor"], "textfield");
                     assert_eq!(default_text["preserveWhiteSpaces"], false);
                     assert!(columns[3..]
                         .iter()

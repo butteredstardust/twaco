@@ -34,10 +34,12 @@ before changing code; it names the principles and where everything lives.
 ## Commands
 
 ```sh
-cargo test                       # all tests; no server or network needed
+cargo nextest run --profile quick # everyday tests; skips the slow group
+cargo nextest run                # all non-doctests; no server or network needed
+cargo test --doc                 # doctests, which nextest does not run
 cargo clippy --all-targets       # no new warnings in files you touch
 cargo fmt --all --check          # formatting; `cargo fmt` fixes it
-TWACO_CORPUS=<repo>[:<repo>] cargo test --test corpus   # after touching scan, splice or sidecars
+TWACO_CORPUS=<repo>[:<repo>] cargo nextest run --test corpus   # after touching scan, splice or sidecars
 ```
 
 On Windows, build with the MSVC toolchain (`rustup default stable-msvc`).

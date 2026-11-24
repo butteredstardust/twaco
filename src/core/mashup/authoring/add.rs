@@ -443,6 +443,12 @@ pub(super) fn plan_add_loaded(
     let notes =
         super::set::menubar_properties(&document, &widget.type_id, &placed.id, &mut properties)?;
 
+    let mut configured = document.at(&placed_path)["Properties"].clone();
+    for (name, text) in &request.properties {
+        configured[name] =
+            serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.clone()));
+    }
+
     for (name, text) in &request.properties {
         if [
             "Id",
@@ -495,6 +501,18 @@ pub(super) fn plan_add_loaded(
                 property_value(widget, name, Value::String(text.to_string()))?
             }
             None => {
+                if let Some(contract) =
+                    widgets::dynamic_property(&widget.type_id, &configured, name, false)
+                {
+                    let mut dynamic = widget.clone();
+                    dynamic
+                        .properties
+                        .get_or_insert_default()
+                        .insert(name.clone(), contract);
+                    let value = property_value(&dynamic, name, Value::String(text.clone()))?;
+                    document.set_property(&placed_path, name, value);
+                    continue;
+                }
                 return Err(AuthoringError::Invalid(
                     widget.no_property(&widget.type_id, name),
                 ));
@@ -864,7 +882,7 @@ fn checked_property_value(
         .is_some_and(|value| value.is_object() || value.is_array() || value.is_null())
         || matches!(
             base,
-            Some("OBJECT" | "JSON" | "STATEFORMATTING" | "RENDERERWITHSTATE")
+            Some("OBJECT" | "JSON" | "INFOTABLE" | "STATEFORMATTING" | "RENDERERWITHSTATE")
         )
         || state_parameters
         || (!widget.extension && name == "ColumnFormat" && widget.type_id.contains("grid"));

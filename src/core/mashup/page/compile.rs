@@ -17,6 +17,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Artifacts {
+    pub(crate) warnings: Vec<String>,
     pub(crate) entity: Vec<u8>,
     pub(crate) content: String,
     pub(crate) css: String,
@@ -127,21 +128,37 @@ fn compile_nested(
         .as_ref()
         .map(|t| (t.value.clone(), base.to_path_buf()));
     for (name, base_type) in &page.parameters {
+        if matches!(&base_type.value, schema::Parameter::Long(details) if details.base_type == "INFOTABLE" && details.data_shape.is_none())
+        {
+            return Err(Error::at(
+                base_type.referenced,
+                format!("INFOTABLE parameter {name} needs data_shape"),
+            ));
+        }
+        let declaration = base_type.value.declaration();
         // `TYPE`, `TYPE:DIRECTION`, `INFOTABLE:DataShape` or `INFOTABLE:DataShape:DIRECTION`;
         // a parameter with no direction is an input.
-        let segments = base_type.value.split(':').count();
+        let segments = declaration.split(':').count();
         let text = if segments
-            > if base_type.value.starts_with("INFOTABLE:") {
+            > if declaration.starts_with("INFOTABLE:") {
                 2
             } else {
                 1
             } {
-            format!("{name}:{}", base_type.value)
+            format!("{name}:{declaration}")
         } else {
-            format!("{name}:{}:IN", base_type.value)
+            format!("{name}:{declaration}:IN")
         };
         session
-            .add_parameter(&text)
+            .add_parameter_described(
+                &text,
+                match &base_type.value {
+                    schema::Parameter::Long(details) => {
+                        details.description.as_deref().unwrap_or("")
+                    }
+                    schema::Parameter::Short(_) => "",
+                },
+            )
             .map_err(|e| Error::at(base_type.referenced, e))?;
     }
     if let Some(layout) = &page.layout {
@@ -150,6 +167,7 @@ fn compile_nested(
         }
         // No marker: the document is laid out by the classic table, as the commands do.
         session.document.root_mut().remove("twacoPageRules");
+        session.document.set_verbatim(true);
     }
     let mut allocator = Ids::new(session.document.widgets().into_iter().map(|w| w.id));
     let mut ids = BTreeMap::new();
@@ -217,7 +235,7 @@ fn compile_nested(
     }
     let (model, _) = types::load_model(solution);
     let platform = types::cached_platform(solution);
-    for (alias, source) in &page.data {
+    for (alias, source) in entity_first(page) {
         let source = &source.value;
         let Some(service_spec) = &source.service else {
             continue;
@@ -253,6 +271,21 @@ fn compile_nested(
             .filter(|(_, v)| binding(&v.value).is_none())
             .map(|(k, v)| format!("{k}={}", scalar(&v.value)))
             .collect();
+        // A dynamic source's entity is bound with the call when it comes from a parameter or a
+        // widget; one that comes from another call is bound once every call exists.
+        let entity_from = match &source.entity {
+            Some(entity) => {
+                let from = binding(&entity.value).ok_or_else(|| {
+                    Error::at(
+                        entity.referenced,
+                        "entity must be {bind: param.Name} or {bind: node.Property}",
+                    )
+                })?;
+                Some(address(page, &ids, from, entity.referenced)?)
+                    .filter(|a| a.starts_with("mashup:") || a.starts_with("ui:"))
+            }
+            None => None,
+        };
         session
             .source(
                 solution,
@@ -260,10 +293,10 @@ fn compile_nested(
                     mashup: page.name.value.clone(),
                     entity,
                     service,
-                    dynamic: false,
+                    dynamic: source.entity.is_some(),
                     on_load: source.on.as_ref().is_some_and(|on| on.value == "load"),
                     alias: Some(alias.clone()),
-                    entity_from: None,
+                    entity_from,
                     refresh,
                     cache: false,
                     cache_keys: vec![],
@@ -283,6 +316,54 @@ fn compile_nested(
         &mut allocator,
         &mut ids,
     )?;
+    // Static initial rows can coexist with a bound Data property. Install that binding before
+    // checking the controls and events it creates, then restore its normal declaration order.
+    let mut menu_data = BTreeMap::new();
+    for (index, binding) in page.bindings.iter().enumerate() {
+        let binding = &binding.value;
+        let target = binding
+            .to
+            .value
+            .strip_prefix("ui:")
+            .unwrap_or(&binding.to.value);
+        let Some(node) = target.strip_suffix(".Data") else {
+            continue;
+        };
+        let Some(id) = ids.get(node) else {
+            continue;
+        };
+        let found = session
+            .document
+            .find_exact(id)
+            .map_err(|e| Error::at(binding.to.referenced, e))?;
+        if found.type_id != "ptcsmenubutton"
+            || session.document.at(&found.path)["Properties"]["ItemConfigurationMode"]
+                != "widgetProperties"
+        {
+            continue;
+        }
+        let before = session.document.bindings_mut().len();
+        let from = address(page, &ids, &binding.from.value, binding.from.referenced)?;
+        session
+            .bind(
+                solution,
+                &model,
+                platform.as_ref(),
+                &from,
+                &format!("ui:{id}.Data"),
+            )
+            .map_err(|e| Error::at(binding.to.referenced, e))?;
+        let made = session.document.bindings_mut();
+        menu_data.insert(
+            index,
+            (made.len() > before).then(|| {
+                made.last().expect("new binding")["Id"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string()
+            }),
+        );
+    }
     wire_nodes(
         solution,
         project,
@@ -298,6 +379,28 @@ fn compile_nested(
         let source = &source.value;
         if source.expression.is_some() {
             continue;
+        }
+        if let (Some(entity), Some(service)) = (&source.entity, &source.service) {
+            let from = address(
+                page,
+                &ids,
+                binding(&entity.value).unwrap_or_default(),
+                entity.referenced,
+            )?;
+            if !(from.starts_with("mashup:") || from.starts_with("ui:")) {
+                let (shape, _) =
+                    authoring::session::source_target(&model, platform.as_ref(), &service.value)
+                        .map_err(|e| Error::at(service.referenced, e))?;
+                session
+                    .bind(
+                        solution,
+                        &model,
+                        platform.as_ref(),
+                        &from,
+                        &format!("data:{shape}[EntityName][as {alias}]"),
+                    )
+                    .map_err(|e| Error::at(entity.referenced, e))?;
+            }
         }
         for (param, value) in &source.params {
             if let Some(from) = binding(&value.value) {
@@ -371,7 +474,17 @@ fn compile_nested(
             .on(&model, platform.as_ref(), &from, &to)
             .map_err(|e| Error::at(on.referenced, e))?;
     }
-    for binding in &page.bindings {
+    for (index, binding) in page.bindings.iter().enumerate() {
+        if let Some(made) = menu_data.get(&index) {
+            if let Some(id) = made {
+                let bindings = session.document.bindings_mut();
+                if let Some(at) = bindings.iter().position(|binding| binding["Id"] == *id) {
+                    let binding = bindings.remove(at);
+                    bindings.push(binding);
+                }
+            }
+            continue;
+        }
         let binding = &binding.value;
         let from = address(page, &ids, &binding.from.value, binding.from.referenced)?;
         let to = address(page, &ids, &binding.to.value, binding.to.referenced)?;
@@ -401,10 +514,26 @@ fn compile_nested(
         pins,
         spec.page.referenced,
     )?;
+    for nodes in page.slots.values() {
+        for node in &nodes.value {
+            apply_stored_styles(&mut session, &ids, node)?;
+        }
+    }
+    if let Some(css) = &page.css {
+        session.css = read_css(base, css)?;
+    }
     session
         .sync()
         .map_err(|e| Error::at(spec.page.referenced, e))?;
+    session
+        .warnings
+        .extend(crate::core::widgets::configuration_warnings(
+            session.document.value(),
+        ));
+    session.warnings.sort();
+    session.warnings.dedup();
     Ok(Artifacts {
+        warnings: session.warnings,
         entity: session.entity,
         content: session.document.to_content(),
         css: session.css,
@@ -467,6 +596,11 @@ fn apply_root(
         .find("center")
         .map_err(|e| Error::at(root.referenced, e))?
         .path;
+    if let Some(id) = &root.value.id {
+        session
+            .document
+            .set_property(&path, "Id", json!(id.value.clone()));
+    }
     for (key, value) in &root.value.props {
         if matches!(key.as_str(), "Id" | "Type" | "Widgets") {
             return Err(Error::at(
@@ -553,6 +687,18 @@ fn apply_pins(
 
 /// A property's text for the add command. A number the platform writes for a pixel option (a font
 /// size of 14) is the option "14px", which the property then keeps as the spec spelled it.
+/// The type of a raw `widget:` node on an as-built page that the widget catalogue does not know.
+fn raw_unknown<'a>(page: &Page, node: &'a Node) -> Option<&'a str> {
+    if page.layout.is_none() || !matches!(node, Node::Widget(_)) {
+        return None;
+    }
+    let widget = node.widget().ok()?;
+    crate::core::widgets::catalog()
+        .resolve(widget)
+        .is_err()
+        .then_some(widget)
+}
+
 fn option_text(node: &Node, key: &str, value: &Value) -> String {
     if let (Some(number), Ok(widget)) = (
         value.as_f64().filter(|n| n.fract() == 0.0),
@@ -600,6 +746,35 @@ fn key_location(body: &schema::Body, message: &str, default: Location) -> Locati
         .map_or(default, |(_, value)| value.referenced)
 }
 
+/// The page's data sources in spec order, except that a source naming its entity comes before the
+/// other calls of the same ThingShape: they share one dynamic section whose entity binding the
+/// first call creates, and a call added before it has no Thing to run on.
+fn entity_first(page: &schema::Page) -> Vec<(&String, &serde_saphyr::Spanned<schema::Source>)> {
+    let shape = |source: &schema::Source| {
+        source
+            .service
+            .as_ref()
+            .and_then(|s| s.value.rsplit_once('.').map(|(shape, _)| shape.to_string()))
+    };
+    let items: Vec<_> = page.data.iter().collect();
+    let key = |i: usize| -> (usize, u8, usize) {
+        let own = &items[i].1.value;
+        let Some(name) = shape(own) else {
+            return (i, 0, i);
+        };
+        let group = |j: usize| shape(&items[j].1.value).as_deref() == Some(name.as_str());
+        let carries = |j: usize| items[j].1.value.entity.is_some() && group(j);
+        if !(0..items.len()).any(carries) {
+            return (i, 0, i);
+        }
+        let first = (0..items.len()).find(|j| group(*j)).unwrap_or(i);
+        (first, u8::from(own.entity.is_none()), i)
+    };
+    let mut order: Vec<usize> = (0..items.len()).collect();
+    order.sort_by_key(|i| key(*i));
+    order.into_iter().map(|i| items[i]).collect()
+}
+
 fn is_function(node: &Node) -> Result<bool, Error> {
     if matches!(node, Node::Pagination(_)) {
         return Ok(true);
@@ -607,6 +782,23 @@ fn is_function(node: &Node) -> Result<bool, Error> {
     Ok(crate::core::widgets::catalog()
         .resolve(node.widget()?)
         .is_ok_and(|w| w.function))
+}
+
+/// Whether every catalogue widget that defines `name` types it as a number.
+pub(super) fn always_numeric(name: &str) -> bool {
+    let catalog = crate::core::widgets::catalog();
+    let mut seen = false;
+    for widget in &catalog.widgets {
+        let Some(contract) = widget.property(name) else {
+            continue;
+        };
+        match contract.base_type.as_deref() {
+            Some("NUMBER" | "INTEGER" | "LONG") => seen = true,
+            None => {}
+            Some(_) => return false,
+        }
+    }
+    seen
 }
 
 fn add(
@@ -631,10 +823,71 @@ fn add(
         })
         .map(|(k, v)| (k.clone(), option_text(node, k, &v.value)))
         .collect();
+    let menu_data_bound = node.widget()? == "ptcsmenubutton"
+        && (body
+            .props
+            .get("Data")
+            .is_some_and(|value| binding(&value.value).is_some())
+            || page.bindings.iter().any(|binding| {
+                binding
+                    .value
+                    .to
+                    .value
+                    .strip_prefix("ui:")
+                    .unwrap_or(&binding.value.to.value)
+                    == format!("{}.Data", body.id.value)
+            }));
+    let configuration = Value::Object(
+        body.props
+            .iter()
+            .map(|(key, value)| (key.clone(), value.value.clone()))
+            .collect(),
+    );
+    let mut dynamic_values = Vec::new();
+    if menu_data_bound {
+        let widget = crate::core::widgets::catalog()
+            .by_type("ptcsmenubutton")
+            .expect("menu button");
+        for (name, value) in &body.props {
+            if binding(&value.value).is_none() {
+                if let Some(contract) = crate::core::widgets::dynamic_property(
+                    "ptcsmenubutton",
+                    &configuration,
+                    name,
+                    true,
+                ) {
+                    let mut dynamic = widget.clone();
+                    dynamic
+                        .properties
+                        .get_or_insert_default()
+                        .insert(name.clone(), contract);
+                    let checked = authoring::property_value(&dynamic, name, value.value.clone())
+                        .map_err(|e| Error::at(value.referenced, e))?;
+                    dynamic_values.push((name.clone(), checked));
+                }
+            }
+        }
+        props.retain(|(name, _)| !dynamic_values.iter().any(|(dynamic, _)| dynamic == name));
+    }
     if page.layout.is_some() && body.native.is_none() {
         // An as-built page carries properties the catalogue does not list; they are set after
         // placement, as the page has them.
         if let Ok(widget) = crate::core::widgets::catalog().resolve(node.widget()?) {
+            // Carried verbatim, but a property that is numeric on every widget that defines it
+            // (Height, Width, Top...) still has to be a number.
+            for (key, value) in &body.props {
+                // Source mashups do store "" and numeric text; only words are refused.
+                let word = value
+                    .value
+                    .as_str()
+                    .is_some_and(|t| !t.trim().is_empty() && t.trim().parse::<f64>().is_err());
+                if word && always_numeric(key) {
+                    return Err(Error::at(
+                        value.referenced,
+                        format!("{key} must be a JSON number"),
+                    ));
+                }
+            }
             props.retain(|(k, _)| {
                 body.props
                     .get(k)
@@ -730,6 +983,32 @@ fn add(
                 .map_err(|e| Error::at(loc, e))?;
         }
         id
+    } else if let Some(widget) = raw_unknown(page, node) {
+        // A widget the catalogue does not know (a legacy gauge) on a page built as it was found:
+        // carried verbatim, with its stored properties.
+        let parent_path = session
+            .document
+            .find_exact(parent)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        let number = session.document.allocate();
+        let mut properties = serde_json::Map::new();
+        for (key, value) in &body.props {
+            if !value.value.is_null() && binding(&value.value).is_none() {
+                properties.insert(key.clone(), value.value.clone());
+            }
+        }
+        properties.insert("Id".into(), json!(format!("{widget}-{number}")));
+        properties.insert("Type".into(), json!(widget));
+        properties
+            .entry("DisplayName")
+            .or_insert_with(|| json!(format!("{widget}-{number}")));
+        let id = format!("{widget}-{number}");
+        session.document.push_child(
+            &parent_path,
+            json!({"Properties": properties, "Widgets": []}),
+        );
+        id
     } else {
         session
             .add(
@@ -753,6 +1032,30 @@ fn add(
             )
             .map_err(|e| Error::at(key_location(body, &e.to_string(), loc), e))?
     };
+    // The configuration must precede binding checks: collections and menu buttons create
+    // their dynamic properties from it. As-built properties are also restored after layout.
+    if page.layout.is_some() {
+        let path = session
+            .document
+            .find_exact(&placed)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        for (key, value) in &body.props {
+            if binding(&value.value).is_none() {
+                super::elements::set_or_remove(&mut session.document, &path, key, &value.value);
+            }
+        }
+    }
+    if !dynamic_values.is_empty() {
+        let path = session
+            .document
+            .find_exact(&placed)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        for (key, value) in dynamic_values {
+            session.document.set_property(&path, &key, value);
+        }
+    }
     if let Some(op) = op {
         let context = crate::core::mashup::layout::context::Node::op(
             op,
@@ -1216,6 +1519,76 @@ pub(super) fn descendants(node: &Node) -> impl Iterator<Item = &Node> {
         .chain(b.tabs.iter().flat_map(|t| t.content.iter().flatten()))
 }
 
+/// `page.css`: the file's text is the `custom.css` sidecar, which ends in one newline.
+fn read_css(base: &std::path::Path, css: &serde_saphyr::Spanned<String>) -> Result<String, Error> {
+    let relative = std::path::Path::new(&css.value);
+    if css.value.is_empty() || relative.is_absolute() {
+        return Err(Error::at(
+            css.referenced,
+            "page.css must be a file path relative to the spec",
+        ));
+    }
+    let path = base.join(relative);
+    let bytes = std::fs::read(&path).map_err(|e| {
+        Error::at(
+            css.referenced,
+            format!("page.css: cannot read {}: {e}", css.value),
+        )
+    })?;
+    let mut text = String::from_utf8(bytes).map_err(|_| {
+        Error::at(
+            css.referenced,
+            format!("page.css: {} is not UTF-8 text", css.value),
+        )
+    })?;
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    Ok(text)
+}
+
+/// A node's `styles:` replace the stored style parts of its widget, as written.
+fn apply_stored_styles(
+    session: &mut Session,
+    ids: &BTreeMap<String, String>,
+    node: &Node,
+) -> Result<(), Error> {
+    let body = node.body();
+    if let Some(styles) = &body.styles {
+        if !styles.value.is_object() {
+            return Err(Error::at(
+                styles.referenced,
+                "styles must be a map of part to state to property",
+            ));
+        }
+        let Some(id) = ids.get(&body.id.value) else {
+            return Err(Error::at(
+                styles.referenced,
+                "styles: this node builds no widget of its own",
+            ));
+        };
+        let data = session
+            .document
+            .root_properties_mut()
+            .entry("StyleProperties")
+            .or_insert_with(|| json!({}));
+        if !data.is_object() {
+            *data = json!({});
+        }
+        data.as_object_mut()
+            .expect("object")
+            .entry("data")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .ok_or_else(|| Error::at(styles.referenced, "StyleProperties.data is not a map"))?
+            .insert(id.clone(), json!({"parts": styles.value}));
+    }
+    for child in descendants(node) {
+        apply_stored_styles(session, ids, child)?;
+    }
+    Ok(())
+}
+
 fn styles(body: &schema::Body) -> Vec<String> {
     let mut styles: Vec<_> = body.style.iter().map(|s| s.value.clone()).collect();
     if let Some(surface) = body.surface {
@@ -1401,9 +1774,21 @@ fn stabilize(
         .filter(|w| !old.contains(&w.id))
         .collect::<Vec<_>>();
     let main = new.iter().find(|w| w.id == placed).expect("placed widget");
-    let id = allocator
-        .widget(&main.type_id, node, "widget")
-        .map_err(|e| Error::at(loc, e))?;
+    // A derived spec names nodes by their source widget ids (`ptcsbutton-13`, or a hand-made
+    // `wrapper-1`); keep such ids so id-based custom CSS and test automation still match. Ids
+    // only need to be unique, and the allocator reserves the number either way.
+    // Generated sub-nodes (`menu--item-1-1`, `cards--row-2`) are named by twaco, not by a
+    // source mashup, and always contain `--`; they keep allocated ids.
+    let explicit = !node.contains("--")
+        && node.rsplit_once('-').is_some_and(|(_, suffix)| {
+            !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+        });
+    let id = if explicit {
+        allocator.explicit(node, "widget")
+    } else {
+        allocator.widget(&main.type_id, node, "widget")
+    }
+    .map_err(|e| Error::at(loc, e))?;
     mapping.insert(placed.to_string(), id.clone());
     // Wrapper roles name the enclosed widget, so unrelated siblings cannot move their ids.
     for widget in new.iter().rev().filter(|w| w.id != placed) {
@@ -1867,6 +2252,18 @@ fn navigate_event(
         .filter(|(_, v)| binding(&v.value).is_none())
         .map(|(k, v)| (k.clone(), v.value.clone()))
         .collect::<Vec<_>>();
+    // The name is not one `set` may change; an as-built page keeps the source's.
+    let (names, properties): (Vec<_>, Vec<_>) = properties
+        .into_iter()
+        .partition(|(k, _)| k == "DisplayName");
+    if let Some((_, name)) = names.into_iter().next() {
+        let path = session
+            .document
+            .find_exact(&id)
+            .map_err(|e| Error::at(navigate.referenced, e))?
+            .path;
+        session.document.set_property(&path, "DisplayName", name);
+    }
     if !properties.is_empty() {
         session
             .set(
@@ -2221,6 +2618,19 @@ fn wire(
             .bind(solution, model, platform, &from, &format!("ui:{id}.Data"))
             .map_err(|e| Error::at(data.referenced, e))?;
         if !body.columns.is_empty() {
+            for column in &body.columns {
+                if column
+                    .value
+                    .editor
+                    .as_deref()
+                    .is_some_and(|editor| !matches!(editor, "textfield" | "textarea"))
+                {
+                    return Err(Error::at(
+                        column.referenced,
+                        "grid column editor must be textfield or textarea",
+                    ));
+                }
+            }
             let statuses: Vec<_> = body
                 .columns
                 .iter()
@@ -2258,9 +2668,28 @@ fn wire(
                                 })
                                 .collect(),
                             date_format: None,
-                            editable: vec![],
-                            column_editors: vec![],
-                            preserve_whitespace: vec![],
+                            editable: body
+                                .columns
+                                .iter()
+                                .filter(|c| c.value.editable)
+                                .map(|c| c.value.field.clone())
+                                .collect(),
+                            column_editors: body
+                                .columns
+                                .iter()
+                                .filter_map(|c| {
+                                    c.value
+                                        .editor
+                                        .as_ref()
+                                        .map(|editor| (c.value.field.clone(), editor.clone()))
+                                })
+                                .collect(),
+                            preserve_whitespace: body
+                                .columns
+                                .iter()
+                                .filter(|c| c.value.preserve_whitespace)
+                                .map(|c| c.value.field.clone())
+                                .collect(),
                             status,
                         },
                     )

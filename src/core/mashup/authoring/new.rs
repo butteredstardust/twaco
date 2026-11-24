@@ -18,6 +18,17 @@ use std::path::{Path, PathBuf};
 /// The theme a new mashup uses unless asked for another: 10.2's default.
 pub(crate) const DEFAULT_THEME: &str = "PTC Convergence Theme";
 
+/// Style themes that ThingWorx 10.2 supplies even though they have no entity in a solution
+/// export.  Keep this list in the authoring boundary: every caller which accepts a theme goes
+/// through `validate_theme`.
+pub(crate) const BUILTIN_THEMES: &[&str] = &[
+    "Base Theme",
+    "Composer Theme",
+    "Legacy Styles Theme",
+    DEFAULT_THEME,
+    "PTC Convergence Theme - Green Accent",
+];
+
 #[derive(Clone, Debug)]
 pub struct NewRequest {
     pub name: String,
@@ -481,7 +492,7 @@ fn page_notes(solution: &Solution, request: &NewRequest) -> Vec<String> {
 
 /// Refuse themes Composer cannot resolve without creating an entity.
 pub(crate) fn validate_theme(solution: &Solution, theme: &str) -> Result<String, AuthoringError> {
-    if theme == DEFAULT_THEME
+    if BUILTIN_THEMES.contains(&theme)
         || workspace::entities(solution)
             .iter()
             .any(|entity| entity.info.collection == "StyleThemes" && entity.info.name == theme)
@@ -568,6 +579,10 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
         .map(|text| parse_visibility(text))
         .collect::<Result<Vec<_>, _>>()?;
     let loaded = load_existing(solution, from)?;
+    let source_has_visibility = String::from_utf8_lossy(&loaded.entity_before)
+        .split_once("<VisibilityPermissions")
+        .and_then(|(_, after)| after.split_once("</VisibilityPermissions>"))
+        .is_some_and(|(block, _)| block.contains("<Principal"));
     let mut entity = copied_entity(
         &loaded.entity_before,
         &request.name,
@@ -681,9 +696,15 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
             .map_err(AuthoringError::Unreadable)?
             .len(),
     };
+    let mut notes = page_notes(solution, request);
+    if source_has_visibility && visibility.is_empty() {
+        notes.push(format!(
+            "{from} has visibility permissions; mashup new --from does not copy them, add each grant with --visibility"
+        ));
+    }
     Ok(NewPlan {
         name: request.name.clone(),
-        notes: page_notes(solution, request),
+        notes,
         from: Some(from.to_string()),
         copy_summary: Some(copy_summary),
         project: project.name.clone(),

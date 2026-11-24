@@ -16,6 +16,7 @@ pub(crate) enum CellSource {
 }
 
 pub(crate) struct Session {
+    pub(crate) warnings: Vec<String>,
     pub(crate) tokens: Option<mashup::tokens::Tokens>,
     /// A page spec's `tokens:` value and the folder it resolves from, for generated cell specs.
     pub(crate) token_source: Option<(String, std::path::PathBuf)>,
@@ -33,6 +34,7 @@ impl Session {
         css: String,
     ) -> Self {
         Self {
+            warnings: vec![],
             tokens: None,
             token_source: None,
             name: name.into(),
@@ -133,6 +135,7 @@ impl Session {
         .map_err(|e| AuthoringError::Invalid(e.to_string()))?
         .into_bytes();
         let mut session = Self {
+            warnings: vec![],
             tokens: None,
             token_source: None,
             document,
@@ -145,8 +148,18 @@ impl Session {
     }
 
     /// An input parameter, written as `mashup new --param` writes it.
+    #[cfg(test)]
     pub(crate) fn add_parameter(&mut self, text: &str) -> Result<(), AuthoringError> {
-        let definition = super::parse_new_parameter(text)?;
+        self.add_parameter_described(text, "")
+    }
+
+    pub(crate) fn add_parameter_described(
+        &mut self,
+        text: &str,
+        description: &str,
+    ) -> Result<(), AuthoringError> {
+        let mut definition = super::parse_new_parameter(text)?;
+        definition.description = description.into();
         super::set_content_parameter(&mut self.document, &definition, false);
         self.sync()?;
         self.entity = super::splice_parameter_definition(&self.entity, &definition, None, false)?;
@@ -220,9 +233,11 @@ impl Session {
     fn accept(&mut self, plan: super::EditPlan) -> Result<(), AuthoringError> {
         self.entity = plan.entity_after;
         let assets = mashup::extract(&self.entity).map_err(AuthoringError::Mashup)?;
+        let verbatim = self.document.verbatim();
         self.document = mashup::edit::parse(&assets.content).map_err(AuthoringError::Edit)?;
         self.document
             .set_uuid_generator(crate::core::mashup::page::ids::uuid);
+        self.document.set_verbatim(verbatim);
         self.css = assets.css;
         Ok(())
     }
@@ -282,6 +297,22 @@ impl Session {
         settings: Vec<(String, String)>,
     ) -> Result<String, AuthoringError> {
         self.sync()?;
+        let mut settings = settings;
+        let mut orphans = Vec::new();
+        if self.document.verbatim() {
+            let child = super::load_existing(solution, mashup)?;
+            let child_document = super::parse_loaded(&child)?;
+            let definitions = super::contained_parameters(&child, &child_document)?;
+            settings.retain(|(name, text)| {
+                if definitions.iter().any(|definition| definition.name == *name) {
+                    true
+                } else {
+                    self.warnings.push(format!("orphan contained-mashup parameter value {name}; not a parameter of {mashup}"));
+                    orphans.push((name.clone(), serde_json::from_str(text).unwrap_or_else(|_| serde_json::Value::String(text.clone()))));
+                    false
+                }
+            });
+        }
         let request = super::AddContainedRequest {
             mashup: self.name.clone(),
             child: mashup.into(),
@@ -291,6 +322,14 @@ impl Session {
         let plan = super::add::plan_add_contained_loaded(solution, &request, self.loaded())?;
         let id = plan.placed.id;
         self.accept(plan.edit)?;
+        let path = self
+            .document
+            .find_exact(&id)
+            .map_err(AuthoringError::Edit)?
+            .path;
+        for (name, value) in orphans {
+            self.document.set_property(&path, &name, value);
+        }
         Ok(id)
     }
 
@@ -352,8 +391,11 @@ impl Session {
             model,
             platform,
         };
-        super::bind_in(&mut self.document, Some(solution), &context, from, to)?;
-        Ok(())
+        match super::bind_in(&mut self.document, Some(solution), &context, from, to) {
+            // A source can state a binding twice; as found, it is one.
+            Err(AuthoringError::Exists(_)) if self.document.verbatim() => Ok(()),
+            result => result.map(|binding| self.warnings.extend(binding.warnings)),
+        }
     }
 
     pub(crate) fn on(

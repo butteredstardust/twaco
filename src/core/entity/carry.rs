@@ -99,6 +99,10 @@ impl Kind {
 pub trait Remote {
     fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError>;
     fn get(&self, collection: &str, name: &str, kind: Kind) -> Result<Value, ServerError>;
+    /// The XML view used by entity status, when this remote supports reading it.
+    fn permission_xml(&self, _: &str, _: &str) -> Result<Option<Vec<u8>>, ServerError> {
+        Ok(None)
+    }
     fn set(
         &self,
         collection: &str,
@@ -111,6 +115,11 @@ pub trait Remote {
 }
 
 impl Remote for Client {
+    fn permission_xml(&self, collection: &str, name: &str) -> Result<Option<Vec<u8>>, ServerError> {
+        self.fetch_entity(&EntityKey::address(collection, name)?)
+            .map(Some)
+    }
+
     fn exists(&self, collection: &str, name: &str) -> Result<bool, ServerError> {
         self.entity_exists(&EntityKey::address(collection, name)?)
     }

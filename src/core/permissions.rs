@@ -144,6 +144,66 @@ pub(crate) fn from_xml(src: &[u8]) -> Result<Sets, PermissionsError> {
     Ok(sets)
 }
 
+/// Runtime grants on an inherited service of a Thing are discarded by Importer.
+pub(crate) fn inherited_service_permissions(src: &[u8]) -> Vec<(String, String)> {
+    let Ok(entity) = normalise::entity_of(src) else {
+        return Vec::new();
+    };
+    if entity.name != b"Thing" {
+        return Vec::new();
+    }
+    fn local_services<'a>(e: &'a Element, out: &mut Vec<&'a str>) {
+        if e.name == b"ServiceDefinition" {
+            if let Some(name) = attribute(e, "name") {
+                out.push(name);
+            }
+        }
+        for child in elements(e) {
+            local_services(child, out);
+        }
+    }
+    let mut local = Vec::new();
+    local_services(&entity, &mut local);
+    let Ok(sets) = from_xml(src) else {
+        return Vec::new();
+    };
+    let Some(grants) = sets.get(&KindKey::of(Kind::RunTime)) else {
+        return Vec::new();
+    };
+    let mut resources: Vec<_> = grants
+        .keys()
+        .filter(|g| {
+            g.action == "ServiceInvoke"
+                && g.resource != "*"
+                && !local.contains(&g.resource.as_str())
+        })
+        .map(|g| g.resource.clone())
+        .collect();
+    resources.sort();
+    resources.dedup();
+    resources.into_iter().map(|name| {
+        let message = format!("per-resource permission on inherited service {name} is not stored by the server; grant it on the template or use `*`");
+        (name, message)
+    }).collect()
+}
+
+pub(crate) fn dropped_inherited_service_permissions(sent: &[u8], back: &[u8]) -> Vec<String> {
+    let Ok(sets) = from_xml(back) else {
+        return Vec::new();
+    };
+    let grants = sets.get(&KindKey::of(Kind::RunTime));
+    inherited_service_permissions(sent)
+        .into_iter()
+        .filter(|(name, _)| {
+            grants.is_none_or(|g| {
+                !g.keys()
+                    .any(|grant| grant.resource == *name && grant.action == "ServiceInvoke")
+            })
+        })
+        .map(|(_, message)| message)
+        .collect()
+}
+
 fn elements(element: &Element) -> impl Iterator<Item = &Element> {
     element.children.iter().filter_map(|child| match child {
         Node::Element(element) => Some(element),
@@ -639,6 +699,49 @@ pub(crate) fn run_expected(
     }
 }
 
+// The membership services exist on every Group. Their live grants can be omitted by
+// the XML view status hashes. Establish that from this server, not from a principal name.
+fn explain_group_service_grants(
+    remote: &(dyn Remote + Sync),
+    collection: &str,
+    name: &str,
+    found: &[Difference],
+    notes: &mut Vec<String>,
+) {
+    let candidates: Vec<_> = found
+        .iter()
+        .filter(|difference| {
+            difference.change == Change::ServerOnly
+                && difference.grant.action == "ServiceInvoke"
+                && ["AddMember", "DeleteMember", "GetGroupMembers"]
+                    .contains(&difference.grant.resource.as_str())
+        })
+        .collect();
+    if candidates.is_empty() {
+        return;
+    }
+    match remote.permission_xml(collection, name) {
+        Ok(Some(xml)) => match from_xml(&xml) {
+            Ok(sets) => {
+                let xml_grants = sets.get(&KindKey::of(Kind::RunTime));
+                let omitted: std::collections::BTreeSet<_> = candidates.iter()
+                    .filter(|difference| xml_grants.is_none_or(|grants| !grants.contains_key(&difference.grant)))
+                    .map(|difference| difference.grant.resource.as_str()).collect();
+                if !omitted.is_empty() {
+                    notes.push(format!(
+                        "{collection}/{name}: the server supplies live run-time grants for built-in membership services ({}) that its XML view omits. entity status compares that XML and can report same; permissions diff also reads GetRunTimePermissionsAsJSON. These grants remain visible here; XML omission alone does not prove they are safe to remove",
+                        omitted.into_iter().collect::<Vec<_>>().join(", ")
+                    ));
+                }
+            }
+            Err(_) => notes.push(format!("{collection}/{name}: could not compare live membership service grants with the server XML permission blocks")),
+        },
+        Ok(None) | Err(_) => notes.push(format!(
+            "{collection}/{name}: built-in membership service grants come from GetRunTimePermissionsAsJSON; entity status compares XML. The XML view could not be checked for these grants"
+        )),
+    }
+}
+
 fn one(
     remote: &(dyn Remote + Sync),
     entity: &EntityFile,
@@ -687,11 +790,24 @@ fn one(
     let mut removed: BTreeMap<KindKey, std::collections::BTreeSet<String>> = BTreeMap::new();
     for key in expected.keys() {
         let kind = key.kind();
-        let mut server = match remote
-            .get(&collection, &name, kind)
-            .map_err(|e| e.to_string())
-            .and_then(|value| from_json(kind, &value).map_err(|e| e.to_string()))
-        {
+        let value = match remote.get(&collection, &name, kind) {
+            Ok(value) => value,
+            Err(super::server::ServerError::Http {
+                status: 503, body, ..
+            }) if !apply && collection == "Things" && body.contains("is not enabled") => {
+                // A disabled Thing cannot execute the permission services. Do not imply a
+                // complete comparison or turn a read failure into permission-write advice.
+                report.status = Status::NotChecked;
+                report.differences.clear();
+                report.sets.clear();
+                report.notes.push(format!(
+                    "Things/{name}: skipped permission comparison: Thing is not enabled (HTTP 503); enable it and run permissions diff again"
+                ));
+                return report;
+            }
+            Err(e) => return failed(report, format!("reading {} permissions: {e}", kind.label())),
+        };
+        let mut server = match from_json(kind, &value) {
             Ok(grants) => grants,
             Err(e) => return failed(report, format!("reading {} permissions: {e}", kind.label())),
         };
@@ -711,6 +827,9 @@ fn one(
             }
         }
         let found = expected_differences(kind, &owned, &derived_grants, &server);
+        if collection == "Groups" && kind == Kind::RunTime && !found.is_empty() {
+            explain_group_service_grants(remote, &collection, &name, &found, &mut report.notes);
+        }
         if !found.is_empty() {
             let mut owned_server = server.clone();
             owned_server.retain(|grant, _| {

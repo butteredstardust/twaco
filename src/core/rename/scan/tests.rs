@@ -952,3 +952,37 @@ fn collection_qualified_identity_leaves_other_collections_references_unchanged()
     assert!(after.contains(r#"dataShapeName: "Acme.Rows""#));
     assert_eq!(pass.edits.len(), 3);
 }
+
+#[test]
+fn entity_config_respects_schema_and_collection_scope_without_reserialising() {
+    let src = br#"[validate]
+inherited_overrides = ['A.Run', 'A']
+[adopt]
+generated_services = ['A.Run', 'A']
+[call]
+read_only = ['Things/A.Run', 'ThingTemplates/A.Run']
+[[project]]
+name = 'A'
+[project.deploy]
+entry_point_thing = 'A'
+[[project.deploy.post_import]]
+thing = 'A'
+target = 'ThingTemplates/A'
+service = 'Run'
+"#;
+    let qualified = Qualified {
+        collection: Some("Things".into()),
+        ..Default::default()
+    };
+    let pass = scan_entity_config(src, "A", "B", refs::Mode::Entity, Some(&qualified)).unwrap();
+    let changed = String::from_utf8(apply(src, &pass)).unwrap();
+    assert!(changed.contains("inherited_overrides = ['B.Run', 'A']"));
+    assert!(changed.contains("generated_services = ['B.Run', 'A']"));
+    assert!(changed.contains("read_only = ['Things/B.Run', 'ThingTemplates/A.Run']"));
+    assert!(changed.contains("name = 'A'"));
+    assert!(changed.contains("entry_point_thing = 'B'"));
+    assert!(changed.contains("target = 'ThingTemplates/A'"));
+    let noop =
+        scan_entity_config(src, "Acme.Absent", "Acme.Other", refs::Mode::Entity, None).unwrap();
+    assert_eq!(apply(src, &noop), src);
+}

@@ -56,7 +56,7 @@ pub(crate) use move_widget::{plan_move, MovePlan};
 pub(crate) use new::{apply_new, parse_visibility, plan_new, NewPlan};
 pub use new::{copy_summary_lines, new_plan_json, template_slots, NewRequest};
 #[cfg(test)]
-pub(crate) use new::{validate_template, DEFAULT_THEME};
+pub(crate) use new::{validate_template, BUILTIN_THEMES, DEFAULT_THEME};
 use on::on_in;
 pub use on::OnRequest;
 pub(crate) use on::{plan_on, OnPlan};
@@ -80,7 +80,7 @@ pub(crate) use remove::{plan_off, plan_remove, plan_unbind, OffPlan, RemovePlan,
 pub use remove::{OffRequest, RemoveRequest, UnbindRequest};
 #[cfg(test)]
 pub(crate) use set::colour;
-pub(crate) use set::{merge_widget_styles, plan_set, SetPlan};
+pub(crate) use set::{plan_set, SetPlan};
 pub use set::{set_plan_json, SetRequest};
 pub use source::SourceInfo;
 pub(crate) use source::{

@@ -730,6 +730,40 @@ pub(crate) fn finish_page(document: &mut super::edit::MashupDocument) {
             _ => {}
         }
     }
+    // The page container's floor must cover what its rows really hold: a row's own minimum
+    // leaves out its margins, padding and the measured height of its widgets, and rows that
+    // end up short make the page container scroll inside the mashup root's own scroller.
+    let styles = document
+        .root_properties()
+        .get("StyleProperties")
+        .map_or(Value::Null, |styles| styles["data"].clone());
+    for container in &containers {
+        let node = document.at(&container.path);
+        if container.display_name != "center"
+            || node["Properties"]["flex-size"] == "fixed"
+            || node["twacoLayoutAuthored"] == true
+        {
+            continue;
+        }
+        let content = super::edit::content_floor(node, &styles);
+        let current = height_floor(node);
+        let id = node["Properties"]["Id"].as_str().map(str::to_string);
+        if content > f64::from(current) {
+            document.set_property(
+                &container.path,
+                "flex-min-height",
+                json!(format!("{}px", content.ceil())),
+            );
+        }
+        // Runtime gives every flex container `overflow: auto`, so a page container whose floor
+        // falls short of what its rows render scrolls inside the mashup root's scroller (two
+        // scrollbars at short viewports). The page scrolls once, in the mashup root.
+        // A master's pages render in its page host, which scrolls on its own.
+        let master = document.value()["mashupType"] == "targetmashup";
+        if let Some(id) = id.filter(|_| !master) {
+            document.set_style(&id, "flex-container", "overflow", json!("visible"));
+        }
+    }
     // AdminPage01 grid/content and Compare tab content use LastContainer for the remainder.
     for container in containers {
         let node = document.at(&container.path);

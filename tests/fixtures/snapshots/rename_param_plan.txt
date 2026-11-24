@@ -3,9 +3,9 @@ exit: 0
 
 --- stdout
 rename param Acme.Orders.Manager.GetOrder: orderId -> order: a plan, nothing was written (pass --apply)
-  entity files   3 files, 5 references
-  sidecars       5 files, 5 references
-  mashups        2 files, 0 references
+  entity files   3 files, 5 references, 10 for review
+  sidecars       5 files, 5 references, 10 for review
+  mashups        2 files, 0 references, 2 for review
   twaco.toml     0 files, 0 references
   review         22 occurrences left for a person
 Mashups/Acme.Orders.Dashboard.xml:36  pe":"Things","Id":"GetOrder","Method":"POST","Parameters":{"orderId":{"Type":"STRING","Value":""}},"RefreshInterval":0,"

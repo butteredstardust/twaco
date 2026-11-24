@@ -286,3 +286,188 @@ fn toml_string_span(
         range.start + at + value.len(),
     ))
 }
+
+/// Schema-owned entity selectors are exact references even when their members are inherited.
+pub(crate) fn scan_entity_config(
+    src: &[u8],
+    old: &str,
+    new: &str,
+    mode: crate::core::refs::Mode,
+    qualified: Option<&super::Qualified>,
+) -> Result<XmlPass, String> {
+    fn values<'a>(
+        item: &'a toml_edit::Item,
+        path: &str,
+        out: &mut Vec<(String, &'a toml_edit::Value)>,
+    ) {
+        if let Some(table) = item.as_table_like() {
+            for (key, item) in table.iter() {
+                values(item, &format!("{path}.{key}"), out);
+            }
+        } else if let Some(tables) = item.as_array_of_tables() {
+            for table in tables.iter() {
+                for (key, item) in table.iter() {
+                    values(item, &format!("{path}.{key}"), out);
+                }
+            }
+        } else if let Some(value) = item.as_value() {
+            value_items(value, path, out);
+        }
+    }
+    fn value_items<'a>(
+        value: &'a toml_edit::Value,
+        path: &str,
+        out: &mut Vec<(String, &'a toml_edit::Value)>,
+    ) {
+        if value.as_str().is_some() {
+            out.push((path.to_string(), value));
+        } else if let Some(array) = value.as_array() {
+            for value in array.iter() {
+                value_items(value, path, out);
+            }
+        } else if let Some(table) = value.as_inline_table() {
+            for (key, value) in table.iter() {
+                value_items(value, &format!("{path}.{key}"), out);
+            }
+        }
+    }
+    let text = std::str::from_utf8(src).map_err(|e| e.to_string())?;
+    let document = toml_edit::Document::parse(text).map_err(|e| e.to_string())?;
+    let mut found = Vec::new();
+    for (key, item) in document.iter() {
+        values(item, key, &mut found);
+    }
+    let mut owned = Vec::new();
+    for (key, value) in found {
+        let selector = matches!(
+            key.as_str(),
+            "validate.inherited_overrides" | "adopt.generated_services" | "call.read_only"
+        );
+        let entity = matches!(
+            key.as_str(),
+            "project.name"
+                | "project.depends_on"
+                | "project.deploy.entry_point_thing"
+                | "project.deploy.post_import.thing"
+                | "project.deploy.post_import.target"
+                | "unused.keep"
+                | "call.read_only"
+                | "lint.override.entity"
+                | "adopt.ignore_paths"
+                | "test.project"
+                | "test.user.name"
+                | "test.user.groups"
+                | "server_owned.entities"
+        ) || key.ends_with(".server_owned.entities")
+            || key.ends_with(".patches.entity");
+        if !selector && !entity {
+            continue;
+        }
+        let value_text = value.as_str().expect("string collected");
+        let range = value
+            .span()
+            .ok_or("cannot locate entity selector in twaco.toml")?;
+        let explicit_collection = value_text
+            .split_once('/')
+            .map(|(collection, _)| collection)
+            .filter(|collection| crate::core::bundle::COLLECTION_ORDER.contains(collection));
+        let schema_collection = match key.as_str() {
+            "project.name" | "project.depends_on" | "test.project" => Some("Projects"),
+            "project.deploy.entry_point_thing" | "project.deploy.post_import.thing" => {
+                Some("Things")
+            }
+            "test.user.name" => Some("Users"),
+            "test.user.groups" => Some("Groups"),
+            _ => None,
+        };
+        if mode == crate::core::refs::Mode::Entity
+            && qualified
+                .and_then(|q| q.collection.as_deref())
+                .is_some_and(|selected| {
+                    explicit_collection
+                        .or(schema_collection)
+                        .is_some_and(|actual| actual != selected)
+                })
+        {
+            owned.push((scan::Span::new(range.start, range.end), None, key));
+            continue;
+        }
+        let (head, tail) = if selector {
+            value_text.rsplit_once('.').unwrap_or(("", value_text))
+        } else {
+            (value_text, "")
+        };
+        let replacement = if selector && head.is_empty() {
+            None
+        } else if selector && mode == crate::core::refs::Mode::Entity {
+            if head == old {
+                Some(format!("{new}.{tail}"))
+            } else if let Some((collection, entity)) = head.split_once('/') {
+                (entity == old).then(|| format!("{collection}/{new}.{tail}"))
+            } else {
+                None
+            }
+        } else {
+            let hits = crate::core::refs::find(value_text, old, mode);
+            if hits.is_empty() {
+                None
+            } else {
+                let mut renamed = value_text.to_string();
+                for hit in hits.iter().rev() {
+                    renamed.replace_range(hit.start..hit.end, new);
+                }
+                Some(renamed)
+            }
+        };
+        let whole = if replacement.is_some() {
+            toml_string_span(src, range, value_text)?
+        } else {
+            scan::Span::new(range.start, range.end)
+        };
+        owned.push((whole, replacement, key));
+    }
+    owned.sort_by_key(|(span, _, _)| span.start);
+    let mut pass = XmlPass::new(src);
+    let mut at = 0;
+    for (span, replacement, key) in &owned {
+        append_config_gap(src, at, span.start, old, new, mode, qualified, &mut pass)?;
+        if let Some(replacement) = replacement {
+            add_service_edit(
+                src,
+                *span,
+                replacement,
+                Place::Config { key: key.clone() },
+                &mut pass,
+            );
+        }
+        at = span.end;
+    }
+    append_config_gap(src, at, src.len(), old, new, mode, qualified, &mut pass)?;
+    Ok(pass)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_config_gap(
+    src: &[u8],
+    start: usize,
+    end: usize,
+    old: &str,
+    new: &str,
+    mode: crate::core::refs::Mode,
+    qualified: Option<&super::Qualified>,
+    pass: &mut XmlPass,
+) -> Result<(), String> {
+    let mut gap = super::xml::scan_text_with(&src[start..end], old, mode, new, qualified)
+        .map_err(|e| e.to_string())?;
+    for edit in &mut gap.edits {
+        edit.span.start += start;
+        edit.span.end += start;
+    }
+    let lines = src[..start].iter().filter(|b| **b == b'\n').count();
+    for finding in &mut gap.findings {
+        finding.line += lines;
+    }
+    pass.edits.extend(gap.edits);
+    pass.findings.extend(gap.findings);
+    Ok(())
+}

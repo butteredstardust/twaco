@@ -134,7 +134,36 @@
       ],
       "type_display_name": "Contained Mashup",
       "display_name": "mashupcontainer",
-      "auto_resize": true
+      "auto_resize": true,
+      "contract": {
+        "flags": {
+          "supportsAutoResize": true
+        },
+        "properties": {
+          "CustomClass": {
+            "baseType": "STRING"
+          },
+          "Name": {
+            "baseType": "MASHUPNAME",
+            "isBindingTarget": true
+          },
+          "Width": {
+            "baseType": "NUMBER"
+          },
+          "Height": {
+            "baseType": "NUMBER"
+          },
+          "TabSequenceGroup": {
+            "baseType": "NUMBER"
+          }
+        },
+        "events": {},
+        "services": {
+          "Refresh": {},
+          "AddGadgetToDashboard": {}
+        }
+      },
+      "builder": true
     },
     "pagemashupcontainer": {
       "aliases": [
@@ -396,7 +425,10 @@
       ],
       "type_display_name": "Text Field",
       "properties": {
-        "Icon": { "baseType": "IMAGELINK", "isBindingTarget": true }
+        "Icon": {
+          "baseType": "IMAGELINK",
+          "isBindingTarget": true
+        }
       },
       "overrides": {
         "DisplayTrailingZeros": true
@@ -604,6 +636,13 @@
         "autorefresh"
       ],
       "type_display_name": "Auto Refresh",
+      "function": true
+    },
+    "logoutfunction": {
+      "aliases": [
+        "logout"
+      ],
+      "type_display_name": "Logout",
       "function": true
     }
   },

@@ -481,7 +481,7 @@ fn structure_gate(solution: &Solution, discovered: &workspace::Discovery) -> Gat
 }
 
 /// Whether each multi-row ConfigurationTable's copy agrees with the DataShape its definition
-/// names; see [`config_table_check`](super::config_table_check). A copy that only differs warns.
+/// names; see [`config_table_check`](super::config_table_check). A copy that only differs contributes an evidence note.
 fn configuration_tables(
     solution: &Solution,
     discovered: &workspace::Discovery,
@@ -524,6 +524,8 @@ fn configuration_tables(
             };
             if problem.blocks {
                 result.findings.push(finding);
+            } else if problem.rule == "config-table-copy-differs" {
+                result.prose.push(finding.to_string());
             } else {
                 result.warnings.push(finding);
             }
@@ -2337,6 +2339,29 @@ pub(crate) fn relative(solution: &Solution, path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn retained_configuration_copy_difference_is_an_evidence_note() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme.App'\n").unwrap();
+        std::fs::create_dir(root.join("Things")).unwrap();
+        std::fs::create_dir(root.join("DataShapes")).unwrap();
+        std::fs::write(root.join("DataShapes/Acme.Rows.xml"), r#"<Entities><DataShapes><DataShape name="Acme.Rows" projectName="Acme.App"><FieldDefinitions><FieldDefinition name="key" baseType="STRING" ordinal="1" description="Named shape" aspect.isPrimaryKey="true"/></FieldDefinitions></DataShape></DataShapes></Entities>"#).unwrap();
+        std::fs::write(root.join("Things/Acme.Settings.xml"), r#"<Entities><Things><Thing name="Acme.Settings" projectName="Acme.App"><ConfigurationTableDefinitions><ConfigurationTableDefinition name="Settings" dataShapeName="Acme.Rows" isMultiRow="true"/></ConfigurationTableDefinitions><ConfigurationTables><ConfigurationTable name="Settings"><DataShape><FieldDefinitions><FieldDefinition name="key" baseType="STRING" ordinal="0" description="Stored copy" aspect.isPrimaryKey="true"/></FieldDefinitions></DataShape><Rows><Row><key>Acme</key></Row></Rows></ConfigurationTable></ConfigurationTables></Thing></Things></Entities>"#).unwrap();
+        let solution = Solution::load(&root.join("twaco.toml")).unwrap();
+        let discovery = workspace::discover(&solution);
+        let (model, skipped) = types::load_model_from(&discovery);
+        assert!(skipped.is_empty(), "{skipped:?}");
+        let gate = configuration_tables(&solution, &discovery, &model);
+        assert!(!gate.blocks());
+        assert!(gate.findings.is_empty());
+        assert!(gate.warnings.is_empty());
+        assert_eq!(gate.prose.len(), 1);
+        assert!(gate.prose[0].contains("config-table-copy-differs"));
+        assert!(gate.prose[0].contains("evidence: local table copy"));
+        assert!(gate.prose[0].contains("Acme.Settings"));
+    }
+
     #[test]
     fn requirements_gate_skips_blocks_and_honors_advisory() {
         let dir = tempfile::tempdir().unwrap();

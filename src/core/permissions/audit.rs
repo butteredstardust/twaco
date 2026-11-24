@@ -112,7 +112,7 @@ impl fmt::Display for AuditError {
             AuditError::Project(name) => write!(f, "this solution has no project named {name}"),
             AuditError::NoPolicy(projects) => write!(
                 f,
-                "no permissions.toml in the root folder of {}; documentation/CONFIGURATION.md describes the file",
+                "no permissions.toml in the root folder of {}; run `twaco permissions init` to draft it; `twaco guide workflow --section Permissions` describes the policy",
                 projects.join(", ")
             ),
             AuditError::Policy(error) => error.fmt(f),

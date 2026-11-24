@@ -434,3 +434,36 @@ fn entity_names_refuse_unsafe_spaces_and_paths() {
         );
     }
 }
+
+#[test]
+fn entity_rename_owns_qualified_config_selectors_and_counts_every_mention() {
+    let fixture = fixture();
+    let config = "[validate]\ninherited_overrides = ['Acme.App.Manager.Run', 'Acme.App.Manager.Other', 'Acme.App.ManagerExtra.Run']\n[adopt]\ngenerated_services = ['Acme.App.Manager.Run']\n[[server_owned]]\nentities = ['Things/Acme.App.Manager']\nparts = ['property-values:State']\n[[project]]\nname = 'Acme.App'\n[project.deploy]\nentry_point_thing = 'Acme.App.Manager'\n";
+    write(&fixture.root, CONFIG_FILE, config);
+    let solution = Solution::load(&fixture.root.join(CONFIG_FILE)).unwrap();
+    let planned = plan(
+        &solution,
+        &spec(Kind::Entity, "Acme.App.Manager", "Acme.App.Director"),
+    )
+    .unwrap();
+    assert_eq!(planned.counts().config.exact, 5);
+    let change = planned
+        .changes
+        .iter()
+        .find(|c| c.kind == FileKind::Config)
+        .unwrap();
+    let changed =
+        String::from_utf8(crate::core::splice::splice(config.as_bytes(), &change.edits).unwrap())
+            .unwrap();
+    assert!(changed.contains("Acme.App.Director.Run"));
+    assert!(changed.contains("Acme.App.Director.Other"));
+    assert!(changed.contains("Things/Acme.App.Director"));
+    assert!(changed.contains("Acme.App.ManagerExtra.Run"));
+    let summary = planned.summary_rows(true, false);
+    assert!(
+        summary
+            .iter()
+            .any(|(label, text)| *label == "twaco.toml" && text.contains("5 references")),
+        "{summary:?}"
+    );
+}

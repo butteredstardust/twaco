@@ -4,7 +4,7 @@
 //! they are hash input, never an export. Length-prefixing makes element, attribute, text and
 //! CDATA boundaries unambiguous without choosing an escaping style.
 //!
-//! Normalisation version 11 has exactly these non-semantic rules:
+//! Normalisation version 14 has exactly these non-semantic rules:
 //!
 //! - apply XML 1.0 line-end and CDATA-attribute whitespace normalisation to literal XML input
 //!   before unescaping character references or applying payload-specific rules;
@@ -39,6 +39,8 @@
 //!   comes from and by hash, not as imported, and an import re-stamps a value whose definition
 //!   changed with the import time; the value itself is what the repository says (observed
 //!   2026-10-16; version 6);
+//! - ignore FieldDefinition ordinals in inline infoTable DataShapes under stored property Values;
+//!   the server stores these as zero (version 14). Entity DataShape ordinals stay semantic;
 //! - inside `DesignTimePermissions`, `RunTimePermissions` and `VisibilityPermissions`, and the
 //!   `Instance...` forms of the three on a ThingShape or ThingTemplate, treat every list as the
 //!   set it is: drop a permission kind or a `Permissions` resource that grants no principal, and
@@ -78,8 +80,8 @@
 //! No generated id, default attribute, or other exception is included without a live/committed
 //! observation. Apart from the rules above, CDATA bytes are never decoded, re-indented, or joined.
 //!
-//! Without server ownership, hashes remain `v13:<sha256>` byte for byte. With ownership they are
-//! `v13:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
+//! Without server ownership, hashes use `v14:<sha256>`. With ownership they are
+//! `v14:so1:<policy-sha256>:<content-sha256>`: the policy digest covers the sorted, deduplicated
 //! union of applicable part labels (newline-delimited). `so1` versions selector semantics.
 //! Content uses the same comparison tree with owned nodes omitted. Baselines must compare the
 //! entire prefix before the final colon; adding, removing or changing ownership invalidates
@@ -89,7 +91,7 @@ use super::scan::{self, Kind, ScanError, Token};
 use sha2::{Digest, Sha256};
 
 /// The normalisation version every hash carries; a baseline from another one says nothing.
-pub(crate) const HASH_VERSION: &str = "v13";
+pub(crate) const HASH_VERSION: &str = "v14";
 pub(crate) const LIVE_ONLY_ELEMENTS: [&[u8]; 9] = [
     b"effectiveShape",
     b"Owner",
@@ -317,6 +319,100 @@ pub(crate) fn hash_with_grants(
     Ok(format!("{scope}:pg1:{content}"))
 }
 
+/// Accept only additions supplied by a Thing's template, never changes to authored values.
+pub(crate) fn read_back_matches(
+    sent: &[u8],
+    back: &[u8],
+    parts: &[super::server_owned::Part],
+    grants: &super::permissions::Sets,
+) -> bool {
+    let (Ok(sent), Ok(back)) = (
+        super::permissions::derived::comparison(sent, grants),
+        super::permissions::derived::comparison(back, grants),
+    ) else {
+        return false;
+    };
+    let (Ok(left), Ok(mut right)) = (
+        owned_comparison_tree(&sent, parts),
+        owned_comparison_tree(&back, parts),
+    ) else {
+        return false;
+    };
+    if left.name == b"Thing" && right.name == b"Thing" {
+        let declared: Vec<_> = descendants_named(&left, b"PropertyDefinition")
+            .into_iter()
+            .filter_map(|e| attribute_value(e, b"name").map(<[u8]>::to_vec))
+            .collect();
+        let local_tables = descendants_named(&left, b"ConfigurationTableDefinition");
+        for section in [b"ThingProperties".as_slice(), b"ConfigurationTables"] {
+            let original = elements(&left).into_iter().find(|e| e.name == section);
+            if let Some(Node::Element(target)) = right
+                .children
+                .iter_mut()
+                .find(|n| matches!(n, Node::Element(e) if e.name == section))
+            {
+                target.children.retain(|n| {
+                    let Node::Element(e) = n else {
+                        return true;
+                    };
+                    let present = original.is_some_and(|o| {
+                        elements(o).into_iter().any(|v| {
+                            if section == b"ThingProperties" {
+                                v.name == e.name
+                            } else {
+                                attribute_value(v, b"name") == attribute_value(e, b"name")
+                            }
+                        })
+                    });
+                    present
+                        || if section == b"ThingProperties" {
+                            declared.contains(&e.name)
+                        } else {
+                            // ReportingConfiguration is filled by RemoteThing and IndustrialGateway.
+                            attribute_value(e, b"name")
+                                != Some(b"ReportingConfiguration".as_slice())
+                                || local_tables.iter().any(|table| {
+                                    attribute_value(table, b"name") == attribute_value(e, b"name")
+                                })
+                        }
+                });
+            }
+        }
+        // Derived from the template; valueStream remains an authored attribute.
+        right
+            .attributes
+            .retain(|(k, _)| k != b"inheritedValueStream");
+        let mut left = left.clone();
+        left.attributes
+            .retain(|(k, _)| k != b"inheritedValueStream");
+        return canonical_element_bytes(&left)
+            == canonical_element_bytes(&comparison_element(right, true));
+    }
+    canonical_element_bytes(&left) == canonical_element_bytes(&right)
+}
+
+fn descendants_named<'a>(element: &'a Element, name: &[u8]) -> Vec<&'a Element> {
+    let mut out = Vec::new();
+    for child in elements(element) {
+        if child.name == name {
+            out.push(child);
+        }
+        out.extend(descendants_named(child, name));
+    }
+    out
+}
+
+fn elements(element: &Element) -> Vec<&Element> {
+    element
+        .children
+        .iter()
+        .filter_map(|n| match n {
+            Node::Element(e) => Some(e),
+            _ => None,
+        })
+        .collect()
+}
+
 pub(crate) fn read_back_with_grants(
     sent: &[u8],
     back: &[u8],
@@ -374,11 +470,13 @@ pub(crate) fn read_back_differences(
     read_back: &[u8],
     parts: &[super::server_owned::Part],
 ) -> Vec<String> {
+    let inherited = super::permissions::dropped_inherited_service_permissions(sent, read_back);
     let found = collect_differences(sent, read_back, parts, &READ_BACK, Some(MAX_DIFFERENCES));
     let mut out = found.kept;
     if found.total > out.len() {
         out.push(format!("and {} more", found.total - out.len()));
     }
+    out.extend(inherited);
     out
 }
 
@@ -1421,6 +1519,7 @@ fn sort_thing_properties(entity: &mut Element) {
                         !matches!(part, Node::Element(part)
                             if part.name == b"Timestamp" || part.name == b"Quality")
                     });
+                    strip_property_infotable_ordinals(&mut value, false);
                     value
                 }
                 _ => unreachable!("slots contain only elements"),
@@ -1433,6 +1532,42 @@ fn sort_thing_properties(entity: &mut Element) {
         });
         for (index, value) in slots.into_iter().zip(values) {
             block.children[index] = Node::Element(value);
+        }
+    }
+}
+
+// Only stored property Values establish this context; configuration tables and entity
+// DataShapes retain their ordinals. Nested property infotables have the same rewrite.
+fn strip_property_infotable_ordinals(element: &mut Element, in_value: bool) {
+    let in_value = in_value || element.name == b"Value";
+    if in_value && element.name == b"infoTable" {
+        for shape in &mut element.children {
+            let Node::Element(shape) = shape else {
+                continue;
+            };
+            if shape.name != b"DataShape" {
+                continue;
+            }
+            for fields in &mut shape.children {
+                let Node::Element(fields) = fields else {
+                    continue;
+                };
+                if fields.name != b"FieldDefinitions" {
+                    continue;
+                }
+                for field in &mut fields.children {
+                    if let Node::Element(field) = field {
+                        if field.name == b"FieldDefinition" {
+                            field.attributes.retain(|(name, _)| name != b"ordinal");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for child in &mut element.children {
+        if let Node::Element(child) = child {
+            strip_property_infotable_ordinals(child, in_value);
         }
     }
 }
@@ -1719,6 +1854,32 @@ fn sha256(input: &[u8]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn property_infotable_ordinals_are_server_metadata_only_in_stored_values() {
+        let xml = r#"<Thing name="Acme.Component"><ThingProperties><dependentComponents><Value><infoTable><DataShape><FieldDefinitions><FieldDefinition name="ComponentName" baseType="STRING" ordinal="1"/><FieldDefinition name="ComponentProjectName" baseType="STRING" ordinal="2"/></FieldDefinitions></DataShape><Rows><Row><ComponentName>Acme.Other</ComponentName></Row></Rows></infoTable></Value></dependentComponents></ThingProperties></Thing>"#;
+        let stored = xml
+            .replace("ordinal=\"1\"", "ordinal=\"0\"")
+            .replace("ordinal=\"2\"", "ordinal=\"0\"");
+        assert_eq!(
+            hash(xml.as_bytes()).unwrap(),
+            hash(stored.as_bytes()).unwrap()
+        );
+        assert!(read_back_differences(xml.as_bytes(), stored.as_bytes(), &[]).is_empty());
+        assert_ne!(
+            hash(xml.as_bytes()).unwrap(),
+            hash(stored.replace("Acme.Other", "Acme.Changed").as_bytes()).unwrap()
+        );
+        for wrapper in ["DataShape", "ConfigurationTable", "ServiceDefinition"] {
+            let left = format!(
+                r#"<{wrapper} name="Acme.Shape"><FieldDefinitions><FieldDefinition name="ComponentName" ordinal="1"/></FieldDefinitions></{wrapper}>"#
+            );
+            assert_ne!(
+                hash(left.as_bytes()).unwrap(),
+                hash(left.replace("ordinal=\"1\"", "ordinal=\"0\"").as_bytes()).unwrap()
+            );
+        }
+    }
 
     #[test]
     fn subscription_event_order_is_a_set_only_under_subscription() {
@@ -2124,8 +2285,8 @@ mod tests {
     }
 
     #[test]
-    fn hash_version_eleven_keeps_version_nine_framing() {
-        assert!(hash(b"<Thing/>").unwrap().starts_with("v13:"));
+    fn current_hash_version_keeps_version_nine_framing() {
+        assert!(hash(b"<Thing/>").unwrap().starts_with("v14:"));
         assert!(normalise(b"<Thing/>")
             .unwrap()
             .starts_with(b"twaco-entity-normalise-v9\0"));
@@ -2549,5 +2710,30 @@ mod rbac_tests {
             after,
             crate::core::layout::subscription_events(&after).unwrap()
         );
+    }
+    #[test]
+    fn dropped_inherited_service_permissions_have_specific_read_back_explanation() {
+        let sent = br#"<Thing name="Acme.T"><ThingShape><ServiceDefinitions><ServiceDefinition name="Own"/></ServiceDefinitions></ThingShape><RunTimePermissions><Permissions resourceName="GetProperties"><ServiceInvoke><Principal name="Acme.Users" type="Group"/></ServiceInvoke></Permissions><Permissions resourceName="Own"><ServiceInvoke><Principal name="Acme.Users" type="Group"/></ServiceInvoke></Permissions></RunTimePermissions></Thing>"#;
+        let back = br#"<Thing name="Acme.T"><ThingShape><ServiceDefinitions><ServiceDefinition name="Own"/></ServiceDefinitions></ThingShape><RunTimePermissions><Permissions resourceName="Own"><ServiceInvoke><Principal name="Acme.Users" type="Group"/></ServiceInvoke></Permissions></RunTimePermissions></Thing>"#;
+        let warnings = super::super::permissions::inherited_service_permissions(sent);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].0, "GetProperties");
+        let differences = read_back_differences(sent, back, &[]);
+        assert!(differences
+            .iter()
+            .any(|d| d.contains("per-resource permission on inherited service GetProperties")));
+        assert!(!read_back_matches(sent, back, &[], &Default::default()));
+    }
+    #[test]
+    fn template_read_back_exceptions_preserve_authored_properties_and_tables() {
+        let sent = br#"<Thing name="Acme.T" thingTemplate="RemoteThing"><ConfigurationTables/><ThingShape><PropertyDefinitions><PropertyDefinition name="Local"/></PropertyDefinitions><ConfigurationTableDefinitions><ConfigurationTableDefinition name="ReportingConfiguration"/></ConfigurationTableDefinitions></ThingShape><ThingProperties/></Thing>"#;
+        for changed in [
+            String::from_utf8(sent.to_vec()).unwrap().replace("<ThingProperties/>", "<ThingProperties><Local><Value>1</Value></Local></ThingProperties>"),
+            String::from_utf8(sent.to_vec()).unwrap().replace("<ConfigurationTables/>", "<ConfigurationTables><ConfigurationTable name='ReportingConfiguration'/></ConfigurationTables>"),
+            String::from_utf8(sent.to_vec()).unwrap().replace("<ConfigurationTables/>", "<ConfigurationTables><ConfigurationTable name='Acme.Unknown'/></ConfigurationTables>"),
+            String::from_utf8(sent.to_vec()).unwrap().replace("RemoteThing", "IndustrialGateway"),
+        ] {
+            assert!(!read_back_matches(sent, changed.as_bytes(), &[], &Default::default()));
+        }
     }
 }

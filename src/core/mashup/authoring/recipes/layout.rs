@@ -537,16 +537,27 @@ impl Work<'_> {
             ));
         }
         self.checked_styles(&target.id)?;
+        // Width is constrained independently below.  In v1 a fixed flex size is a height cap
+        // as well, so a side panel containing a property display can clip its wrapped value.
+        // The kit uses a range height and fixed width for this column.
+        let v1 = self.document.rules().version() == "v1";
         self.layout_set(
             &target,
             &[
                 ("align-items", json!("stretch")),
-                ("flex-size", json!("fixed")),
+                ("flex-size", json!(if v1 { "range" } else { "fixed" })),
                 ("flex-grow", json!(0)),
                 ("flex-shrink", json!(0)),
                 ("flex-min-width", json!("276px")),
                 ("flex-max-width", json!("276px")),
-                ("iconClass", json!("widgets-flexcontainer-fixed")),
+                (
+                    "iconClass",
+                    json!(if v1 {
+                        "widgets-flexcontainer"
+                    } else {
+                        "widgets-flexcontainer-fixed"
+                    }),
+                ),
             ],
         )?;
         self.background(&target, Some("grey"), false)?;

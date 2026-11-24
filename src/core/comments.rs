@@ -68,6 +68,9 @@ const STOPWORDS: &[&str] = &[
     "all", "both", "one", "two", "three", "more", "most", "less", "least", "own", "same", "other",
     "another", "such", "only", "up", "down", "out", "over", "under", "has", "have", "had", "does",
     "did", "can", "may", "must", "will", "would", "should",
+    // Conjunctions, adverbs and common verbs break a suspected noun run.
+    "yet", "plus", "rather", "fall", "falls", "fell", "open", "opens", "opened", "throw", "throws",
+    "threw",
 ];
 
 #[derive(Debug, Clone)]
@@ -572,6 +575,22 @@ mod tests {
             .into_iter()
             .map(|finding| (finding.rule, finding.line))
             .collect()
+    }
+
+    #[test]
+    fn prose_conjunctions_adverbs_and_verbs_break_noun_runs() {
+        for phrase in [
+            "logged yet fall back",
+            "card result plus synthetic",
+            "seeded dashboard opens empty",
+            "unlogged property throws rather",
+        ] {
+            assert!(
+                noun_cluster(&phrase.split_whitespace().collect::<Vec<_>>(), 3).is_none(),
+                "{phrase}"
+            );
+        }
+        assert!(noun_cluster(&["dashboard", "card", "result", "cache"], 3).is_some());
     }
 
     #[test]

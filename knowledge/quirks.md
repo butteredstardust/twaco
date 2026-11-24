@@ -4,6 +4,24 @@ These are behaviours measured on live ThingWorx servers from 9.5 through 10.2, p
 attributed field reports that have not been re-verified by twaco maintainers. They are not a
 substitute for testing the target server. Examples use Acme.Orders names.
 
+## Kafka internal queue startup and a leftover portable PostgreSQL (field report)
+
+When the internal queue provider uses Kafka, ThingWorx refuses to start if Kafka is not
+available yet. Start Kafka before ThingWorx. A portable start script may already have started
+PostgreSQL before ThingWorx fails, leaving it running. The next start then stops at
+"postgres db port in use". Stop that portable database with `pg_ctl -D data stop` from its
+PostgreSQL directory before starting the portable stack again. Use the data directory of that
+portable instance; do not stop a different database that happens to use the same port.
+
+## LoginLockoutSettings also affect application keys (field report)
+
+ThingWorx locks an account after the failed-login threshold in `LoginLockoutSettings`, for
+example 5 failed attempts with a 15-minute lockout. Check the target server's settings rather
+than assuming those values. While the account is locked, app-key calls made as that user also
+return HTTP 401, even with a valid key. After the lockout expires, the lock flag clears only
+on the next successful login; the flag alone does not prove that the timeout is still running.
+Wait for expiry, then sign in successfully as that user before retrying its application key.
+
 ## PermissionGroup rows also become target principals (verified on 10.2.0-b75, 2026-11-19)
 
 Importing `Acme.Access` with `EntityPermissions/EntityPermission` rows also stores principals
@@ -146,12 +164,14 @@ export form), the named DataShape supplies it. With inline FieldDefinitions, tho
 without aspect.isPrimaryKey="true" among them the import fails with "Configuration Table [ X ] is
 multirow but its datashape [ unnamed ] does not have a primary key", whatever the named DataShape
 marks. With both, the server keeps the fields, drops dataShapeName and sets source="IMPORT", so the
-entity reads back not kept. The server rebuilds the ConfigurationTable's own copy from the named
-DataShape on every import, new table or existing: its fields, ordinals, descriptions and
-isPrimaryKey marks, whatever the copy said. A copy that differs imports and reads back not kept, so
-write it as the DataShape has it, or take the server's form once (`entity get --out`, then
-`adopt --take theirs`). An export can hold stale copy ordinals when the DataShape changed after the
-table was saved; the next import renumbers them. Three cases lose data or fail: a named DataShape
+entity reads back not kept. In the original probe, the server rebuilt the ConfigurationTable's
+own copy from the named DataShape on import: its fields, ordinals, descriptions and isPrimaryKey
+marks. Later field reports found differing copies retained on existing Things, with live
+`entity status` reporting `no-baseline-same`. A local copy/shape mismatch alone therefore does
+not establish server drift. The configuration tables gate gives an informational note naming
+that offline evidence; check `entity status` before changing a retained copy. If read-back
+actually differs, write the named DataShape's fields or take the server's form once
+(`entity get --out`, then `adopt --take theirs`). Three cases lose data or fail: a named DataShape
 with no primary key fails the import ("is multirow but its datashape [ Acme.Row_DS ] does not have a
 primary key"); rows under a copy with no FieldDefinitions are all dropped; a row cell naming a field
 the DataShape lacks is dropped. Row order is kept, and a NUMBER cell `2` reads back `2.0`.

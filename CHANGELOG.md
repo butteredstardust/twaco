@@ -6,7 +6,67 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Mashup adoption accepts service result fields bound to mashup parameters, legacy contained
+  mashup contracts, platform or declared server-provided result DataShapes, collection global
+  properties and menu-button item wiring. Missing result DataShapes and orphan contained
+  parameter values warn while keeping adoption bytes. Derive keeps parameter descriptions
+  through a new long form and places logout and confirmation functions beside the layout.
+
+- Adoption fidelity on a real solution: bindings written by an older Composer (lower-case property types, no
+  `SourceDetails`) match what a build generates and keep their bytes; defaults the source does not state
+  (`CustomClass`, `TooltipField`, empty function-widget inputs) and numbers stored as text are no difference;
+  function widgets pair with their own kind whatever their order against the layout, so expression and router
+  ids are kept; navigation parameter defaults and order are ignored; an as-built page names a navigation
+  function as the source does, carries wiring to widgets the catalogue does not know, accepts a binding
+  stated twice and a formatter threshold (`TargetFormat_thresholdMin`), and a call without an entity no longer
+  precedes the call of its ThingShape that names one. Derive emits `null` for an events-router input that is
+  not bound.
+- v1 pages scroll once, in the mashup root: the page container takes `overflow: visible` (masters keep their
+  page host's own scrolling). A spec returned without a file (`mashup spec` without `--out`, MCP
+  `mashup_spec`) no longer references `page.css`; the report carries the stylesheet text instead.
+- Derive and adoption from a second real solution: dynamic ThingShape data sources (`entity: {bind: ...}`)
+  derive with their events and bindings and rebuild; scalar binding mismatches that ThingWorx coerces bind
+  with a warning instead of a refusal (`mashup bind` and page specs; tables stay refused); derive no longer
+  emits what its own build refuses (non-numeric text for a number, events on unlisted services, references
+  to navigation functions, unknown legacy widgets), and says what it left out; an as-built page builds
+  unknown-type `widget:` nodes verbatim, claims bindings and events by their endpoints, and keeps
+  non-responsive containers, positions, root style and expression flags; `mashup new --spec` picks the
+  project from the mashup name's prefix in a multi-project solution.
+- Template-filled Thing values and reporting configuration pass import read-back verification;
+  push and deploy record the actual server baseline. Push failures name diff, adopt and force recovery.
+- Push plans warn about discarded permissions on inherited services and read-back explains the cause.
+- Entity renames update schema-owned configuration selectors, count review references, and report
+  failing gates and missing database choices together.
+- Grid page-spec columns support editable textfield/textarea editors and whitespace preservation;
+  recipes enforce Composer's field types and whitespace rules. Root help highlights `new thing`.
+
+- Entity drift ignores server-rewritten ordinals only in stored property infotable DataShapes;
+  comparison hashes are now v14, so older baselines need recording again when both sides agree.
+- Prose lint recognises common conjunctions, adverbs and verbs in suspected noun runs.
+- Missing permission policies point to embedded help and `permissions init`; permission diffs explain
+  built-in group service grants absent from server XML and skip disabled Things with a clear note.
+- Configuration-table copy differences are informational offline evidence rather than a prediction
+  that the server will discard the copy. Mashup-only deploy plans call out project hooks that still run.
+- The guide covers Kafka startup order, leftover portable PostgreSQL and account lockout effects on app keys.
+
+- Page specs carry a mashup's look: `mashup spec --out` writes its custom.css sidecar to `page.css` and each
+  widget's stored styles as `styles:`, and a build (new or existing) writes both back verbatim. A v1 page
+  container's minimum height now counts its rows' margins, padding and measured widgets, so the page scrolls
+  only in the mashup root.
+- Test runs use cargo nextest in CI and document quick and changed-file selections for local work.
+- Page specs accept every platform built-in theme (Base, Composer, Legacy Styles, PTC Convergence and its
+  Green Accent). Token presets paint the whole page through an inline mashup style instead of framing it in
+  white; v1 side columns no longer trip twaco's own wrapped-content advisory; display-size labels get room
+  for their glyphs and stop scrolling.
+- Page-spec round trips: a rebuild right after adopting a mashup reports no hand edits; a refused plan
+  reports `files_state: refused` and no files; fresh builds keep a derived spec's widget ids; bound labels
+  keep their design-time text; derive notes name each container whose styles are not carried and each
+  unsupported binding; duplicate YAML keys and non-numeric sizes on as-built pages are refused in twaco's
+  words; `mashup new --from` warns when the source's visibility permissions are not copied.
+
 ## [0.1.76] - 2026-11-23
+
+- `fmt` orders set members, including group and role members, deterministically.
 
 - Page specs support master mashups through `page.kind: master`, native `page_host` and
   `menu_bar` elements, and mashup-root `page.props`. Derive/adopt keeps IDs and existing bytes;

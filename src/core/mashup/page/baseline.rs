@@ -21,6 +21,11 @@ pub(super) struct Baseline {
     pub ownership: Vec<String>,
     pub content: Value,
     pub css: String,
+    /// Digest of the content as last written, so a later build can tell a fresh hand edit
+    /// from differences the mashup already had when twaco last wrote it (an adoption keeps
+    /// what the spec cannot say).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub written: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub generated_cells: BTreeMap<String, BTreeMap<String, String>>,
     pub managed_xml: BTreeMap<String, String>,
@@ -62,6 +67,7 @@ impl Baseline {
             ownership,
             content,
             css: artifacts.css.clone(),
+            written: String::new(),
             generated_cells: BTreeMap::new(),
             managed_xml: [
                 ("name".into(), name.into()),
@@ -69,6 +75,11 @@ impl Baseline {
             ]
             .into(),
         }
+    }
+
+    /// The digest `written` records for a content value.
+    pub fn digest(content: &Value) -> String {
+        crate::core::repo::sha256_hex(&serde_json::to_vec(content).expect("JSON value"))
     }
 
     pub fn pins(&self) -> Pins {

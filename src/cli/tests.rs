@@ -1587,3 +1587,14 @@ fn every_suggested_deploy_command_uses_the_real_cli_grammar() {
         "creation plans and both adapters must be checked"
     );
 }
+
+#[test]
+fn root_help_makes_new_thing_discoverable_alongside_thing_group() {
+    let mut tree = spec::tree();
+    let help = tree.render_long_help().to_string();
+    assert!(help.contains(
+        "Create a Thing from a template -> `twaco new thing <name> --template <ThingTemplate>`"
+    ));
+    assert!(help.contains("  new thing <name>"));
+    assert!(help.contains("  new thing-group <name>"));
+}

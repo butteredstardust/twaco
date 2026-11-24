@@ -416,6 +416,7 @@ pub(crate) fn check_content(content: &str, problems: &mut Vec<Problem>) {
     for found in document.problems() {
         problems.push(problem("mixed-container", found.message));
     }
+    let generated_v1 = document.value()["twacoPageRules"] == "v1";
     for widget in document.widgets() {
         let row = document.at(&widget.path);
         let props = &row["Properties"];
@@ -454,7 +455,12 @@ pub(crate) fn check_content(content: &str, problems: &mut Vec<Problem>) {
             }
         }
         if widget.type_id == "flexcontainer" {
-            container_layout_problems(row, &widget.id, problems);
+            container_layout_problems(
+                row,
+                &widget.id,
+                generated_v1 && row["twacoLayoutAuthored"] != true,
+                problems,
+            );
             for found in mashup::why::contradictions(&document, &widget.path, &widget.id) {
                 let rule = found.rule.as_deref().unwrap_or("");
                 problems.push(problem(
@@ -711,7 +717,7 @@ pub(crate) fn check_content(content: &str, problems: &mut Vec<Problem>) {
 }
 
 /// Advisories about how a container's own size and alignment treat its content.
-fn container_layout_problems(row: &Value, id: &str, problems: &mut Vec<Problem>) {
+fn container_layout_problems(row: &Value, id: &str, measured: bool, problems: &mut Vec<Problem>) {
     use mashup::edit::{children, is_remainder, is_spacer, type_of};
     let props = &row["Properties"];
     let kids = children(row);
@@ -751,9 +757,10 @@ fn container_layout_problems(row: &Value, id: &str, problems: &mut Vec<Problem>)
             .as_str()
             .is_some_and(|max| !max.is_empty());
     if capped {
-        let authored = !props["DisplayName"]
-            .as_str()
-            .is_some_and(|name| name.starts_with("container-"));
+        let authored = !measured
+            && !props["DisplayName"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("container-"));
         if kids
             .iter()
             .any(|kid| wraps_content(kid, authored, props["Width"].as_f64()))
@@ -819,6 +826,16 @@ fn check_ui_end(
         return; // an extension or legacy widget: not judged
     };
     let wrapped = serde_json::json!({ "Properties": properties });
+    if let Some(contract) = widgets::dynamic_property(type_id, properties, property, false) {
+        if !(if source {
+            contract.source
+        } else {
+            contract.target
+        }) {
+            problems.push(direction(binding, id, property, source));
+        }
+        return;
+    }
     if widget.function {
         if let Some((can_source, can_target, _)) = function_property(&wrapped, type_id, property) {
             if !(if source { can_source } else { can_target }) {

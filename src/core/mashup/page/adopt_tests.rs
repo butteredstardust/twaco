@@ -4,7 +4,7 @@ use super::super::extract as extraction;
 use super::*;
 use crate::core::mashup::Assets;
 
-const HAND_SPEC: &str = "version: 1
+pub(super) const HAND_SPEC: &str = "version: 1
 rules: v1
 page:
   name: Acme.Hand_MU
@@ -232,6 +232,13 @@ fn a_derived_spec_adopts_its_mashup_with_no_extra_level_and_the_same_ids() {
         again.report
     );
     assert!(!again.conflicts());
+    // A pristine adoption has nothing to report as kept hand edits on the next build.
+    assert_eq!(
+        again.report["hand_edits_kept"],
+        serde_json::json!([]),
+        "{}",
+        again.report
+    );
 }
 
 #[test]

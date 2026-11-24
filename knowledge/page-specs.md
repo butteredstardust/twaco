@@ -137,3 +137,12 @@ Selected must name one item label; indent is 0 to 12 levels. Generated collectio
 The built-in nav_menu and collection components work through `recipe component` too.
 Clean cards use white, grey-200 borders, 8px corners and soft shadows on a grey-50 page with
 Inter. The Acme fixtures assert native structure/styles offline; this is not a live finding.
+
+## Editable grid text columns
+
+A grid column can set `{field: Notes, editable: true, editor: textarea,
+preserve_whitespace: true}`. Editors are `textfield` or `textarea`; textarea requires
+STRING, HTML or HYPERLINK. `preserve_whitespace` requires textarea and the STRING
+renderer. The shared columns recipe writes `cellEditor` and the boolean
+`preserveWhiteSpaces` (plural), including `false` when unset. Command equivalents are
+`--editable-column Notes --column-editor Notes=textarea --preserve-whitespace Notes`.

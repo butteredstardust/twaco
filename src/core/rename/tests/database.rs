@@ -299,3 +299,25 @@ fn the_database_refusal_says_why_it_is_asking() {
         "{names}"
     );
 }
+
+#[test]
+fn preflight_reports_both_failed_gates_and_the_database_choice() {
+    let fixture = db_fixture("combined-refusal");
+    write(&fixture.root, "notes.md", "one\r\ntwo\n");
+    let mut options = db_options(&fixture.root, SqlChoice::Unset);
+    options.skip_checks = false;
+    options.apply = false;
+    let before = snapshot(&fixture.root);
+    let error = run(
+        &fixture.solution,
+        &spec(Kind::Entity, "P.Dashboards", "P.Boards"),
+        &options,
+        None,
+    )
+    .unwrap_err()
+    .to_string();
+    for expected in ["line endings", "--skip-checks", "--sql", "--no-sql"] {
+        assert!(error.contains(expected), "{error}");
+    }
+    assert_eq!(snapshot(&fixture.root), before);
+}

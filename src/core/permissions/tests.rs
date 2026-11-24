@@ -519,3 +519,112 @@ fn external_targets_are_read_only_for_an_unscoped_selection() {
     let all = run_expected(&remote, &[file], false, &progress::NONE, &derived, true);
     assert!(all.entities.iter().any(|e| e.collection == "Subsystems"));
 }
+
+struct PermissionViews {
+    xml: Vec<u8>,
+    live: Value,
+    disabled_status: u16,
+}
+
+impl Remote for PermissionViews {
+    fn exists(&self, _: &str, _: &str) -> Result<bool, ServerError> {
+        Ok(true)
+    }
+    fn permission_xml(&self, _: &str, _: &str) -> Result<Option<Vec<u8>>, ServerError> {
+        Ok(Some(self.xml.clone()))
+    }
+    fn get(&self, _: &str, name: &str, _: Kind) -> Result<Value, ServerError> {
+        if name == "Acme.Disabled" {
+            return Err(ServerError::Http {
+                method: crate::core::server::Method::Post,
+                status: self.disabled_status,
+                url: "http://localhost/Things/Acme.Disabled/Services/GetRunTimePermissionsAsJSON"
+                    .into(),
+                body: "Thing Acme.Disabled is not enabled".into(),
+            });
+        }
+        Ok(self.live.clone())
+    }
+    fn set(&self, _: &str, _: &str, _: Kind, _: &Value) -> Result<(), ServerError> {
+        panic!("read-only probe")
+    }
+    fn differences(&self, _: &str, _: &str, _: &str) -> Result<usize, ServerError> {
+        Ok(0)
+    }
+}
+
+#[test]
+fn group_membership_grants_explain_the_live_service_and_xml_status_views() {
+    let xml = r#"<Entities><Groups><Group name="Acme.Viewers"><RunTimePermissions/></Group></Groups></Entities>"#;
+    let (_dir, mut entity, _) = entity_file(xml);
+    entity.info.collection = "Groups".into();
+    let resources: Vec<Value> = [
+        "AddMember",
+        "DeleteMember",
+        "GetGroupMembers",
+        "Acme.Custom",
+    ]
+    .iter()
+    .map(|resource| {
+        json!({
+            "resourceName": resource,
+            "ServiceInvoke": [{"name": "Acme.Admins", "type": "Group", "isPermitted": true}]
+        })
+    })
+    .collect();
+    let remote = PermissionViews {
+        xml: xml.as_bytes().to_vec(),
+        live: json!({"permissions": resources}),
+        disabled_status: 503,
+    };
+    for name in ["Acme.Viewers", "Acme.Editors"] {
+        entity.info.name = name.into();
+        let report = run(&remote, std::slice::from_ref(&entity), false);
+        let one = &report.entities[0];
+        assert_eq!(one.status, Status::Differs);
+        assert_eq!(one.differences.len(), 4, "no live grant is hidden");
+        let note = &one.notes[0];
+        assert!(note.contains("XML view omits"));
+        assert!(note.contains("entity status compares that XML"));
+        assert!(note.contains("AddMember, DeleteMember, GetGroupMembers"));
+        assert!(!note.contains("Acme.Custom"));
+    }
+    // A grant present in XML is ordinary drift, not an omitted built-in grant.
+    let exported = r#"<Group><RunTimePermissions><Permissions resourceName="AddMember"><ServiceInvoke><Principal name="Acme.Admins" type="Group"/></ServiceInvoke></Permissions><Permissions resourceName="DeleteMember"><ServiceInvoke><Principal name="Acme.Admins" type="Group"/></ServiceInvoke></Permissions><Permissions resourceName="GetGroupMembers"><ServiceInvoke><Principal name="Acme.Admins" type="Group"/></ServiceInvoke></Permissions></RunTimePermissions></Group>"#;
+    let remote = PermissionViews {
+        xml: exported.as_bytes().to_vec(),
+        ..remote
+    };
+    assert!(run(&remote, &[entity], false).entities[0].notes.is_empty());
+}
+
+#[test]
+fn disabled_thing_is_skipped_in_diff_without_stopping_other_entities_or_weakening_push() {
+    let (_dir, mut entity, _) =
+        entity_file(r#"<Thing name="Acme.Disabled"><RunTimePermissions/></Thing>"#);
+    entity.info.name = "Acme.Disabled".into();
+    let mut enabled = entity.clone();
+    enabled.info.name = "Acme.Enabled".into();
+    let remote = PermissionViews {
+        xml: vec![],
+        live: json!({"permissions": []}),
+        disabled_status: 503,
+    };
+    let report = run(&remote, &[entity.clone(), enabled], false);
+    assert_eq!(report.entities[0].status, Status::NotChecked);
+    assert!(report.entities[0].notes[0].contains("Acme.Disabled: skipped permission comparison"));
+    assert!(report.entities[0].notes[0].contains("HTTP 503"));
+    assert_eq!(report.entities[1].status, Status::Same);
+    assert_eq!(
+        run(&remote, std::slice::from_ref(&entity), true).entities[0].status,
+        Status::Failed
+    );
+    let remote = PermissionViews {
+        disabled_status: 500,
+        ..remote
+    };
+    assert_eq!(
+        run(&remote, &[entity], false).entities[0].status,
+        Status::Failed
+    );
+}

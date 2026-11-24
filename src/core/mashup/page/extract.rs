@@ -25,6 +25,9 @@ pub struct Extraction {
     pub hand_edited: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub notes: Vec<String>,
+    /// The stylesheet the spec's `page.css` names, written beside the spec by `export`.
+    #[serde(skip)]
+    pub css: Option<String>,
 }
 
 fn invalid(message: impl ToString) -> AuthoringError {
@@ -129,7 +132,17 @@ fn counted(name: &str, spec: String, widgets: usize, exact: bool) -> Extraction 
         raw_types,
         hand_edited: vec![],
         notes: vec![],
+        css: None,
     }
+}
+
+/// The stylesheet an existing page.yaml names with `page.css`, read from beside it.
+fn with_css(mut found: Extraction, directory: &std::path::Path) -> Extraction {
+    found.css = serde_saphyr::from_str::<Value>(&found.spec)
+        .ok()
+        .and_then(|v| v["page"]["css"].as_str().map(str::to_string))
+        .and_then(|relative| std::fs::read_to_string(directory.join(relative)).ok());
+    found
 }
 
 fn count_widgets(content: &Value) -> usize {
@@ -251,11 +264,13 @@ fn refine(
             };
             let (widget, key) = (parts[at - 1], parts[at + 1].to_string());
             let node = widgets.get(widget).copied();
+            let is_root =
+                widget == root || derived.value["page"]["root"]["id"].as_str() == Some(widget);
             let props = if widget == "UI" {
                 derived.value["page"]
                     .as_object_mut()
                     .map(|page| page.entry("props").or_insert_with(|| serde_json::json!({})))
-            } else if widget == root {
+            } else if is_root {
                 derived.value["page"].as_object_mut().and_then(|page| {
                     page.entry("root")
                         .or_insert_with(|| serde_json::json!({}))
@@ -328,13 +343,13 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
                             .into(),
                     );
                 }
-                return Ok(found);
+                return Ok(with_css(found, &directory));
             }
             Some(Err(_)) => {}
             None => {
                 if let Ok(built) = compile::compile_at(solution, &project, &spec, &directory) {
                     if built.content == content && built.css == css {
-                        return Ok(counted(name, spec, widgets, true));
+                        return Ok(with_css(counted(name, spec, widgets, true), &directory));
                     }
                 }
             }
@@ -356,16 +371,6 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
         derive::derive_exact(name, &content)
     }
     .map_err(invalid)?;
-    if let Some(tokens) = tokens {
-        derived.spec = derived.spec.replacen(
-            "rules: v1\n",
-            &format!(
-                "rules: v1\ntokens: {}\n",
-                serde_json::to_string(&tokens).unwrap()
-            ),
-            1,
-        );
-    }
     let refined = if adopting {
         refine(solution, &project, &directory, &value, &mut derived)
     } else {
@@ -383,20 +388,78 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
             ));
         }
     }
-    if !css.trim().is_empty() {
-        notes.push("custom CSS of the mashup is not part of a spec".into());
+    let carried = (!css.trim().is_empty()).then(|| {
+        // Right after the template (and its layout), where a reader looks for the page's look.
+        if let Some(page) = derived.value["page"].as_object_mut() {
+            let entries: Vec<_> = std::mem::take(page).into_iter().collect();
+            let after = if entries.iter().any(|(k, _)| k == "layout") {
+                "layout"
+            } else {
+                "template"
+            };
+            for (key, value) in entries {
+                page.insert(key.clone(), value);
+                if key == after {
+                    page.insert("css".into(), serde_json::json!("page.css"));
+                }
+            }
+        }
+        notes.push(format!(
+            "custom CSS sidecar {} ({} bytes) is carried as page.css, written beside the spec by --out",
+            solution.relative(&directory.join("mashup/custom.css")),
+            css.len()
+        ));
+        css.clone()
+    });
+    if carried.is_some() {
+        derived.spec = derive::render(&derived.value);
     }
+    if let Some(tokens) = tokens {
+        derived.spec = derived.spec.replacen(
+            "rules: v1\n",
+            &format!(
+                "rules: v1\ntokens: {}\n",
+                serde_json::to_string(&tokens).unwrap()
+            ),
+            1,
+        );
+    }
+    let spec = derived.spec;
     Ok(Extraction {
         mashup: name.into(),
         elements: derived.elements,
         raw: derived.raw,
         exact: false,
-        spec: derived.spec,
+        spec,
         widgets: derived.widgets,
         raw_types: derived.raw_types,
         hand_edited: vec![],
         notes,
+        css: carried,
     })
+}
+
+/// A spec handed back as text, with no file written beside it, cannot reference `page.css`:
+/// building it would fail on the missing file. Leave the reference out and say how to carry the
+/// stylesheet; the report keeps its text in `css` for a caller that writes it.
+pub fn without_written_css(mut result: Extraction) -> Extraction {
+    if result.css.is_some() {
+        result.spec = result.spec.replacen(
+            "  css: page.css
+",
+            "",
+            1,
+        );
+        for note in &mut result.notes {
+            if note.contains("is carried as page.css") {
+                *note = note.replace(
+                    "is carried as page.css, written beside the spec by --out",
+                    "is not referenced by this spec; `mashup spec --out <file>` writes it beside the spec as page.css (its text is in `css`)",
+                );
+            }
+        }
+    }
+    result
 }
 
 /// Derive a spec and atomically write an explicitly named output while holding the workspace lock.
@@ -412,7 +475,18 @@ pub fn export(
         })
         .transpose()?;
     let result = extract(solution, name)?;
-    if let Some(path) = out {
+    let Some(path) = out else {
+        return Ok(without_written_css(result));
+    };
+    {
+        if let Some(css) = &result.css {
+            let beside = path
+                .parent()
+                .unwrap_or(std::path::Path::new(""))
+                .join("page.css");
+            workspace::atomic_replace(&beside, css.as_bytes())
+                .map_err(|e| invalid(format!("{}: {e}", beside.display())))?;
+        }
         workspace::atomic_replace(path, result.spec.as_bytes())
             .map_err(|e| invalid(format!("{}: {e}", path.display())))?;
     }
@@ -435,5 +509,6 @@ pub(crate) fn derive_content(name: &str, content: &str) -> Result<Extraction, su
         raw_types: derived.raw_types,
         hand_edited: vec![],
         notes: derived.notes,
+        css: None,
     })
 }

@@ -137,6 +137,98 @@ pub fn catalog() -> &'static Catalog {
     &PARSED
 }
 
+/// Configuration-created properties use the same contract in commands, specs and validation.
+pub(crate) fn dynamic_property(
+    type_id: &str,
+    props: &Value,
+    name: &str,
+    data_bound: bool,
+) -> Option<PropertyContract> {
+    let base = if type_id == "ptcscollection" {
+        let globals = json_object(&props["MashupGlobalPropertyBinding"])?;
+        globals.get(name)?.as_str()?.to_string()
+    } else if type_id == "ptcsmenubutton" {
+        let item = name
+            .strip_suffix("_Visible")
+            .or_else(|| name.strip_suffix("_Disabled"))?;
+        if !menu_item(props, item, data_bound) {
+            return None;
+        }
+        "BOOLEAN".into()
+    } else {
+        return None;
+    };
+    Some(PropertyContract {
+        base_type: Some(base),
+        source: type_id == "ptcscollection",
+        target: true,
+        editable: true,
+        options: vec![],
+    })
+}
+
+fn json_object(value: &Value) -> Option<Value> {
+    let value = match value {
+        Value::String(text) => serde_json::from_str(text).ok()?,
+        other => other.clone(),
+    };
+    value.is_object().then_some(value)
+}
+
+fn menu_item(props: &Value, item: &str, data_bound: bool) -> bool {
+    if props["ItemConfigurationMode"] != "widgetProperties" || item.is_empty() {
+        return false;
+    }
+    data_bound
+        || props["Data"]["rows"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|row| row["menuId"] == item)
+}
+
+pub(crate) fn dynamic_event(type_id: &str, props: &Value, event: &str, data_bound: bool) -> bool {
+    type_id == "ptcsmenubutton"
+        && event
+            .strip_suffix("_Clicked")
+            .is_some_and(|item| menu_item(props, item, data_bound))
+}
+
+pub(crate) fn property_bound(content: &Value, id: &str, property: &str) -> bool {
+    content["DataBindings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|binding| {
+            binding["TargetArea"] == "UI"
+                && binding["TargetId"] == id
+                && binding["PropertyMaps"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|map| map["TargetProperty"] == property)
+        })
+}
+
+pub(crate) fn configuration_warnings(content: &Value) -> Vec<String> {
+    fn walk(widget: &Value, content: &Value, out: &mut Vec<String>) {
+        let props = &widget["Properties"];
+        let id = props["Id"].as_str().unwrap_or_default();
+        if props["Type"] == "ptcsmenubutton"
+            && props["ItemConfigurationMode"] == "widgetProperties"
+            && property_bound(content, id, "Data")
+        {
+            out.push(format!("{id}: menu Data is bound; per-item ids cannot be checked offline; wiring is carried as-is"));
+        }
+        for child in widget["Widgets"].as_array().into_iter().flatten() {
+            walk(child, content, out);
+        }
+    }
+    let mut out = vec![];
+    walk(&content["UI"], content, &mut out);
+    out
+}
+
 impl Catalog {
     /// The widget with this exact `Type`.
     pub fn by_type(&self, type_id: &str) -> Option<&Widget> {

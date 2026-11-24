@@ -133,6 +133,9 @@ pub struct Placed {
 pub(crate) struct MashupDocument {
     value: Value,
     uuid_generator: fn(&str) -> String,
+    /// Wiring of a widget the catalogue does not know is written as stated, not checked: set for
+    /// a page built as it was found.
+    verbatim: bool,
 }
 
 /// Parse and check a `content.json`.
@@ -153,6 +156,15 @@ fn random_uuid(_: &str) -> String {
 }
 
 impl MashupDocument {
+    pub(crate) fn set_verbatim(&mut self, verbatim: bool) {
+        self.verbatim = verbatim;
+    }
+
+    /// Whether wiring to a widget the catalogue does not know is written without a check.
+    pub(crate) fn verbatim(&self) -> bool {
+        self.verbatim
+    }
+
     pub(crate) fn set_uuid_generator(&mut self, generator: fn(&str) -> String) {
         self.uuid_generator = generator;
     }
@@ -171,6 +183,7 @@ impl MashupDocument {
         let document = Self {
             value,
             uuid_generator: random_uuid,
+            verbatim: false,
         };
         document.check()?;
         Ok(document)
@@ -1039,6 +1052,38 @@ impl MashupDocument {
                     serde_json::json!({"parts": {"$": {"$": {"background": "inherit"}}}, "widget": "flex-container"}),
                 );
             }
+        }
+    }
+
+    /// Set one base-part style property of a widget in the root's StyleProperties, creating the
+    /// map and the widget's entry where the server keeps them (sorted).
+    pub(crate) fn set_style(&mut self, id: &str, styler: &str, property: &str, value: Value) {
+        let properties = self.root_properties_mut();
+        if !properties.contains_key("StyleProperties") {
+            insert_sorted(
+                properties,
+                "StyleProperties",
+                serde_json::json!({"data": {}, "meta": {"type": "WidgetStyler", "version": "1.0"}}),
+            );
+        }
+        let Some(data) = properties["StyleProperties"]
+            .get_mut("data")
+            .and_then(Value::as_object_mut)
+        else {
+            return;
+        };
+        if !data.contains_key(id) {
+            insert_sorted(
+                data,
+                id,
+                serde_json::json!({"parts": {"$": {"$": {}}}, "widget": styler}),
+            );
+        }
+        let base = &mut data[id]["parts"]["$"]["$"];
+        if let Some(map) = base.as_object_mut() {
+            insert_sorted(map, property, value);
+        } else {
+            *base = serde_json::json!({ property: value });
         }
     }
 
@@ -2615,7 +2660,11 @@ pub(crate) fn new_widget(widget: &Widget, number: u64, alone: bool) -> Value {
     let mut properties: Map<String, Value> = widget.defaults.clone();
     let dropped = if widget.type_id == "flexcontainer" {
         Some(&catalog.dropped.flexcontainer)
-    } else if widget.has_contract() && !widget.function && !widget.extension && !widget.legacy {
+    } else if widget.has_contract()
+        && (!widget.function || widget.type_id.starts_with("ptcs"))
+        && !widget.extension
+        && !widget.legacy
+    {
         Some(&catalog.dropped.ptcs)
     } else {
         None
@@ -2842,6 +2891,39 @@ pub(crate) fn mixed_label_controls(row: &Value) -> Option<(Vec<&str>, Vec<&str>)
         }
     }
     (!labelled.is_empty() && !controls.is_empty()).then_some((labelled, controls))
+}
+
+/// How tall the content of a page container renders when nothing fills: its rows stacked or
+/// side by side, each at its own minimum or at what its widgets measure, plus every nested
+/// container's margin, padding and border. A widget whose height is unknown (a grid, a chart)
+/// counts for nothing, since the wrapper that holds it carries its floor.
+pub(crate) fn content_floor(container: &Value, styles: &Value) -> f64 {
+    fn inner(widget: &Value, styles: &Value) -> f64 {
+        let stacked = widget["Properties"]["flex-direction"] == "column";
+        children(widget)
+            .iter()
+            .filter(|child| {
+                child["twacoLayoutFiller"] != true && child["Properties"]["Visible"] != false
+            })
+            .map(|child| outer(child, styles))
+            .fold(0.0, |all, height| {
+                if stacked {
+                    all + height
+                } else {
+                    all.max(height)
+                }
+            })
+    }
+    fn outer(widget: &Value, styles: &Value) -> f64 {
+        if type_of(widget) != Some("flexcontainer") {
+            return content_height(widget, styles).unwrap_or(0.0);
+        }
+        let margin = vertical_margin(widget["Properties"]["Margin"].as_str().unwrap_or(""));
+        let boxed = vertical_insets(widget, styles) - margin;
+        let minimum = css_px(&widget["Properties"]["flex-min-height"]).unwrap_or(0.0);
+        (inner(widget, styles) + boxed).max(minimum) + margin
+    }
+    inner(container, styles).ceil()
 }
 
 /// Rendered height with margins, or `None` when the widget's height is unknown.

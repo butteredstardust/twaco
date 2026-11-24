@@ -1026,9 +1026,9 @@ pub(crate) const USAGE: &[Usage] = &[
       columns <grid> --column field[:Title[:width[:format]]]... [--date-format <pattern>] [--data <data call>] [--status <field=StateDefinition>] [--editable-column <field>]...
                               only these columns in order, with readable dates and no header dividers; --data or existing binding;
                               --editable-column makes a listed column (and so the grid) editable
-                              --column-editor <field=editor> chooses a typed cell editor (repeatable)
+                              --column-editor <field=textfield|textarea> (repeatable); textarea needs STRING, HTML or HYPERLINK
                               --date-format <pattern> formats DATETIME columns (default yyyy-MM-dd HH:mm:ss for new columns)
-                              --preserve-whitespace <field> keeps newlines and spaces when shown (repeatable)
+                              --preserve-whitespace <field> keeps newlines and spaces; requires textarea and STRING renderer (repeatable)
       pagination <grid> --data <data call>
                               add a centred pager; slice the service result into grid Data locally; default 10 rows, reset on new results/page size
       toolbar <container> --band

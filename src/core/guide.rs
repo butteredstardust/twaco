@@ -518,6 +518,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn operational_field_notes_and_permissions_help_are_embedded_and_searchable() {
+        let (topics, _) = super::topics(None);
+        let quirks = find(&topics, "quirks").unwrap();
+        for (heading, evidence) in [
+            ("Kafka internal queue startup", "pg_ctl -D data stop"),
+            ("LoginLockoutSettings", "next successful login"),
+        ] {
+            let Reading::Text(text) = read(quirks, Some(heading)).unwrap() else {
+                panic!("section text")
+            };
+            assert!(text.contains(evidence));
+            assert!(!search(&topics, heading, 3).is_empty());
+        }
+        let workflow = find(&topics, "workflow").unwrap();
+        let Reading::Text(text) = read(workflow, Some("Permissions")).unwrap() else {
+            panic!("section text")
+        };
+        assert!(text.contains("permissions init"));
+        assert!(workflow.text.contains("deploy --only <mashups>"));
+        assert!(workflow.text.contains("still runs them"));
+    }
+
+    #[test]
     fn the_builtin_topics_are_there_and_split_into_sections() {
         let (topics, problems) = super::topics(None);
         assert!(problems.is_empty());

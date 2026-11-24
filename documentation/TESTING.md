@@ -1,10 +1,24 @@
 # Testing
 
 ```sh
-cargo test                        # everything; no server, no network, no TypeScript needed
+# while building: skip the long corpus, property, and page lifecycle tests
+cargo nextest run --profile quick
+scripts/test-changed              # only the tests related to files changed from main
+
+# before a PR: all normal tests, then doctests (which nextest does not run)
+cargo nextest run
+cargo test --doc
+
+# crash-recovery tests
+cargo nextest run --features test-failpoints -E 'test(transaction) | test(crash)'
+
+# cargo test still works when its libtest behavior is useful
+cargo test
 cargo clippy --all-targets        # lints
 cargo fmt --all --check           # formatting; `cargo fmt` fixes it
 ```
+
+nextest gives every test its own process and runs tests across binaries in parallel.
 
 ## What runs where
 

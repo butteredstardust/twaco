@@ -31,15 +31,22 @@ pub(crate) struct Pins {
 
 pub(crate) struct Ids {
     used: BTreeSet<u64>,
+    names: BTreeSet<String>,
+    explicit_numbers: BTreeSet<u64>,
     allocated: Vec<(String, String, String)>,
 }
 
 impl Ids {
     pub(crate) fn new(reserved: impl Iterator<Item = String>) -> Self {
+        let reserved: Vec<_> = reserved.collect();
         Self {
             used: reserved
+                .iter()
+                .cloned()
                 .filter_map(|id| id.rsplit('-').next()?.parse().ok())
                 .collect(),
+            names: reserved.into_iter().collect(),
+            explicit_numbers: BTreeSet::new(),
             allocated: Vec::new(),
         }
     }
@@ -54,8 +61,31 @@ impl Ids {
             + u64::from(u32::from_be_bytes(digest[..4].try_into().expect("4 bytes"))) % 999_000;
         self.reserve(number)?;
         let id = format!("{kind}-{number}");
+        self.names.insert(id.clone());
         self.allocated.push((node.into(), role.into(), id.clone()));
         Ok(id)
+    }
+    /// Preserve an explicit Composer-style id from a derived spec. Fresh pages cannot collide
+    /// with another document, but a duplicate within this page is still refused.
+    pub(crate) fn explicit(&mut self, node: &str, role: &str) -> Result<String, String> {
+        let number = node
+            .rsplit_once('-')
+            .and_then(|(_, suffix)| suffix.parse::<u64>().ok())
+            .ok_or_else(|| format!("explicit widget id {node} needs a numeric suffix"))?;
+        if !self.names.insert(node.into()) {
+            return Err(format!("duplicate widget id {node}"));
+        }
+        // Composer numbers a mashup's ids uniquely; two spec ids sharing a number would also
+        // share generated display names, so refuse rather than guess. (A template's own ids
+        // may share a number with a source id: they differ by type.)
+        if !self.explicit_numbers.insert(number) {
+            return Err(format!(
+                "widget id {node} reuses number {number}, already taken by another widget id"
+            ));
+        }
+        self.used.insert(number);
+        self.allocated.push((node.into(), role.into(), node.into()));
+        Ok(node.into())
     }
     fn reserve(&mut self, number: u64) -> Result<(), String> {
         if number == 0 || !self.used.insert(number) {

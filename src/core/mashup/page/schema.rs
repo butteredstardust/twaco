@@ -34,10 +34,12 @@ pub(crate) struct Page {
     /// `as-built` keeps the page out of the v1 layout rules: a mashup made by hand or by the
     /// commands keeps the geometry its spec states, and nothing is added to it.
     pub(crate) layout: Option<Spanned<String>>,
+    /// A stylesheet file, relative to the spec, that becomes the mashup's `custom.css` sidecar.
+    pub(crate) css: Option<Spanned<String>>,
     /// Input parameters (name to base type) of a page that is shown inside another, such as a
     /// collection cell; bind to one with `{bind: param.<name>}`.
     #[serde(default)]
-    pub(crate) parameters: BTreeMap<String, Spanned<String>>,
+    pub(crate) parameters: BTreeMap<String, Spanned<Parameter>>,
     #[serde(default)]
     pub(crate) data: BTreeMap<String, Spanned<Source>>,
     #[serde(default)]
@@ -48,6 +50,42 @@ pub(crate) struct Page {
     pub(crate) bindings: Vec<Spanned<Binding>>,
     #[serde(skip)]
     pub(crate) contracts: Vec<super::components::Requirement>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum Parameter {
+    Short(String),
+    Long(ParameterDetails),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ParameterDetails {
+    #[serde(rename = "type")]
+    pub(crate) base_type: String,
+    pub(crate) direction: Option<String>,
+    pub(crate) description: Option<String>,
+    pub(crate) data_shape: Option<String>,
+}
+
+impl Parameter {
+    pub(crate) fn declaration(&self) -> String {
+        match self {
+            Self::Short(text) => text.clone(),
+            Self::Long(details) => {
+                let mut text = details.base_type.clone();
+                if let Some(shape) = &details.data_shape {
+                    text.push_str(&format!(":{shape}"));
+                }
+                text.push_str(&format!(
+                    ":{}",
+                    details.direction.as_deref().unwrap_or("IN")
+                ));
+                text
+            }
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -68,6 +106,8 @@ impl Page {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Root {
+    /// The id the page's root container has when it is not the template's; an as-built page keeps it.
+    pub(crate) id: Option<Spanned<String>>,
     #[serde(default)]
     pub(crate) props: BTreeMap<String, Spanned<Value>>,
 }
@@ -76,6 +116,8 @@ pub(crate) struct Root {
 #[serde(deny_unknown_fields)]
 pub(crate) struct Source {
     pub(crate) service: Option<Spanned<String>>,
+    /// A ThingShape or ThingTemplate service runs on the Thing this `{bind: ...}` names at runtime.
+    pub(crate) entity: Option<Spanned<Value>>,
     pub(crate) expression: Option<Spanned<String>>,
     #[serde(default)]
     pub(crate) inputs: BTreeMap<String, Spanned<ExpressionInput>>,
@@ -488,6 +530,9 @@ pub(crate) struct Body {
     #[serde(default, deserialize_with = "style_list")]
     pub(crate) style: Vec<Spanned<String>>,
     pub(crate) surface: Option<bool>,
+    /// The widget's stored style parts (`part: {state: {property: value}}`), written back as they
+    /// are; what `style:` cannot say, such as a stored style carried from another mashup.
+    pub(crate) styles: Option<Spanned<Value>>,
     pub(crate) size: Option<Spanned<Size>>,
     pub(crate) weight: Option<Spanned<f64>>,
     pub(crate) gap: Option<Spanned<u32>>,
@@ -667,6 +712,9 @@ impl<'de> Deserialize<'de> for Column {
                 width: None,
                 format: None,
                 status: None,
+                editable: false,
+                editor: None,
+                preserve_whitespace: false,
             },
             ColumnInput::Full(c) => Self {
                 field: c.field,
@@ -674,6 +722,9 @@ impl<'de> Deserialize<'de> for Column {
                 width: c.width,
                 format: c.format,
                 status: c.status,
+                editable: c.editable,
+                editor: c.editor,
+                preserve_whitespace: c.preserve_whitespace,
             },
         })
     }
@@ -686,6 +737,9 @@ pub(crate) struct Column {
     pub(crate) width: Option<u32>,
     pub(crate) format: Option<String>,
     pub(crate) status: Option<String>,
+    pub(crate) editable: bool,
+    pub(crate) editor: Option<String>,
+    pub(crate) preserve_whitespace: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -696,6 +750,11 @@ struct FullColumn {
     pub(crate) width: Option<u32>,
     pub(crate) format: Option<String>,
     pub(crate) status: Option<String>,
+    #[serde(default)]
+    pub(crate) editable: bool,
+    pub(crate) editor: Option<String>,
+    #[serde(default)]
+    pub(crate) preserve_whitespace: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -784,10 +843,27 @@ fn parse_nested(
     base: &std::path::Path,
 ) -> Result<Spec, Error> {
     let mut spec: Spec = serde_saphyr::from_str(text).map_err(|error| {
-        Error::at(
-            error.location().unwrap_or(serde_saphyr::Location::UNKNOWN),
-            error,
-        )
+        let location = error.location().unwrap_or(serde_saphyr::Location::UNKNOWN);
+        // The library's duplicate-key message ends with advice about its own options, and may
+        // arrive wrapped in a location variant; say it in twaco's words, keeping the key.
+        let text = error.to_string();
+        let message = match text.split_once("duplicate mapping key") {
+            Some((_, rest)) => {
+                let key = rest
+                    .trim_start_matches([':', ' '])
+                    .split(',')
+                    .next()
+                    .unwrap_or("")
+                    .trim();
+                if key.is_empty() {
+                    "duplicate key".to_string()
+                } else {
+                    format!("duplicate key {key}")
+                }
+            }
+            None => text,
+        };
+        Error::at(location, message)
     })?;
     if spec.version.value != 1 {
         return Err(Error::at(spec.version.referenced, "version must be 1"));

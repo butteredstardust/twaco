@@ -99,6 +99,33 @@ that loads with the page and also refreshes says `on: load, refresh: 5` (seconds
 widget takes `props` for what its own fields do not cover. A tab may carry `props` for its own
 container. A bound property can read a widget's selected rows: `{bind: orders.SelectedRows.Name}`.
 
+A parameter can also use the long form to keep its description. `direction` defaults to `IN`;
+an INFOTABLE parameter supplies `data_shape`. Derive preserves descriptions in this form, in
+both the entity's ParameterDefinitions and Composer's parameter cache:
+
+```yaml
+parameters:
+  sectionName: {type: STRING, direction: BOTH, description: Section title}
+  rows: {type: INFOTABLE, data_shape: Acme.Rows_DS, direction: OUT, description: Visible rows}
+```
+
+Service result fields can bind to mashup parameters, including BOTH parameters in a binding
+cycle. Result DataShapes resolve from the solution, cached platform fields, or the known
+platform `MenuEntry` shape. A server-provided shape declared under `entities.DataShapes` in
+`requirements.toml` can also be used; without its fields the build warns that field types cannot
+be checked offline. An INFOTABLE result with no DataShape supports whole-table bindings and
+carries field bindings with the same warning.
+
+Raw collection widgets declare extra properties through `MashupGlobalPropertyBinding`
+(`{name: baseType}`, as JSON or JSON text). Those properties bind both ways. A menu button in
+`ItemConfigurationMode: widgetProperties` declares `<menuId>_Clicked` events and
+`<menuId>_Visible` / `<menuId>_Disabled` properties from its static `Data.rows`. With bound Data,
+the build carries per-item wiring and warns that the ids cannot be checked offline.
+
+When adopting an as-built contained mashup, a static value left over from a removed child
+parameter produces an orphan-parameter warning and keeps the source bytes. New authored
+contained-mashup parameter settings still use the child's checked contract.
+
 The spec rule version is required and pinned to `v1`. Ordinary `mashup new` commands
 also default to v1; pass `--rules legacy` (MCP `rules: "legacy"`) to opt out. Existing
 mashups retain their `twacoPageRules` during add, set and recipe edits; no marker means legacy.
@@ -158,9 +185,20 @@ numeric `Count` fields. Bindings and events use authored IDs, including tile and
 | `status_message` | `mashup add statusmessage`, `bind`, `on` | `- status_message: {id: failed, message: Operation failed, message_type: error}` |
 | `rich_text` | `mashup add ptcsrte`, `set`, `bind` | `- rich_text: {id: header, content: '<h2>Acme</h2>', read_only: true, show_toolbar: false, font_size: 18, size: {fixed: 56}}` |
 
+Grid column objects also accept `editable: true`, `editor: textfield|textarea`, and
+`preserve_whitespace: true`. For example, `{field: Notes, editable: true, editor: textarea,
+preserve_whitespace: true}`. Textarea editors require STRING, HTML or HYPERLINK fields;
+whitespace preservation requires textarea with the STRING renderer. The compiler uses the
+same column recipe as `mashup recipe columns --editable-column Notes` with
+`--column-editor Notes=textarea --preserve-whitespace Notes`. Columns always write the boolean
+`preserveWhiteSpaces` key used by Composer.
+
 `status_message` is a function widget placed beside the layout. `message` is literal text or
 `{bind: ...}` and maps to `Message`; `message_type` maps to `MessageType` and accepts `error`,
 `info` (the default) or `warning`. `show: <id>` invokes its `ShowMessage` service.
+
+Catalogue function widgets, including logout and confirmation dialogs, also sit beside the
+layout when a spec lists their raw `widget:` nodes in a slot. Derive preserves that placement.
 
 `rich_text` uses native `ptcsrte`: `content` maps to bindable `Data`, `read_only` to `ReadOnly`,
 `show_toolbar` to the inverse of `HideToolbar`, and `font_size` to `DefaultFontSize`. Font size
@@ -766,6 +804,29 @@ Without `--out`, the spec goes to stdout and coverage to stderr. `--json` return
 when they have something to say); it also writes the requested output file when present. MCP
 `mashup_spec` takes `mashup` and returns the same report without writing a file.
 
+**The look is carried.** A mashup's `custom.css` sidecar is written byte for byte to `page.css` beside
+`--out`, and the spec says `page.css: page.css`. Each widget's stored styles (`StyleProperties`) are carried
+as `styles:` on its node, keyed by part and state as stored, and a build writes them back verbatim. With
+`tokens:` the same styles become `style:` settings instead. Any style that no node can carry is listed in
+`notes`, one per widget.
+
+```yaml
+page:
+  name: Acme.Copy_MU
+  template: blank
+  css: page.css          # becomes the mashup's custom.css sidecar, never content CustomMashupCss
+  slots:
+    center:
+      - column:
+          id: side
+          styles: {"$": {"$": {background: "#F7F7F7", border-style: solid}}}
+```
+
+`mashup new COPY --spec f.yaml` copies `page.css` beside the stored `page.yaml`, so a rebuild finds it; a
+missing file is a spec error with its file, line and column. Change the page name in a derived spec before
+building a copy, and keep node ids: custom CSS that targets widget ids keeps working because a fresh build
+keeps a derived spec's ids.
+
 **A mashup built from a spec** (`src/<Mashup>/page.yaml` with its `.page-baseline.json`) returns
 that `page.yaml` byte for byte (`exact: true`) while the mashup still matches its baseline. If the
 mashup was edited by hand after the last build, the report still carries `page.yaml`, with
@@ -798,13 +859,21 @@ Q1 to Q4 and S) both ways.
 | functions/pagination | typed expression `data` entries, `events_router`, `navigate` actions, server-mode `pagination` |
 | anything else | `widget: {id, type, props}` with only the properties that differ from the widget catalogue |
 
+A ThingShape service whose Thing is chosen at runtime is a `data` entry with `entity: {bind: param.Manager}`
+(or a widget property, `{bind: node.Property}`); derive writes it from a `DynamicThingShapes_<Shape>` data
+section and keeps its events and bindings, and a build writes the section and its entity binding back.
+
 Services become `data` entries (`service`, `on: load`, `on: every Ns`, fixed `params`). A binding
 from a widget property to a service parameter becomes `params: {name: {bind: node.Property}}`,
 one into a widget property a `props` entry with `{bind: ...}`, a service feeding `Data` the
 element's `data`, and every other trigger an `events` entry. Node ids are the widget ids with
 anything but letters, digits, `_` and `-` replaced.
 
-Not carried: widget styles, custom CSS, state formatting snapshots, bindings and events outside the supported function contracts and data that is not a Thing service. Properties the catalogue does not list are carried as props on a page that is derived to be adopted, and listed in `notes` otherwise. The report's `notes` list what applied.
+Not carried: state formatting snapshots, bindings and events outside the supported function contracts and data that is not a Thing service. A value derive could not write so that its own build accepts is left out with a note naming it: text
+for a numeric property, an event on a service the catalogue does not list, a reference to a navigation
+function, or (on a page built by the layout rules) a widget the catalogue does not know. On an as-built page
+a `widget:` node of an unknown type is built verbatim with the properties it states.
+Properties the catalogue does not list are carried as props on a page that is derived to be adopted, and listed in `notes` otherwise. The report's `notes` list what applied.
 Pagination derives as `pagination` with `mode: server`, preserving its existing wiring without
 adding slicing expressions. Native expressions become typed `data` entries. Widgets without an element (decorative shapes, extension maps, dynamic navigation or embed targets, two-pane dynamic panels) stay as raw `widget:` nodes with a note.
 Build the derived spec to review a plan: its widget tree matches the
@@ -922,6 +991,13 @@ moves. Four things make that so.
   references stay valid. Nodes added later get stable hashed ids as usual. Bindings and events
   differ in no way a build would notice, so their order is not compared, and neither are
   `id_index`, twaco's own markers or the static value of a property a binding writes.
+
+Adoption reads a mashup as the platform does, not byte for byte. Bindings an older Composer wrote (a lower-case
+property type, no `SourceDetails`), a property the mashup does not state that the spec generates as its empty or
+default value, a number stored as text, a function widget's label and its place among the layout widgets, and a
+navigation function's offered parameter defaults are not differences, and the mashup's bytes stay. On an
+as-built page the wiring of a widget the catalogue does not know is carried as stated, a binding that exists
+twice is one, and a state formatter's own values (`TargetFormat_thresholdMin`) are properties like any other.
 
 When a first build still conflicts, each difference is listed (also in `--json`) with its JSON
 path, the mashup's value, the spec's value and the spec line responsible, the property's own line

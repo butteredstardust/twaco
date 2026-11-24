@@ -26,19 +26,16 @@ pub(crate) fn run_with(
     lock: Option<&WorkspaceLock>,
     scratch_hook: &mut dyn FnMut(&Solution),
 ) -> Result<Outcome, RenameError> {
-    if !options.skip_checks {
-        let report = check::run(solution);
-        if report.blocks() {
-            return Err(RenameError::GatesFail {
-                gates: report
-                    .gates
-                    .iter()
-                    .filter(|gate| gate.blocks())
-                    .map(|gate| gate.name.clone())
-                    .collect(),
-            });
-        }
-    }
+    let gates: Vec<_> = if options.skip_checks {
+        Vec::new()
+    } else {
+        check::run(solution)
+            .gates
+            .into_iter()
+            .filter(|gate| gate.blocks())
+            .map(|gate| gate.name)
+            .collect()
+    };
     let plan = plan(solution, spec)?;
     tracing::info!(
         moves = plan.moves.len(),
@@ -58,6 +55,18 @@ pub(crate) fn run_with(
     // The database half is decided before anything is written: a rename that touches DBConnection
     // tables is refused unless the caller said what to do about their data.
     let effects = db_effects(solution, &plan, &options.date);
+    if !gates.is_empty() {
+        if effects.needs_decision() && matches!(options.sql, SqlChoice::Unset) {
+            return Err(RenameError::Preflight {
+                gates,
+                database: Box::new(RenameError::DatabaseHalf {
+                    shapes: effects.shapes.clone(),
+                    unsure: effects.unsure.clone(),
+                }),
+            });
+        }
+        return Err(RenameError::GatesFail { gates });
+    }
     let mut sql = None;
     if effects.needs_decision() {
         match &options.sql {

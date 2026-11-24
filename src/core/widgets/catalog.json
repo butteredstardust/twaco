@@ -296,7 +296,31 @@
         "Visible": true,
         "Width": 400,
         "Z-index": 10
-      }
+      },
+      "legacy": true,
+      "properties": {
+        "CustomClass": {
+          "base_type": "STRING"
+        },
+        "Name": {
+          "base_type": "MASHUPNAME",
+          "target": true
+        },
+        "Width": {
+          "base_type": "NUMBER"
+        },
+        "Height": {
+          "base_type": "NUMBER"
+        },
+        "TabSequenceGroup": {
+          "base_type": "NUMBER"
+        }
+      },
+      "events": [],
+      "services": [
+        "Refresh",
+        "AddGadgetToDashboard"
+      ]
     },
     {
       "type": "pagemashupcontainer",
@@ -8387,6 +8411,7 @@
         "Visible": true,
         "Z-index": 10
       },
+      "function": true,
       "properties": {
         "TitleText": {
           "base_type": "STRING"
@@ -15676,6 +15701,50 @@
       ],
       "services": [
         "ActivateWidgetRefresh"
+      ]
+    },
+    {
+      "type": "logoutfunction",
+      "aliases": [
+        "logout"
+      ],
+      "type_display_name": "Logout",
+      "display_name": "logoutfunction",
+      "container": false,
+      "numbered": true,
+      "auto_resize": false,
+      "defaults": {
+        "Area": "UI",
+        "Description": "",
+        "DisplayName": "",
+        "Left": 0,
+        "LogoutTargetMashup": "",
+        "Margin": "5",
+        "RedirectTo": "url",
+        "ShowDataLoading": true,
+        "Top": 0,
+        "URL": "",
+        "Visible": true,
+        "Z-index": 10
+      },
+      "function": true,
+      "properties": {
+        "RedirectTo": {
+          "base_type": "MASHUPNAME",
+          "target": true
+        },
+        "LogoutTargetMashup": {
+          "base_type": "MASHUPNAME",
+          "target": true
+        },
+        "URL": {
+          "base_type": "STRING",
+          "target": true
+        }
+      },
+      "events": [],
+      "services": [
+        "Logout"
       ]
     }
   ]
