@@ -9,6 +9,7 @@ use crate::core::config::Solution;
 use crate::core::mashup::address::{parse_address, Address};
 use crate::core::mashup::edit::MashupDocument;
 use crate::core::{catalog, mashup, types, widgets};
+use serde_json::Value;
 
 #[derive(Clone)]
 pub(super) enum End {
@@ -58,6 +59,17 @@ pub(super) fn resolve_end(
                     return Ok(end);
                 }
             }
+            if document.verbatim()
+                && !widgets::catalog()
+                    .by_type(&found.type_id)
+                    .is_some_and(|w| w.has_contract())
+            {
+                return Ok(End::Ui {
+                    id: found.id,
+                    property,
+                    base: String::new(),
+                });
+            }
             let catalog = widgets::catalog().by_type(&found.type_id).filter(|w| w.has_contract()).ok_or_else(|| AuthoringError::Refused(format!("widget `{}` has type `{}`, whose contract is not in the embedded ThingWorx 10.2 catalogue; twaco will not create a binding for it", found.id, found.type_id)))?;
             if catalog.function {
                 if let Some((can_source, can_target, base)) =
@@ -97,9 +109,41 @@ pub(super) fn resolve_end(
                     )));
                 }
             }
-            let contract = catalog.property(&property).ok_or_else(|| {
-                AuthoringError::Unknown(catalog.no_property(&found.id, &property))
-            })?;
+            let Some(contract) = catalog.property(&property) else {
+                // A property with a default but no contract of its own (a chart's `HideYAxis1`, a
+                // tab's `Tab2Visible`): bindable on a page built as found, typed by its default.
+                if let Some(default) = catalog
+                    .defaults
+                    .get(&property)
+                    .cloned()
+                    .or_else(|| catalog.numbered_default(&property))
+                    .filter(|_| document.verbatim())
+                {
+                    let base = match default {
+                        Value::Bool(_) => "BOOLEAN",
+                        Value::Number(_) => "NUMBER",
+                        _ => "STRING",
+                    };
+                    return Ok(End::Ui {
+                        id: found.id,
+                        property,
+                        base: base.into(),
+                    });
+                }
+                // A state formatter's thresholds are properties the widget declares itself, in a
+                // parameter definition the catalogue does not list.
+                if let Some(base) = declared_parameter(document.at(&found.path), catalog, &property)
+                {
+                    return Ok(End::Ui {
+                        id: found.id,
+                        property,
+                        base,
+                    });
+                }
+                return Err(AuthoringError::Unknown(
+                    catalog.no_property(&found.id, &property),
+                ));
+            };
             let valid = if source {
                 contract.source
             } else {
@@ -587,4 +631,47 @@ pub(super) fn allowed(from: &End, to: &End) -> bool {
         ) | (End::Mashup { .. }, End::Ui { .. } | End::Data { .. })
             | (End::Data { .. }, End::Ui { .. } | End::Data { .. })
     )
+}
+
+/// The base type of a property a widget declares in its own parameter definitions (a state
+/// formatter's `Format_<state>` values). A `<Property>_<state>` name for a state-formatting
+/// property the catalogue lists belongs to that formatter even when the definition itself was not
+/// carried; a threshold is then a NUMBER and any other state's type is unknown (`""`).
+fn declared_parameter(
+    widget: &Value,
+    contract: &widgets::Widget,
+    property: &str,
+) -> Option<String> {
+    fn find(value: &Value, property: &str) -> Option<String> {
+        match value {
+            Value::Object(map) => {
+                if map.get("ParameterName").and_then(Value::as_str) == Some(property) {
+                    return map
+                        .get("BaseType")
+                        .and_then(Value::as_str)
+                        .map(str::to_string);
+                }
+                map.values().find_map(|v| find(v, property))
+            }
+            Value::Array(items) => items.iter().find_map(|v| find(v, property)),
+            _ => None,
+        }
+    }
+    let stored = widget["Properties"].get(property).is_some();
+    let declared = find(&widget["Properties"], property);
+    if declared.is_some() {
+        return declared;
+    }
+    let (owner, state) = property.split_once('_')?;
+    let formatter = contract
+        .property(owner)
+        .is_some_and(|p| p.base_type.as_deref() == Some("STATEFORMATTING"))
+        || owner.ends_with("Format");
+    // A threshold is the only kind of state value Composer's formatters declare as a number.
+    let base = if state.starts_with("threshold") {
+        "NUMBER"
+    } else {
+        ""
+    };
+    (!state.is_empty() && (stored || formatter)).then(|| base.to_string())
 }

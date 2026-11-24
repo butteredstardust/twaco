@@ -70,6 +70,8 @@ impl Page {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Root {
+    /// The id the page's root container has when it is not the template's; an as-built page keeps it.
+    pub(crate) id: Option<Spanned<String>>,
     #[serde(default)]
     pub(crate) props: BTreeMap<String, Spanned<Value>>,
 }

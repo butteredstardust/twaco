@@ -133,6 +133,9 @@ pub struct Placed {
 pub(crate) struct MashupDocument {
     value: Value,
     uuid_generator: fn(&str) -> String,
+    /// Wiring of a widget the catalogue does not know is written as stated, not checked: set for
+    /// a page built as it was found.
+    verbatim: bool,
 }
 
 /// Parse and check a `content.json`.
@@ -153,6 +156,15 @@ fn random_uuid(_: &str) -> String {
 }
 
 impl MashupDocument {
+    pub(crate) fn set_verbatim(&mut self, verbatim: bool) {
+        self.verbatim = verbatim;
+    }
+
+    /// Whether wiring to a widget the catalogue does not know is written without a check.
+    pub(crate) fn verbatim(&self) -> bool {
+        self.verbatim
+    }
+
     pub(crate) fn set_uuid_generator(&mut self, generator: fn(&str) -> String) {
         self.uuid_generator = generator;
     }
@@ -171,6 +183,7 @@ impl MashupDocument {
         let document = Self {
             value,
             uuid_generator: random_uuid,
+            verbatim: false,
         };
         document.check()?;
         Ok(document)

@@ -374,6 +374,14 @@ pub(super) fn resolve_trigger(
                 event: event.into(),
             });
         }
+        if document.verbatim() && event_contract(&found.id, &found.type_id).is_err() {
+            return Ok(Trigger {
+                area: "UI",
+                section: String::new(),
+                id: found.id,
+                event: event.into(),
+            });
+        }
         let catalog = event_contract(&found.id, &found.type_id)?;
         if !catalog.has_event(event) {
             return Err(AuthoringError::Invalid(format!(
@@ -460,6 +468,13 @@ pub(super) fn resolve_handler(
                     "a contained mashup has no service {service}; only Refresh is supported"
                 )));
             }
+            return Ok(End::Ui {
+                id: found.id,
+                property: service.into(),
+                base: String::new(),
+            });
+        }
+        if document.verbatim() && event_contract(&found.id, &found.type_id).is_err() {
             return Ok(End::Ui {
                 id: found.id,
                 property: service.into(),

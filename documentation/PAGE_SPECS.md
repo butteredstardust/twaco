@@ -954,6 +954,13 @@ moves. Four things make that so.
   differ in no way a build would notice, so their order is not compared, and neither are
   `id_index`, twaco's own markers or the static value of a property a binding writes.
 
+Adoption reads a mashup as the platform does, not byte for byte. Bindings an older Composer wrote (a lower-case
+property type, no `SourceDetails`), a property the mashup does not state that the spec generates as its empty or
+default value, a number stored as text, a function widget's label and its place among the layout widgets, and a
+navigation function's offered parameter defaults are not differences, and the mashup's bytes stay. On an
+as-built page the wiring of a widget the catalogue does not know is carried as stated, a binding that exists
+twice is one, and a state formatter's own values (`TargetFormat_thresholdMin`) are properties like any other.
+
 When a first build still conflicts, each difference is listed (also in `--json`) with its JSON
 path, the mashup's value, the spec's value and the spec line responsible, the property's own line
 when the node states it:

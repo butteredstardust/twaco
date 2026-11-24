@@ -125,8 +125,15 @@ pub(super) fn bind_in(
             from_raw, to_raw
         )));
     }
-    let from_base = base(&from);
-    let to_base = base(&to);
+    let (mut from_base, mut to_base) = (base(&from), base(&to));
+    // A widget the catalogue does not know has no type of its own: it takes the other end's.
+    if document.verbatim() {
+        if from_base.is_empty() {
+            from_base = to_base;
+        } else if to_base.is_empty() {
+            to_base = from_base;
+        }
+    }
     let coerced = !compatible(from_base, to_base);
     if coerced && (structured(from_base) || structured(to_base)) {
         return Err(AuthoringError::Refused(format!(

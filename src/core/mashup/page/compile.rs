@@ -150,6 +150,7 @@ fn compile_nested(
         }
         // No marker: the document is laid out by the classic table, as the commands do.
         session.document.root_mut().remove("twacoPageRules");
+        session.document.set_verbatim(true);
     }
     let mut allocator = Ids::new(session.document.widgets().into_iter().map(|w| w.id));
     let mut ids = BTreeMap::new();
@@ -217,7 +218,7 @@ fn compile_nested(
     }
     let (model, _) = types::load_model(solution);
     let platform = types::cached_platform(solution);
-    for (alias, source) in &page.data {
+    for (alias, source) in entity_first(page) {
         let source = &source.value;
         let Some(service_spec) = &source.service else {
             continue;
@@ -512,6 +513,11 @@ fn apply_root(
         .find("center")
         .map_err(|e| Error::at(root.referenced, e))?
         .path;
+    if let Some(id) = &root.value.id {
+        session
+            .document
+            .set_property(&path, "Id", json!(id.value.clone()));
+    }
     for (key, value) in &root.value.props {
         if matches!(key.as_str(), "Id" | "Type" | "Widgets") {
             return Err(Error::at(
@@ -655,6 +661,35 @@ fn key_location(body: &schema::Body, message: &str, default: Location) -> Locati
                 .any(|word| word == key.as_str())
         })
         .map_or(default, |(_, value)| value.referenced)
+}
+
+/// The page's data sources in spec order, except that a source naming its entity comes before the
+/// other calls of the same ThingShape: they share one dynamic section whose entity binding the
+/// first call creates, and a call added before it has no Thing to run on.
+fn entity_first(page: &schema::Page) -> Vec<(&String, &serde_saphyr::Spanned<schema::Source>)> {
+    let shape = |source: &schema::Source| {
+        source
+            .service
+            .as_ref()
+            .and_then(|s| s.value.rsplit_once('.').map(|(shape, _)| shape.to_string()))
+    };
+    let items: Vec<_> = page.data.iter().collect();
+    let key = |i: usize| -> (usize, u8, usize) {
+        let own = &items[i].1.value;
+        let Some(name) = shape(own) else {
+            return (i, 0, i);
+        };
+        let group = |j: usize| shape(&items[j].1.value).as_deref() == Some(name.as_str());
+        let carries = |j: usize| items[j].1.value.entity.is_some() && group(j);
+        if !(0..items.len()).any(carries) {
+            return (i, 0, i);
+        }
+        let first = (0..items.len()).find(|j| group(*j)).unwrap_or(i);
+        (first, u8::from(own.entity.is_none()), i)
+    };
+    let mut order: Vec<usize> = (0..items.len()).collect();
+    order.sort_by_key(|i| key(*i));
+    order.into_iter().map(|i| items[i]).collect()
 }
 
 fn is_function(node: &Node) -> Result<bool, Error> {
@@ -868,6 +903,21 @@ fn add(
             )
             .map_err(|e| Error::at(key_location(body, &e.to_string(), loc), e))?
     };
+    // `set` refuses a name; an as-built page states the one the source has.
+    if page.layout.is_some() {
+        if let Some(name) = body.props.get("DisplayName").map(|v| &v.value) {
+            if name.is_string() {
+                let path = session
+                    .document
+                    .find_exact(&placed)
+                    .map_err(|e| Error::at(loc, e))?
+                    .path;
+                session
+                    .document
+                    .set_property(&path, "DisplayName", name.clone());
+            }
+        }
+    }
     if let Some(op) = op {
         let context = crate::core::mashup::layout::context::Node::op(
             op,
@@ -2064,6 +2114,18 @@ fn navigate_event(
         .filter(|(_, v)| binding(&v.value).is_none())
         .map(|(k, v)| (k.clone(), v.value.clone()))
         .collect::<Vec<_>>();
+    // The name is not one `set` may change; an as-built page keeps the source's.
+    let (names, properties): (Vec<_>, Vec<_>) = properties
+        .into_iter()
+        .partition(|(k, _)| k == "DisplayName");
+    if let Some((_, name)) = names.into_iter().next() {
+        let path = session
+            .document
+            .find_exact(&id)
+            .map_err(|e| Error::at(navigate.referenced, e))?
+            .path;
+        session.document.set_property(&path, "DisplayName", name);
+    }
     if !properties.is_empty() {
         session
             .set(

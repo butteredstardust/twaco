@@ -66,9 +66,16 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     let fresh = fresh_root();
     // The template's own root container stands for the mashup's: its properties become the page's
     // `root` and its children the slot, so an adopted page gains no extra level.
+    // As built, a first container stands for it by position whatever its id (a master's root is
+    // `flexcontainer-1`, not the template's); the first build pins the id.
     let template_root = widgets_of(root).first().filter(|w| {
-        is_container(w) && prop(w, "Id").as_str() == fresh.get("Id").and_then(Value::as_str)
+        is_container(w)
+            && (exact || prop(w, "Id").as_str() == fresh.get("Id").and_then(Value::as_str))
     });
+    // The id of a claimed root that is not the template's, so a build renames the template's.
+    let root_name = template_root
+        .map(|w| prop(w, "Id").clone())
+        .filter(|id| id.as_str() != fresh.get("Id").and_then(Value::as_str));
     let (slot, page_root): (Vec<Value>, Option<Map<String, Value>>) = match template_root {
         Some(first) => {
             let direction = if prop(first, "flex-direction") == "column" {
@@ -146,8 +153,15 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     if props["UseMasterTheme"] == json!(true) {
         page.insert("use_master_theme".into(), json!(true));
     }
-    if let Some(page_root) = page_root.filter(|p| !p.is_empty()) {
-        page.insert("root".into(), json!({"props": page_root}));
+    if root_name.is_some() || page_root.as_ref().is_some_and(|p| !p.is_empty()) {
+        let mut spec_root = Map::new();
+        if let Some(id) = root_name {
+            spec_root.insert("id".into(), id);
+        }
+        if let Some(page_root) = page_root.filter(|p| !p.is_empty()) {
+            spec_root.insert("props".into(), json!(page_root));
+        }
+        page.insert("root".into(), Value::Object(spec_root));
     }
     if !parameters.is_empty() {
         page.insert("parameters".into(), Value::Object(parameters));
@@ -832,7 +846,10 @@ impl<'a> Run<'a> {
         let mut seen = vec![];
         for (key, value) in widget["Properties"].as_object().into_iter().flatten() {
             seen.push(key.as_str());
-            let fixed = noise(key) && !matches!(key.as_str(), "DisplayName" | "flex-size");
+            // An as-built root that is not responsive stays so, like the containers below it.
+            let fixed = noise(key)
+                && !matches!(key.as_str(), "DisplayName" | "flex-size")
+                && !(self.exact && key == "ResponsiveLayout" && *value == false);
             if fixed || fresh.get(key).is_some_and(|f| same(f, value)) {
                 continue;
             }
@@ -1329,23 +1346,23 @@ impl<'a> Run<'a> {
         body.insert("data_type".into(), prop(widget, "DataType").clone());
         let mut routes = vec![];
         let names: Vec<_> = (1..=count).map(|n| format!("Input{n}")).collect();
+        let mut skip = vec!["NumberOfInputs", "DataType"];
         for name in &names {
-            routes.push(
-                self.take(widget, name)
-                    .or_else(|| {
-                        widget["Properties"]
-                            .get(name)
-                            .filter(|v| !v.is_null() && *v != "")
-                            .cloned()
-                    })
-                    .unwrap_or(Value::Null),
-            );
+            let route = self.take(widget, name);
+            // An input holding anything but a binding is no route; a literal stays a prop, which
+            // build accepts, and an empty object is just the absence of one.
+            let literal = route.is_none()
+                && widget["Properties"].get(name).is_some_and(|v| {
+                    !v.is_null() && *v != "" && v.as_object().is_none_or(|m| !m.is_empty())
+                });
+            if !literal {
+                skip.push(name);
+            }
+            routes.push(route.unwrap_or(Value::Null));
         }
         if routes.iter().any(|v| !v.is_null()) {
             body.insert("routes".into(), Value::Array(routes));
         }
-        let mut skip = vec!["NumberOfInputs", "DataType"];
-        skip.extend(names.iter().map(String::as_str));
         let props = self.props(widget, &skip);
         self.finish("events_router", widget, body, props)
     }
@@ -2310,6 +2327,25 @@ impl<'a> Run<'a> {
                                     }
                                     None => true,
                                 }
+                            }
+                            // A route is positional: one that names a folded widget is an
+                            // unbound input, not a missing entry.
+                            Some(Value::Array(routes)) if key == "routes" => {
+                                for route in routes.iter_mut() {
+                                    let fixed = route
+                                        .get("bind")
+                                        .and_then(Value::as_str)
+                                        .map(|b| fix(b, ids));
+                                    match fixed {
+                                        Some(Some(fixed)) => *route = json!({"bind": fixed}),
+                                        Some(None) => {
+                                            *route = Value::Null;
+                                            *dropped += 1;
+                                        }
+                                        None => {}
+                                    }
+                                }
+                                false
                             }
                             Some(other) => {
                                 walk(other, ids, dropped);

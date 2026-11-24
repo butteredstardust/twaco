@@ -6,6 +6,15 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Adoption fidelity on a real solution: bindings written by an older Composer (lower-case property types, no
+  `SourceDetails`) match what a build generates and keep their bytes; defaults the source does not state
+  (`CustomClass`, `TooltipField`, empty function-widget inputs) and numbers stored as text are no difference;
+  function widgets pair with their own kind whatever their order against the layout, so expression and router
+  ids are kept; navigation parameter defaults and order are ignored; an as-built page names a navigation
+  function as the source does, carries wiring to widgets the catalogue does not know, accepts a binding
+  stated twice and a formatter threshold (`TargetFormat_thresholdMin`), and a call without an entity no longer
+  precedes the call of its ThingShape that names one. Derive emits `null` for an events-router input that is
+  not bound.
 - v1 pages scroll once, in the mashup root: the page container takes `overflow: visible` (masters keep their
   page host's own scrolling). A spec returned without a file (`mashup spec` without `--out`, MCP
   `mashup_spec`) no longer references `page.css`; the report carries the stylesheet text instead.

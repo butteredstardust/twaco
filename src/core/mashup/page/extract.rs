@@ -264,11 +264,13 @@ fn refine(
             };
             let (widget, key) = (parts[at - 1], parts[at + 1].to_string());
             let node = widgets.get(widget).copied();
+            let is_root =
+                widget == root || derived.value["page"]["root"]["id"].as_str() == Some(widget);
             let props = if widget == "UI" {
                 derived.value["page"]
                     .as_object_mut()
                     .map(|page| page.entry("props").or_insert_with(|| serde_json::json!({})))
-            } else if widget == root {
+            } else if is_root {
                 derived.value["page"].as_object_mut().and_then(|page| {
                     page.entry("root")
                         .or_insert_with(|| serde_json::json!({}))

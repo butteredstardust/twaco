@@ -4801,6 +4801,9 @@ mod master_tests;
 #[path = "carry_tests.rs"]
 mod carry;
 
+#[path = "field_tests.rs"]
+mod field;
+
 /// The page container must cover its sections, or the page scrolls twice (the container inside
 /// the mashup root). Sections as the Q3 page lays them out: a header label (33 + 10 margins), a
 /// KPI row of panels (25 + 40 + 16 margins), the chart row, the 48px toolbar band, the grid and

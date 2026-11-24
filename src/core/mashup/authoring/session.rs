@@ -220,9 +220,11 @@ impl Session {
     fn accept(&mut self, plan: super::EditPlan) -> Result<(), AuthoringError> {
         self.entity = plan.entity_after;
         let assets = mashup::extract(&self.entity).map_err(AuthoringError::Mashup)?;
+        let verbatim = self.document.verbatim();
         self.document = mashup::edit::parse(&assets.content).map_err(AuthoringError::Edit)?;
         self.document
             .set_uuid_generator(crate::core::mashup::page::ids::uuid);
+        self.document.set_verbatim(verbatim);
         self.css = assets.css;
         Ok(())
     }
@@ -352,8 +354,11 @@ impl Session {
             model,
             platform,
         };
-        super::bind_in(&mut self.document, Some(solution), &context, from, to)?;
-        Ok(())
+        match super::bind_in(&mut self.document, Some(solution), &context, from, to) {
+            // A source can state a binding twice; as found, it is one.
+            Err(AuthoringError::Exists(_)) if self.document.verbatim() => Ok(()),
+            result => result.map(|_| ()),
+        }
     }
 
     pub(crate) fn on(
