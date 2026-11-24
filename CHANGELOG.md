@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.77] - 2026-11-24
+
 - Mashup adoption accepts service result fields bound to mashup parameters, legacy contained
   mashup contracts, platform or declared server-provided result DataShapes, collection global
   properties and menu-button item wiring. Missing result DataShapes and orphan contained
@@ -2378,6 +2380,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.77]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.77
 [0.1.76]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.76
 [0.1.75]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.75
 [0.1.74]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.74
