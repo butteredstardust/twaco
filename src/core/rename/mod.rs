@@ -714,12 +714,19 @@ impl Plan {
     pub fn summary_rows(&self, include_outside: bool, detail: bool) -> Vec<(&'static str, String)> {
         let counts = self.counts();
         let spread = |count: KindCounts, note: Option<&str>| {
-            let references = count.exact + count.embedded + count.review;
+            // References changed, and apart from them what is left for a person, so a place
+            // where nothing changes but something needs review never reads as nothing to do.
+            let references = count.exact + count.embedded;
             format!(
-                "{} file{}, {references} reference{}{}",
+                "{} file{}, {references} reference{}{}{}",
                 count.files,
                 if count.files == 1 { "" } else { "s" },
                 if references == 1 { "" } else { "s" },
+                if count.review > 0 {
+                    format!(", {} for review", count.review)
+                } else {
+                    String::new()
+                },
                 note.map(|text| format!(": {text}")).unwrap_or_default()
             )
         };
