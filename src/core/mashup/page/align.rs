@@ -335,6 +335,14 @@ fn is_unstated_default(difference: &merge::Difference, kinds: &BTreeMap<String, 
     if segments.last() == Some(&"__TypeDisplayName") {
         return true;
     }
+    // Older content has no top-level mashupType; the platform reads a missing one as a plain
+    // mashup, which is what a page spec generates.
+    if difference.path == "/mashupType"
+        && difference.current.as_ref().is_none_or(Value::is_null)
+        && difference.generated == "mashup"
+    {
+        return true;
+    }
     if let (Some(Value::String(text)), Some(number)) =
         (&difference.current, difference.generated.as_f64())
     {
@@ -503,6 +511,23 @@ mod tests {
 
     fn widget(id: &str, kind: &str, children: Vec<Value>) -> Value {
         json!({"Properties": {"Id": id, "Type": kind}, "Widgets": children})
+    }
+
+    #[test]
+    fn a_missing_mashup_type_is_the_plain_mashup_a_spec_generates() {
+        let kinds = BTreeMap::new();
+        let missing = merge::Difference {
+            path: "/mashupType".into(),
+            current: None,
+            generated: json!("mashup"),
+        };
+        assert!(is_unstated_default(&missing, &kinds));
+        let other = merge::Difference {
+            path: "/mashupType".into(),
+            current: Some(json!("targetmashup")),
+            generated: json!("mashup"),
+        };
+        assert!(!is_unstated_default(&other, &kinds));
     }
 
     #[test]
