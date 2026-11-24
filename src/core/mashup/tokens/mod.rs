@@ -509,25 +509,30 @@ impl Tokens {
         &self,
         document: &mut crate::core::mashup::edit::MashupDocument,
     ) -> Result<(), crate::core::mashup::authoring::AuthoringError> {
+        // The theme's `global-color-bg-primary` styles the containers, but the mashup root
+        // keeps its legacy `DefaultMashupStyle` (white) and Runtime paints that behind the
+        // page gutter, framing clean/brutalist pages.  Kit pages with their own theme set an
+        // inline root style instead; do the same with the page background.
         if self.card_styles().is_empty() {
             return Ok(());
         }
-        if let Some(page) = document
-            .widgets()
-            .into_iter()
-            .find(|w| w.type_id == "flexcontainer")
-        {
-            crate::core::mashup::authoring::merge_widget_styles(
-                document,
-                &page.id,
-                &page.type_id,
-                &[
-                    format!("background={}", self.roles["background"]),
-                    format!("font-family={}", self.font("sans")),
-                ],
-                "mashup",
-            )?;
-        }
+        document.root_properties_mut().insert(
+            "Style".into(),
+            serde_json::json!({
+                "backgroundColor": self.roles["background"],
+                "displayString": "",
+                "fontEmphasisBold": false,
+                "fontEmphasisItalic": false,
+                "fontEmphasisUnderline": false,
+                "foregroundColor": "",
+                "image": "",
+                "lineColor": "",
+                "lineStyle": "solid",
+                "lineThickness": 1,
+                "secondaryBackgroundColor": "",
+                "textSize": "normal"
+            }),
+        );
         Ok(())
     }
 
@@ -679,6 +684,16 @@ mod tests {
             "ui-monospace, Menlo, Consolas, monospace"
         );
         assert_eq!(tokens.font("sans"), "inherit");
+    }
+
+    #[test]
+    fn page_background_uses_the_native_mashup_canvas_variable() {
+        for (preset, expected) in [("clean", "#F9FAFB"), ("brutalist", "#F3F0E6")] {
+            let tokens = Tokens::load(preset, Path::new(".")).unwrap();
+            assert!(tokens.props().iter().any(|prop| {
+                prop["name"] == "global-color-bg-primary" && prop["value"] == expected
+            }));
+        }
     }
 
     #[test]

@@ -6,6 +6,12 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Test runs use cargo nextest in CI and document quick and changed-file selections for local work.
+- Page specs accept every platform built-in theme (Base, Composer, Legacy Styles, PTC Convergence and its
+  Green Accent). Token presets paint the whole page through an inline mashup style instead of framing it in
+  white; v1 side columns no longer trip twaco's own wrapped-content advisory; display-size labels get room
+  for their glyphs and stop scrolling.
+
 ## [0.1.76] - 2026-11-23
 
 - Page specs support master mashups through `page.kind: master`, native `page_host` and

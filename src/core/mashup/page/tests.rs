@@ -88,6 +88,18 @@ fn compile_is_byte_identical_and_only_returns_artifacts() {
 }
 
 #[test]
+fn page_specs_accept_every_platform_builtin_theme() {
+    let (_dir, solution) = solution();
+    for theme in authoring::BUILTIN_THEMES {
+        let spec = SPEC.replace(
+            "  title: Alerts",
+            &format!("  title: Alerts\n  theme: {theme}"),
+        );
+        compile(&solution, "Acme", &spec).unwrap_or_else(|error| panic!("{theme}: {error}"));
+    }
+}
+
+#[test]
 fn unrelated_nodes_leave_ids_and_wiring_uuids_stable() {
     let (_dir, solution) = solution();
     let first = compile(&solution, "Acme", SPEC).unwrap();
@@ -2332,7 +2344,8 @@ fn side_panel_is_a_grey_276px_column_whose_tab_holds_the_children() {
     )
     .unwrap();
     let side = element_props(&built, "side");
-    assert_eq!(side["flex-size"], "fixed");
+    assert_eq!(side["flex-size"], "range");
+    assert_eq!(side["flex-max-height"], "");
     assert_eq!(side["flex-min-width"], "276px");
     assert_eq!(side["flex-max-width"], "276px");
     assert_eq!(
@@ -3283,6 +3296,9 @@ fn headings_labels_and_text_take_sizes_highlights_and_style_maps() {
     let big = widget_style(&built, "big");
     assert_eq!(big["parts"]["$"]["$"]["background"], "#CCFF00");
     assert_eq!(big["parts"]["label"]["$"]["font-size"], "72px");
+    // A display heading's native box must be tall enough for the two-line hero case; otherwise
+    // PTCS gives the label an internal scrollbar despite its 72px style.
+    assert_eq!(element_props(&built, "big")["Height"], 88);
     let tag = widget_style(&built, "tag");
     assert_eq!(tag["parts"]["$"]["$"]["background"], "#0B0B0B");
     assert_eq!(tag["parts"]["$"]["$"]["border-color"], "#FF2E93");
@@ -4598,6 +4614,26 @@ fn sized_blocks_keep_an_uncapped_height_after_final_layout() {
             !problems.iter().any(|p| p.rule == "wrapped-content-clipping"
                 && p.message.starts_with(&format!("{id}:"))),
             "{problems:?}"
+        );
+    }
+}
+
+#[test]
+fn representative_v1_pages_do_not_warn_about_wrapped_content_clipping() {
+    let folder =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mashup/pages");
+    let solution = Solution::load(&folder.join("bench_solution/twaco.toml")).unwrap();
+    for benchmark in ["l", "m", "s"] {
+        let spec =
+            std::fs::read_to_string(folder.join(format!("bench_{benchmark}/page.yaml"))).unwrap();
+        let built = compile(&solution, "Acme.Bench", &spec).unwrap();
+        let mut problems = vec![];
+        mashup::validate::check_content(&built.content, &mut problems);
+        assert!(
+            !problems
+                .iter()
+                .any(|problem| problem.rule == "wrapped-content-clipping"),
+            "{benchmark}: {problems:?}"
         );
     }
 }

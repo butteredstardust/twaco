@@ -200,6 +200,17 @@ fn text_size(b: &mut Body) -> Result<(), Error> {
         ),
         _ => return Ok(()),
     };
+    if matches!(size, Size::Display) {
+        // PTCS labels keep their native one-line height after a style-only font change.  Give a
+        // display label enough native space for each authored line (plus 16px for glyph descent) so
+        // it cannot acquire an inner scrollbar.
+        let lines = b
+            .text
+            .as_ref()
+            .and_then(serde_json::Value::as_str)
+            .map_or(2, |text| text.lines().count().max(1));
+        default_prop(b, "Height", json!(lines * 72 + 16));
+    }
     let at = b.id.referenced;
     b.size = None;
     default_prop(b, "LabelType", json!(label_type));

@@ -212,10 +212,15 @@ fn clean_page_has_exact_card_and_page_styles() {
         card["font-family"],
         "Inter, ui-sans-serif, Arial, sans-serif"
     );
-    let page = &styles[value["content"]["UI"]["Widgets"][0]["Properties"]["Id"]
+    let page = value["content"]["UI"]["Widgets"][0]["Properties"]["Id"]
         .as_str()
-        .unwrap()]["parts"]["$"]["$"];
-    assert_eq!(page["background"], "#F9FAFB");
+        .unwrap();
+    // A container-level background would stop at this page container's gutter; the root's
+    // inline style replaces the white legacy DefaultMashupStyle behind the whole page.
+    assert!(styles.get(page).is_none());
+    let root_style = &value["content"]["UI"]["Properties"]["Style"];
+    assert_eq!(root_style["backgroundColor"], "#F9FAFB");
+    assert_eq!(root_style["lineStyle"], "solid");
 }
 
 #[test]

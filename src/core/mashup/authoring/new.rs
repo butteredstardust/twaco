@@ -18,6 +18,17 @@ use std::path::{Path, PathBuf};
 /// The theme a new mashup uses unless asked for another: 10.2's default.
 pub(crate) const DEFAULT_THEME: &str = "PTC Convergence Theme";
 
+/// Style themes that ThingWorx 10.2 supplies even though they have no entity in a solution
+/// export.  Keep this list in the authoring boundary: every caller which accepts a theme goes
+/// through `validate_theme`.
+pub(crate) const BUILTIN_THEMES: &[&str] = &[
+    "Base Theme",
+    "Composer Theme",
+    "Legacy Styles Theme",
+    DEFAULT_THEME,
+    "PTC Convergence Theme - Green Accent",
+];
+
 #[derive(Clone, Debug)]
 pub struct NewRequest {
     pub name: String,
@@ -481,7 +492,7 @@ fn page_notes(solution: &Solution, request: &NewRequest) -> Vec<String> {
 
 /// Refuse themes Composer cannot resolve without creating an entity.
 pub(crate) fn validate_theme(solution: &Solution, theme: &str) -> Result<String, AuthoringError> {
-    if theme == DEFAULT_THEME
+    if BUILTIN_THEMES.contains(&theme)
         || workspace::entities(solution)
             .iter()
             .any(|entity| entity.info.collection == "StyleThemes" && entity.info.name == theme)

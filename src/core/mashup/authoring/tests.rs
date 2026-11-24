@@ -7889,7 +7889,9 @@ fn setting_the_root_theme_takes_the_default_or_a_solution_theme_only() {
             },
         )
     };
-    assert!(theme(super::new::DEFAULT_THEME).is_ok());
+    for builtin in super::new::BUILTIN_THEMES {
+        assert!(theme(builtin).is_ok(), "{builtin}");
+    }
     let error = theme("Acme.Missing").err().map(|e| e.to_string());
     assert!(
         error
