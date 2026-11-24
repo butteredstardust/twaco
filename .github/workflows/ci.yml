@@ -25,13 +25,18 @@ jobs:
         with:
           toolchain: stable
           components: clippy, rustfmt
+      - uses: taiki-e/install-action@82cd3e7658a6f96c86c0234aeeda1748937cb0a1 # v2.85.13
+        with:
+          tool: nextest@0.9.152
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Build
         run: cargo build --all-targets --locked
       - name: Test
-        run: cargo test --locked
+        run: cargo nextest run --locked --profile ci
+      - name: Doctests
+        run: cargo test --doc --locked
       - name: Crash-recovery tests
-        run: cargo test --locked --features test-failpoints -- transaction crash
+        run: cargo nextest run --locked --profile ci --features test-failpoints -E 'test(transaction) | test(crash)'
       - name: Clippy
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Formatting

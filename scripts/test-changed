@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# Run the narrowest useful nextest selection for the files changed from main.
+set -euo pipefail
+
+dry_run=false
+args=()
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) dry_run=true ;;
+        *) args+=("$arg") ;;
+    esac
+done
+
+base=$(git merge-base HEAD origin/main)
+mapfile -t changed < <(
+    {
+        git diff --name-only "$base"
+        git ls-files --others --exclude-standard
+    } | sort -u
+)
+
+if ((${#changed[@]} == 0)); then
+    echo "No changed files from origin/main."
+    exit 0
+fi
+
+dependency_change=false
+filters=()
+add_filter() {
+    local filter=$1
+    local existing
+    for existing in "${filters[@]}"; do
+        [[ "$existing" == "$filter" ]] && return
+    done
+    filters+=("$filter")
+}
+
+for path in "${changed[@]}"; do
+    case "$path" in
+        Cargo.toml|Cargo.lock|build.rs)
+            dependency_change=true
+            ;;
+        src/core/mashup/page/*)
+            add_filter 'test(page::) | binary(mashup_pages)'
+            ;;
+        src/core/mashup/tokens*)
+            add_filter 'test(tokens)'
+            ;;
+        src/cli/*|src/main.rs)
+            add_filter 'binary(snapshots) | test(grammar)'
+            ;;
+        src/core/scan*|src/core/splice*|src/core/sidecar*|src/core/datashape*|src/core/datatable*)
+            add_filter 'binary(corpus)'
+            ;;
+        src/mcp/*)
+            add_filter 'binary(cli_mcp)'
+            ;;
+        tests/*.rs)
+            name=${path#tests/}
+            add_filter "binary(${name%.rs})"
+            ;;
+        src/*.rs|src/*/*.rs|src/*/*/*.rs|src/*/*/*/*.rs|src/*/*/*/*/*.rs)
+            module=${path#src/}
+            module=${module%.rs}
+            module=${module%/mod}
+            module=${module//\//::}
+            add_filter "test(${module}::)"
+            ;;
+    esac
+done
+
+if "$dependency_change"; then
+    echo "dependency change: running the quick suite; run 'cargo nextest run' before the PR"
+    command=(cargo nextest run --locked --build-jobs 6 --profile quick)
+elif ((${#filters[@]} == 0)); then
+    echo "No Rust test mapping; running the quick suite."
+    command=(cargo nextest run --locked --build-jobs 6 --profile quick)
+else
+    filterset=
+    for filter in "${filters[@]}"; do
+        if [[ -n "$filterset" ]]; then
+            filterset+=' | '
+        fi
+        filterset+=$filter
+    done
+    command=(cargo nextest run --locked --build-jobs 6 -E "$filterset")
+fi
+
+command+=("${args[@]}")
+printf 'Running:'
+printf ' %q' "${command[@]}"
+printf '\n'
+
+if "$dry_run"; then
+    exit 0
+fi
+
+"${command[@]}"

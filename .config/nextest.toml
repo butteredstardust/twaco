@@ -1,0 +1,15 @@
+# The default and CI profiles run every test. `quick` leaves the high-volume
+# regression tests for an explicit full run, while `slow` is useful when
+# working on those tests themselves.
+[profile.default]
+retries = 0
+
+[profile.ci]
+fail-fast = false
+retries = 0
+
+[profile.quick]
+default-filter = "not (binary(corpus) | binary(properties) | test(benchmark_))"
+
+[profile.slow]
+default-filter = "binary(corpus) | binary(properties) | test(benchmark_)"
