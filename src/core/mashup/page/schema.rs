@@ -78,6 +78,8 @@ pub(crate) struct Root {
 #[serde(deny_unknown_fields)]
 pub(crate) struct Source {
     pub(crate) service: Option<Spanned<String>>,
+    /// A ThingShape or ThingTemplate service runs on the Thing this `{bind: ...}` names at runtime.
+    pub(crate) entity: Option<Spanned<Value>>,
     pub(crate) expression: Option<Spanned<String>>,
     #[serde(default)]
     pub(crate) inputs: BTreeMap<String, Spanned<ExpressionInput>>,

@@ -253,6 +253,21 @@ fn compile_nested(
             .filter(|(_, v)| binding(&v.value).is_none())
             .map(|(k, v)| format!("{k}={}", scalar(&v.value)))
             .collect();
+        // A dynamic source's entity is bound with the call when it comes from a parameter or a
+        // widget; one that comes from another call is bound once every call exists.
+        let entity_from = match &source.entity {
+            Some(entity) => {
+                let from = binding(&entity.value).ok_or_else(|| {
+                    Error::at(
+                        entity.referenced,
+                        "entity must be {bind: param.Name} or {bind: node.Property}",
+                    )
+                })?;
+                Some(address(page, &ids, from, entity.referenced)?)
+                    .filter(|a| a.starts_with("mashup:") || a.starts_with("ui:"))
+            }
+            None => None,
+        };
         session
             .source(
                 solution,
@@ -260,10 +275,10 @@ fn compile_nested(
                     mashup: page.name.value.clone(),
                     entity,
                     service,
-                    dynamic: false,
+                    dynamic: source.entity.is_some(),
                     on_load: source.on.as_ref().is_some_and(|on| on.value == "load"),
                     alias: Some(alias.clone()),
-                    entity_from: None,
+                    entity_from,
                     refresh,
                     cache: false,
                     cache_keys: vec![],
@@ -298,6 +313,28 @@ fn compile_nested(
         let source = &source.value;
         if source.expression.is_some() {
             continue;
+        }
+        if let (Some(entity), Some(service)) = (&source.entity, &source.service) {
+            let from = address(
+                page,
+                &ids,
+                binding(&entity.value).unwrap_or_default(),
+                entity.referenced,
+            )?;
+            if !(from.starts_with("mashup:") || from.starts_with("ui:")) {
+                let (shape, _) =
+                    authoring::session::source_target(&model, platform.as_ref(), &service.value)
+                        .map_err(|e| Error::at(service.referenced, e))?;
+                session
+                    .bind(
+                        solution,
+                        &model,
+                        platform.as_ref(),
+                        &from,
+                        &format!("data:{shape}[EntityName][as {alias}]"),
+                    )
+                    .map_err(|e| Error::at(entity.referenced, e))?;
+            }
         }
         for (param, value) in &source.params {
             if let Some(from) = binding(&value.value) {
@@ -561,6 +598,18 @@ fn apply_pins(
 
 /// A property's text for the add command. A number the platform writes for a pixel option (a font
 /// size of 14) is the option "14px", which the property then keeps as the spec spelled it.
+/// The type of a raw `widget:` node on an as-built page that the widget catalogue does not know.
+fn raw_unknown<'a>(page: &Page, node: &'a Node) -> Option<&'a str> {
+    if page.layout.is_none() || !matches!(node, Node::Widget(_)) {
+        return None;
+    }
+    let widget = node.widget().ok()?;
+    crate::core::widgets::catalog()
+        .resolve(widget)
+        .is_err()
+        .then_some(widget)
+}
+
 fn option_text(node: &Node, key: &str, value: &Value) -> String {
     if let (Some(number), Ok(widget)) = (
         value.as_f64().filter(|n| n.fract() == 0.0),
@@ -618,7 +667,7 @@ fn is_function(node: &Node) -> Result<bool, Error> {
 }
 
 /// Whether every catalogue widget that defines `name` types it as a number.
-fn always_numeric(name: &str) -> bool {
+pub(super) fn always_numeric(name: &str) -> bool {
     let catalog = crate::core::widgets::catalog();
     let mut seen = false;
     for widget in &catalog.widgets {
@@ -769,6 +818,32 @@ fn add(
                 )
                 .map_err(|e| Error::at(loc, e))?;
         }
+        id
+    } else if let Some(widget) = raw_unknown(page, node) {
+        // A widget the catalogue does not know (a legacy gauge) on a page built as it was found:
+        // carried verbatim, with its stored properties.
+        let parent_path = session
+            .document
+            .find_exact(parent)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        let number = session.document.allocate();
+        let mut properties = serde_json::Map::new();
+        for (key, value) in &body.props {
+            if !value.value.is_null() && binding(&value.value).is_none() {
+                properties.insert(key.clone(), value.value.clone());
+            }
+        }
+        properties.insert("Id".into(), json!(format!("{widget}-{number}")));
+        properties.insert("Type".into(), json!(widget));
+        properties
+            .entry("DisplayName")
+            .or_insert_with(|| json!(format!("{widget}-{number}")));
+        let id = format!("{widget}-{number}");
+        session.document.push_child(
+            &parent_path,
+            json!({"Properties": properties, "Widgets": []}),
+        );
         id
     } else {
         session

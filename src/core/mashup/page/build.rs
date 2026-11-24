@@ -217,6 +217,15 @@ fn plan_from(
         .map(|e| e.info.project.as_str())
         .or(project)
         .or_else(|| (solution.projects.len() == 1).then(|| solution.projects[0].name.as_str()))
+        .or_else(|| {
+            // A name that starts with exactly one project's name belongs to that project.
+            let mut named = solution.projects.iter().filter(|p| {
+                name.strip_prefix(p.name.as_str())
+                    .is_some_and(|rest| rest.starts_with('.'))
+            });
+            let first = named.next()?;
+            named.next().is_none().then_some(first.name.as_str())
+        })
         .ok_or_else(|| invalid("mashup new --spec needs --project in a multi-project solution"))?;
     let configured = solution
         .project(project)

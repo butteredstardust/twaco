@@ -821,13 +821,21 @@ Q1 to Q4 and S) both ways.
 | functions/pagination | typed expression `data` entries, `events_router`, `navigate` actions, server-mode `pagination` |
 | anything else | `widget: {id, type, props}` with only the properties that differ from the widget catalogue |
 
+A ThingShape service whose Thing is chosen at runtime is a `data` entry with `entity: {bind: param.Manager}`
+(or a widget property, `{bind: node.Property}`); derive writes it from a `DynamicThingShapes_<Shape>` data
+section and keeps its events and bindings, and a build writes the section and its entity binding back.
+
 Services become `data` entries (`service`, `on: load`, `on: every Ns`, fixed `params`). A binding
 from a widget property to a service parameter becomes `params: {name: {bind: node.Property}}`,
 one into a widget property a `props` entry with `{bind: ...}`, a service feeding `Data` the
 element's `data`, and every other trigger an `events` entry. Node ids are the widget ids with
 anything but letters, digits, `_` and `-` replaced.
 
-Not carried: state formatting snapshots, bindings and events outside the supported function contracts and data that is not a Thing service. Properties the catalogue does not list are carried as props on a page that is derived to be adopted, and listed in `notes` otherwise. The report's `notes` list what applied.
+Not carried: state formatting snapshots, bindings and events outside the supported function contracts and data that is not a Thing service. A value derive could not write so that its own build accepts is left out with a note naming it: text
+for a numeric property, an event on a service the catalogue does not list, a reference to a navigation
+function, or (on a page built by the layout rules) a widget the catalogue does not know. On an as-built page
+a `widget:` node of an unknown type is built verbatim with the properties it states.
+Properties the catalogue does not list are carried as props on a page that is derived to be adopted, and listed in `notes` otherwise. The report's `notes` list what applied.
 Pagination derives as `pagination` with `mode: server`, preserving its existing wiring without
 adding slicing expressions. Native expressions become typed `data` entries. Widgets without an element (decorative shapes, extension maps, dynamic navigation or embed targets, two-pane dynamic panels) stay as raw `widget:` nodes with a note.
 Build the derived spec to review a plan: its widget tree matches the

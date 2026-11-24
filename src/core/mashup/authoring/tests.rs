@@ -1740,10 +1740,10 @@ fn a_binding_twaco_cannot_stand_behind_is_refused() {
         code("ui:nope-9.Text", "ui:ptcsgrid-5.Data"),
         ErrorCode::UnknownEntity
     );
-    // STRING into a LONG parameter.
+    // A table into a LONG parameter: scalar mismatches coerce, tables never do.
     assert_eq!(
         code(
-            "ui:ptcstextfield-3.Text",
+            "data:Acme.Orders.Manager.GetOrders",
             "data:Acme.Orders.Manager.SaveOrder.id"
         ),
         ErrorCode::GuardRefused
@@ -5681,12 +5681,15 @@ fn binding_into_a_navigation_function_refreshes_a_missing_or_stale_copy_first() 
         &solution,
         "ui:ptcstextfield-3.Text",
         &format!("ui:{navigation}.count"),
-    );
+    )
+    .unwrap();
     assert!(
-        plan.is_err(),
-        "STRING into the NUMBER count is refused by type, not as unknown"
+        plan.warnings
+            .iter()
+            .any(|w| w.contains("the runtime coerces it")),
+        "STRING into the NUMBER count coerces, with a warning: {:?}",
+        plan.warnings
     );
-    assert_eq!(plan.unwrap_err().code(), ErrorCode::GuardRefused);
     let plan = bind(
         &solution,
         "ui:ptcstextfield-3.Text",
@@ -6621,15 +6624,21 @@ fn strings_bind_into_entity_names_and_numbers_into_numbers() {
         "data:Acme.Orders.Manager.GetOrder.id",
     )
     .unwrap();
-    // Text is no number.
-    let error = bind(
+    // Text into a number is a coercion: it binds, with a warning.
+    let coerced = bind(
         &solution,
         "ui:ptcstextfield-3.Text",
         "data:Acme.Orders.Manager.SaveOrder.id",
     )
-    .unwrap_err()
-    .to_string();
-    assert!(error.contains("is STRING but"), "{error}");
+    .unwrap();
+    assert!(
+        coerced
+            .warnings
+            .iter()
+            .any(|w| w.contains("is STRING but") && w.contains("the runtime coerces it")),
+        "{:?}",
+        coerced.warnings
+    );
 }
 
 #[test]
@@ -7589,7 +7598,14 @@ fn style_writes_a_new_entry_with_its_styler_and_sorted_parts() {
     let css = entry["parts"]["$"]["$"].as_object().unwrap();
     assert_eq!(
         css.keys().collect::<Vec<_>>(),
-        ["background", "border-color", "border-style", "border-width"]
+        // `overflow` is the v1 page container's own (the page scrolls once, in the root).
+        [
+            "background",
+            "border-color",
+            "border-style",
+            "border-width",
+            "overflow"
+        ]
     );
     // The same settings again change nothing.
     let again = style(
@@ -7755,8 +7771,9 @@ fn style_from_copies_one_entry_and_keeps_the_rest() {
 #[test]
 fn style_from_creates_the_style_map_and_combines_with_props_in_one_edit() {
     let (_dir, solution) = style_fixture();
-    assert!(root_styles(&solution, "Acme.Target_MU")
-        .get("data")
+    // A v1 page starts with its page container's overflow only; the label has no entry yet.
+    assert!(root_styles(&solution, "Acme.Target_MU")["data"]
+        .get("ptcslabel-3")
         .is_none());
     let plan = set_and_apply(
         &solution,

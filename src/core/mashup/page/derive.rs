@@ -124,6 +124,22 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     {
         page.insert("theme".into(), json!(theme));
     }
+    if exact && content["mashupType"] != "targetmashup" {
+        // A mashup built by hand keeps the root style it has.
+        let fresh = crate::core::mashup::authoring::session::Session::new(
+            "Acme.Probe_MU",
+            "Acme",
+            "blank",
+            "PTC Convergence Theme",
+        )
+        .ok()
+        .and_then(|s| s.document.root_properties().get("Style").cloned());
+        if let Some(style) = props["Style"].as_str().filter(|style| {
+            !style.is_empty() && fresh.as_ref().and_then(Value::as_str) != Some(style)
+        }) {
+            page.insert("props".into(), json!({"Style": style}));
+        }
+    }
     if let Some(master) = props["Master"].as_str().filter(|m| !m.is_empty()) {
         page.insert("master".into(), json!(master));
     }
@@ -364,6 +380,31 @@ fn known_property(widget: &Value, property: &str) -> bool {
     })
 }
 
+/// The `Type` of the widget with this id, searching the tree below `widget`.
+fn widget_type<'a>(widget: &'a Value, id: &str) -> Option<&'a str> {
+    if prop(widget, "Id").as_str() == Some(id) {
+        return widget["Properties"]["Type"].as_str();
+    }
+    widgets_of(widget).iter().find_map(|w| widget_type(w, id))
+}
+
+/// Whether the catalogue types `key` of `type_id` as a number: by its default, or its contract.
+fn wants_number(type_id: &str, key: &str, default: Option<&Value>) -> bool {
+    match default {
+        Some(Value::Number(_)) => true,
+        Some(_) => false,
+        None => widgets::catalog()
+            .by_type(type_id)
+            .and_then(|w| w.property(key))
+            .map_or_else(
+                // Unlisted on this widget: numeric when it is numeric everywhere it is listed,
+                // which is what the build checks.
+                || super::compile::always_numeric(key),
+                |p| matches!(p.base_type.as_deref(), Some("NUMBER" | "INTEGER")),
+            ),
+    }
+}
+
 fn is_container(widget: &Value) -> bool {
     kind(widget) == "flexcontainer"
 }
@@ -403,6 +444,8 @@ struct Call {
     service: String,
     params: Map<String, Value>,
     refresh: u64,
+    /// A dynamic source: the shape or template it runs on a Thing of, chosen at runtime.
+    dynamic: bool,
 }
 
 #[derive(Clone)]
@@ -464,8 +507,21 @@ impl<'a> Run<'a> {
         let mut aliases = BTreeSet::new();
         let mut other = 0;
         for (section, entry) in content["Data"].as_object().into_iter().flatten() {
-            let entity = entry["EntityName"].as_str().unwrap_or("");
-            if entry["EntityType"] != "Things" || entity.is_empty() {
+            let dynamic = matches!(
+                entry["EntityType"].as_str(),
+                Some("DynamicThingShapes" | "DynamicThingTemplates")
+            );
+            let named = entry["EntityName"].as_str().unwrap_or("");
+            // A dynamic section may name its shape only in its key.
+            let entity = if named.is_empty() && dynamic {
+                section
+                    .split_once('_')
+                    .map(|(_, shape)| shape)
+                    .unwrap_or("")
+            } else {
+                named
+            };
+            if !(entry["EntityType"] == "Things" || dynamic) || entity.is_empty() {
                 if !entry["Services"].as_array().is_none_or(Vec::is_empty)
                     && !matches!(
                         entry["EntityType"].as_str(),
@@ -503,6 +559,7 @@ impl<'a> Run<'a> {
                         .cloned()
                         .unwrap_or_default(),
                     refresh: service["RefreshInterval"].as_u64().unwrap_or(0),
+                    dynamic,
                 });
             }
         }
@@ -680,7 +737,14 @@ impl<'a> Run<'a> {
                 continue;
             }
             // On a v1 page the layout rules write `scrolling`; an as-built page keeps its own.
-            if (noise(key) && !(self.exact && key == "flex-size"))
+            // As built, a container stays non-responsive and a positioned widget keeps its
+            // place; the catalogue's default would make the first responsive and the second 0.
+            let kept = self.exact
+                && (key == "flex-size"
+                    || (key == "ResponsiveLayout" && type_id == "flexcontainer")
+                    || (matches!(key.as_str(), "Left" | "Top")
+                        && number(value).is_some_and(|n| n != 0.0)));
+            if (noise(key) && !kept)
                 || (!self.exact && key == "scrolling")
                 || skip.contains(&key.as_str())
                 || skip
@@ -702,6 +766,22 @@ impl<'a> Run<'a> {
                     key.clone(),
                 ));
                 continue;
+            }
+            if let Some(text) = value.as_str() {
+                if !text.trim().is_empty() && wants_number(type_id, key, base.get(key)) {
+                    // The build writes numbers as numbers; text that is none cannot be built.
+                    match text.trim().parse::<f64>() {
+                        Ok(n) => {
+                            let whole = text.trim().parse::<i64>().ok();
+                            out.insert(key.clone(), whole.map_or_else(|| json!(n), |w| json!(w)));
+                        }
+                        Err(_) => self.notes.push(format!(
+                            "property left out: {} {key} (\"{text}\" is not a number)",
+                            prop(widget, "Id").as_str().unwrap_or("")
+                        )),
+                    }
+                    continue;
+                }
             }
             if value.get("StateFormats").is_some() {
                 self.notes_once(
@@ -939,6 +1019,19 @@ impl<'a> Run<'a> {
             "ptcschartbar" | "ptcschartline" | "ptcschartpie" | "ptcschartpareto" | "ptcschartwaterfall" | "ptcschartcombo" => "chart needs a supported flat table feed and axis fields (pie: DataField and ValueField); unconfigured or dynamic feeds remain raw",
             _ => "no matching element contract; explicit widget properties are retained",
         };
+        let extension = matches!(
+            type_id.as_str(),
+            "googlemap" | "OpenStreetMap" | "openstreetmap"
+        );
+        if !self.exact && !extension && widgets::catalog().resolve(&type_id).is_err() {
+            // A page built by the layout rules refuses a widget the catalogue does not know;
+            // only a page built as found carries one verbatim.
+            self.notes.push(format!(
+                "widget left out: {type_id} {} (not in the widget catalogue; `mashup spec` on a mashup built by hand keeps it)",
+                self.id(widget)
+            ));
+            return Value::Null;
+        }
         self.notes_once(&format!("{type_id}: {reason}"));
         let mut body = Map::new();
         body.insert("type".into(), json!(type_id));
@@ -1354,6 +1447,7 @@ impl<'a> Run<'a> {
             }
             declared.insert(name.into(), Value::Object(input));
         }
+        let input_names: Vec<String> = declared.keys().cloned().collect();
         if !declared.is_empty() {
             entry.insert("inputs".into(), Value::Object(declared));
         }
@@ -1364,6 +1458,38 @@ impl<'a> Run<'a> {
         ] {
             if let Some(value) = widget["Properties"].get(prop_name) {
                 entry.insert(field.into(), value.clone());
+            }
+        }
+        if self.exact {
+            // What the function carries beyond the spec's own fields, so an adopted page keeps it.
+            let defaults = widgets::catalog()
+                .by_type("expression2")
+                .map(|w| w.defaults.clone())
+                .unwrap_or_default();
+            let mut props = Map::new();
+            for (key, value) in widget["Properties"].as_object().into_iter().flatten() {
+                let named = key == "DisplayName" && !generated_name(widget, value);
+                if (noise(key) && !named)
+                    || matches!(
+                        key.as_str(),
+                        "Expression"
+                            | "OutputBaseType"
+                            | "AutoEvaluate"
+                            | "FireOnFirstValue"
+                            | "DataChangeType"
+                    )
+                    || input_names.contains(key)
+                    || value.is_object()
+                    || value.is_array()
+                    || defaults.get(key).is_some_and(|d| same(d, value))
+                    || (named && value.as_str() == Some(""))
+                {
+                    continue;
+                }
+                props.insert(key.clone(), value.clone());
+            }
+            if !props.is_empty() {
+                entry.insert("props".into(), Value::Object(props));
             }
         }
         self.expressions.insert(alias, Value::Object(entry));
@@ -1996,6 +2122,23 @@ impl<'a> Run<'a> {
                 events.push(json!({"on": trigger.as_deref().unwrap_or("load"), "show": format!("@@{}@@", get("EventHandlerId"))}));
                 continue;
             }
+            if get("EventHandlerArea") == "UI" {
+                let unlisted = widget_type(&self.content["UI"], get("EventHandlerId"))
+                    .and_then(|t| widgets::catalog().by_type(t))
+                    .and_then(|w| w.services.as_ref())
+                    .is_some_and(|services| {
+                        !services.iter().any(|s| s == get("EventHandlerService"))
+                    });
+                if unlisted {
+                    self.notes.push(format!(
+                        "event left out: {} -> {}.{} (the widget catalogue lists no such service)",
+                        get("EventTriggerEvent"),
+                        get("EventHandlerId"),
+                        get("EventHandlerService")
+                    ));
+                    continue;
+                }
+            }
             let target = match get("EventHandlerArea") {
                 "Data" => self
                     .calls
@@ -2034,6 +2177,21 @@ impl<'a> Run<'a> {
             } else if call.refresh > 0 {
                 entry.insert("on".into(), json!(format!("every {}s", call.refresh)));
             }
+            if call.dynamic {
+                match self.entity_link(&call.section) {
+                    Some((i, from)) => {
+                        entry.insert("entity".into(), json!({"bind": from}));
+                        self.links[i].consumed = true;
+                    }
+                    None if call.section.starts_with("DynamicThingTemplates") => {
+                        self.notes.push(format!(
+                            "{}: a dynamic template source with no entity binding cannot run; it is written as a plain service",
+                            call.section
+                        ));
+                    }
+                    None => {}
+                }
+            }
             let mut params = call.params.clone();
             for i in 0..self.links.len() {
                 let link = &self.links[i];
@@ -2058,6 +2216,17 @@ impl<'a> Run<'a> {
             data.insert(call.alias.clone(), Value::Object(entry));
         }
         (data, events)
+    }
+
+    /// What a dynamic source's entity slot is bound from, as the text of its address.
+    fn entity_link(&self, section: &str) -> Option<(usize, String)> {
+        let found = self.links.iter().position(|l| {
+            !l.consumed
+                && l.target.0 == "Data"
+                && l.target.2 == section
+                && matches!(l.target.1.as_str(), "EntityName" | "Entity")
+        })?;
+        Some((found, self.source(&self.links[found])?))
     }
 
     fn remaining_bindings(&mut self) -> Vec<Value> {
@@ -2096,7 +2265,11 @@ impl<'a> Run<'a> {
     /// a node of its own.
     fn resolve(&mut self, spec: &mut Value) {
         let mut dropped = self.dropped;
-        let ids = self.ids.clone();
+        let mut ids = self.ids.clone();
+        // A navigation function is folded into `navigate:` actions: nothing can refer to it.
+        for folded in self.navigations.keys() {
+            ids.remove(folded);
+        }
         fn fix(text: &str, ids: &HashMap<String, String>) -> Option<String> {
             let mut out = String::new();
             let mut rest = text;
@@ -2163,6 +2336,7 @@ impl<'a> Run<'a> {
                                 != (m.contains_key("invoke")
                                     || m.contains_key("navigate")
                                     || m.contains_key("show"))
+                                || m.contains_key("from") != m.contains_key("to")
                         });
                         if unresolved {
                             *dropped += 1;

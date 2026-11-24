@@ -463,6 +463,30 @@ fn hand_edit(solution: &Solution) {
 }
 
 #[test]
+fn new_spec_in_a_multi_project_solution_picks_the_project_from_the_name() {
+    let (dir, _) = solution();
+    std::fs::write(
+        dir.path().join("twaco.toml"),
+        "[[project]]
+name = 'Acme'
+root = 'acme'
+
+[[project]]
+name = 'Other'
+root = 'other'
+",
+    )
+    .unwrap();
+    let solution = Solution::load(&dir.path().join("twaco.toml")).unwrap();
+    let spec = solution.root.join("Acme.page.yaml");
+    std::fs::write(&spec, SPEC).unwrap();
+    let plan = super::build::plan(&solution, "Acme.Alerts_MU", None, Some(&spec)).unwrap();
+    assert_eq!(plan.report["project"], "Acme");
+    let error = super::build::plan(&solution, "Elsewhere_MU", None, Some(&spec)).err();
+    assert!(error.unwrap().to_string().contains("needs --project"));
+}
+
+#[test]
 fn build_new_spec_plans_then_creates_and_rebuild_is_byte_identical() {
     let (_dir, solution) = solution();
     let spec = solution.root.join("Acme.page.yaml");
@@ -4814,3 +4838,6 @@ fn the_q3_page_container_floor_covers_the_sum_of_its_sections() {
     let rows: f64 = page["Widgets"].as_array().unwrap().iter().map(floor).sum();
     assert!(floor(page) > rows, "{} <= {rows}", floor(page));
 }
+
+#[path = "dynamic_tests.rs"]
+mod dynamic;

@@ -103,6 +103,36 @@ pub(super) fn widgets(
     pins
 }
 
+/// What a binding or event connects, without how it is described: source and target ends, and
+/// the property pairs of a binding.
+fn endpoints(item: &Value) -> Value {
+    let pick = |keys: &[&str]| -> Vec<Value> { keys.iter().map(|k| item[*k].clone()).collect() };
+    let maps: Vec<Value> = item["PropertyMaps"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|m| serde_json::json!([m["SourceProperty"], m["TargetProperty"]]))
+        .collect();
+    serde_json::json!([
+        pick(&[
+            "SourceArea",
+            "SourceId",
+            "SourceSection",
+            "TargetArea",
+            "TargetId",
+            "TargetSection",
+            "EventTriggerArea",
+            "EventTriggerId",
+            "EventTriggerSection",
+            "EventTriggerEvent",
+            "EventHandlerArea",
+            "EventHandlerId",
+            "EventHandlerService",
+        ]),
+        maps
+    ])
+}
+
 fn without_id(value: &Value) -> Value {
     let mut copy = value.clone();
     if let Some(map) = copy.as_object_mut() {
@@ -141,12 +171,33 @@ pub(super) fn wiring(current: &Value, generated: &Value) -> BTreeMap<String, Str
         let have = current[part].as_array().map_or(&[][..], Vec::as_slice);
         let made = generated[part].as_array().map_or(&[][..], Vec::as_slice);
         let mut claimed = vec![false; have.len()];
-        for item in made {
+        // Content first; then, for what is left, the same endpoints, since a mashup written by
+        // hand differs from a generated one in details such as base types.
+        let mut matched: Vec<Option<usize>> = made
+            .iter()
+            .map(|item| {
+                let bare = without_id(item);
+                let found =
+                    (0..have.len()).find(|&i| !claimed[i] && without_id(&have[i]) == bare)?;
+                claimed[found] = true;
+                Some(found)
+            })
+            .collect();
+        for (item, slot) in made.iter().zip(matched.iter_mut()) {
+            if slot.is_none() {
+                let ends = endpoints(item);
+                if let Some(i) =
+                    (0..have.len()).find(|&i| !claimed[i] && endpoints(&have[i]) == ends)
+                {
+                    claimed[i] = true;
+                    *slot = Some(i);
+                }
+            }
+        }
+        for (item, found) in made.iter().zip(matched) {
             let Some(id) = item["Id"].as_str() else {
                 continue;
             };
-            let bare = without_id(item);
-            let found = (0..have.len()).find(|&i| !claimed[i] && without_id(&have[i]) == bare);
             if let Some(i) = found {
                 claimed[i] = true;
                 if let Some(kept) = have[i]["Id"].as_str().filter(|kept| *kept != id) {
@@ -338,5 +389,19 @@ mod tests {
         assert_eq!(pins.get("g1").map(String::as_str), Some("k1"));
         assert_eq!(pins.get("g2").map(String::as_str), Some("k2"));
         assert!(!pins.contains_key("g3"));
+    }
+
+    #[test]
+    fn wiring_claims_a_binding_with_the_same_endpoints_but_other_details() {
+        let binding = |id: &str, base: &str| {
+            json!({"Id": id, "SourceArea": "Data", "SourceId": "GetRows", "SourceSection": "S",
+                "TargetArea": "UI", "TargetId": "grid-1", "TargetSection": "",
+                "PropertyMaps": [{"SourceProperty": "result", "TargetProperty": "Data",
+                    "SourcePropertyBaseType": base}]})
+        };
+        let current = json!({"DataBindings": [binding("kept", "INFOTABLE")], "Events": []});
+        let generated = json!({"DataBindings": [binding("made", "JSON")], "Events": []});
+        let pins = wiring(&current, &generated);
+        assert_eq!(pins.get("made").map(String::as_str), Some("kept"));
     }
 }

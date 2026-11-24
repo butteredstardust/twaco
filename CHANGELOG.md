@@ -6,6 +6,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Derive and adoption from a second real solution: dynamic ThingShape data sources (`entity: {bind: ...}`)
+  derive with their events and bindings and rebuild; scalar binding mismatches that ThingWorx coerces bind
+  with a warning instead of a refusal (`mashup bind` and page specs; tables stay refused); derive no longer
+  emits what its own build refuses (non-numeric text for a number, events on unlisted services, references
+  to navigation functions, unknown legacy widgets), and says what it left out; an as-built page builds
+  unknown-type `widget:` nodes verbatim, claims bindings and events by their endpoints, and keeps
+  non-responsive containers, positions, root style and expression flags; `mashup new --spec` picks the
+  project from the mashup name's prefix in a multi-project solution.
 - Page specs carry a mashup's look: `mashup spec --out` writes its custom.css sidecar to `page.css` and each
   widget's stored styles as `styles:`, and a build (new or existing) writes both back verbatim. A v1 page
   container's minimum height now counts its rows' margins, padding and measured widgets, so the page scrolls

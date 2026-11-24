@@ -127,7 +127,8 @@ pub(super) fn bind_in(
     }
     let from_base = base(&from);
     let to_base = base(&to);
-    if !compatible(from_base, to_base) {
+    let coerced = !compatible(from_base, to_base);
+    if coerced && (structured(from_base) || structured(to_base)) {
         return Err(AuthoringError::Refused(format!(
             "{} is {} but {} is {}",
             from_raw, from_base, to_raw, to_base
@@ -157,6 +158,11 @@ pub(super) fn bind_in(
     } else {
         Vec::new()
     };
+    if coerced {
+        warnings.push(format!(
+            "{from_raw} is {from_base} but {to_raw} is {to_base}; the runtime coerces it"
+        ));
+    }
     for (end, section) in [(&from, &source_section), (&to, &target_section)] {
         if matches!(end, End::Data { .. }) && super::source::unbound_dynamic(document, section) {
             warnings.push(format!(
@@ -340,12 +346,16 @@ pub(super) fn enable_grid_selection_for_test(
 pub(super) fn compatible(from: &str, to: &str) -> bool {
     let name = |base: &str| base.ends_with("NAME");
     let number = |base: &str| matches!(base, "NUMBER" | "INTEGER" | "LONG");
-    let structured = |base: &str| matches!(base, "INFOTABLE" | "JSON");
     from == to
         || to == "STRING"
         || (to == "ANYSCALAR" && !structured(from))
         || (name(to) && (from == "STRING" || name(from)))
         || (number(from) && number(to))
+}
+
+/// INFOTABLE and JSON never coerce to or from a scalar; every other pair is bound with a warning.
+fn structured(base: &str) -> bool {
+    matches!(base, "INFOTABLE" | "JSON")
 }
 
 /// Bind the one dynamic source entity slot.  It is deliberately not a normal service parameter:
@@ -730,7 +740,14 @@ fn has_source(document: &MashupDocument, to: &End, target_section: &str, target_
 
 #[cfg(test)]
 mod compatible_tests {
-    use super::compatible;
+    use super::{compatible, structured};
+
+    #[test]
+    fn scalar_mismatches_coerce_but_tables_do_not() {
+        assert!(!compatible("STRING", "BOOLEAN"));
+        assert!(!structured("STRING") && !structured("BOOLEAN"));
+        assert!(structured("INFOTABLE") && structured("JSON"));
+    }
 
     #[test]
     fn any_scalar_takes_scalars_but_not_tables() {
