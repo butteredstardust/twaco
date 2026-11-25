@@ -133,6 +133,9 @@ All notable changes to twaco are recorded here. The format follows
   of empty blocks, and leaves out the project dependency that would close a cycle (the edge whose
   entities name the fewest of the other project's, with a comment and a note); the cycle error
   names a real path and the edge to remove.
+
+## [0.1.78] - 2026-11-25
+
 - Page builds name spec nodes and source lines in widget diagnostics, report retained edits to
   managed custom.css and refuse competing stylesheet changes. The page content height floor
   follows the template's content slot even after it is renamed, including master page areas.
@@ -2549,6 +2552,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.78]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.78
 [0.1.77]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.77
 [0.1.76]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.76
 [0.1.75]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.75
