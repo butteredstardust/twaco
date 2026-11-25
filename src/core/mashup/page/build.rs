@@ -14,6 +14,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+type SpecLines = BTreeMap<String, (u64, BTreeMap<String, (u64, String)>)>;
+
 #[derive(Debug)]
 struct File {
     path: PathBuf,
@@ -121,7 +123,7 @@ fn conflict(
     spec_name: &str,
     path: &str,
     report: &merge::Report,
-    lines: &BTreeMap<String, (u64, BTreeMap<String, u64>)>,
+    lines: &SpecLines,
     spec: &schema::Spec,
 ) -> Value {
     let segments: Vec<&str> = path.split('/').collect();
@@ -137,11 +139,10 @@ fn conflict(
                 .skip_while(|segment| **segment != "Properties")
                 .nth(1)
                 .copied();
+            let property = key.and_then(|key| props.get(key));
             (
-                key.and_then(|key| props.get(key))
-                    .copied()
-                    .unwrap_or(*id_line),
-                key,
+                property.map_or(*id_line, |p| p.0),
+                property.map(|p| p.1.as_str()),
             )
         }
         None => (spec.page.referenced.line().max(1), None),
@@ -160,7 +161,7 @@ fn conflict(
     }
     message.push_str(&format!(
         "; change {spec_name}:{line}{} or resolve the hand edit",
-        key.map_or(String::new(), |key| format!(" (props.{key})"))
+        key.map_or(String::new(), |key| format!(" ({key})"))
     ));
     out["message"] = json!(message);
     out
@@ -242,9 +243,39 @@ fn plan_from(
     };
     let yaml = text(&spec_bytes)?;
     let spec_name = solution.relative(spec_path);
-    let spec = schema::parse_at(yaml, solution, spec_path.parent().unwrap_or(&solution.root))
+    let mut spec = schema::parse_at(yaml, solution, spec_path.parent().unwrap_or(&solution.root))
         .map_err(|e| invalid(e.in_file(&spec_name)))?;
-    if spec.page.value.name.value != name {
+    let overridden =
+        spec.page.value.name.value != name && existing.is_none() && spec_file.is_some();
+    let renamed = if overridden {
+        let span = spec.page.value.name.referenced.span();
+        let offset = usize::try_from(
+            span.byte_offset()
+                .ok_or_else(|| invalid("page.name: cannot locate scalar"))?,
+        )
+        .map_err(invalid)?;
+        let len = usize::try_from(
+            span.byte_len()
+                .ok_or_else(|| invalid("page.name: cannot locate scalar"))?,
+        )
+        .map_err(invalid)?;
+        let mut renamed = yaml.to_string();
+        renamed.replace_range(
+            offset..offset + len,
+            &serde_json::to_string(name).map_err(invalid)?,
+        );
+        Some(renamed)
+    } else {
+        None
+    };
+    // A copy keeps the source's page.name until the command renames it: that names the source
+    // whose visibility the copy does not inherit.
+    let copied_from = overridden.then(|| spec.page.value.name.value.clone());
+    let yaml = renamed.as_deref().unwrap_or(yaml);
+    if overridden {
+        spec = schema::parse_at(yaml, solution, spec_path.parent().unwrap_or(&solution.root))
+            .map_err(|e| invalid(e.in_file(&spec_name)))?;
+    } else if spec.page.value.name.value != name {
         return Err(invalid(format!(
             "{}:{}: page.name must equal {name}",
             spec_path.display(),
@@ -267,6 +298,11 @@ fn plan_from(
         &old.as_ref().map(Baseline::pins).unwrap_or_default(),
     )
     .map_err(|e| invalid(e.in_file(&spec_name)))?;
+    for warning in &mut generated.warnings {
+        if let Some(located) = warning.strip_prefix("page.yaml:") {
+            *warning = format!("{spec_name}:{located}");
+        }
+    }
     let mut baseline = Baseline::generated(&generated, name, project);
     let entity_path = existing.map_or_else(
         || {
@@ -316,7 +352,7 @@ fn plan_from(
             (None, None) => extracted,
             _ => {
                 return Err(invalid(format!(
-                    "{name}: incomplete mashup sidecars; run twaco extract first"
+                    "{name}: incomplete mashup sidecars; run `twaco extract Mashups/{name}` first"
                 )))
             }
         };
@@ -325,7 +361,7 @@ fn plan_from(
             .1
             .is_empty()
         {
-            return Err(AuthoringError::Refused(format!("{name}: content.json/custom.css and entity disagree; run twaco sync or twaco extract first")));
+            return Err(AuthoringError::Refused(format!("{name}: content.json/custom.css and entity disagree; run `twaco sync Mashups/{name} --apply` or `twaco extract Mashups/{name}` first")));
         }
         mashup::edit::parse(&current_assets.content).map_err(AuthoringError::Edit)?;
         let current: Value = serde_json::from_str(&current_assets.content).map_err(invalid)?;
@@ -340,20 +376,44 @@ fn plan_from(
                 &mut report,
             );
             let merged = merge::content(&old.content, &current, &baseline.content, &mut report);
-            if !old.written.is_empty() && old.written == Baseline::digest(&current) {
-                // The mashup is as twaco last wrote it: whatever differs from the spec was
-                // already there (an adoption keeps what the spec cannot say), not a new edit.
-                report.kept.retain(|path| !path.starts_with("content"));
+            let edits = old.content_edits(&current);
+            report.kept.retain(|path| {
+                !path.starts_with("content")
+                    || edits.iter().any(|edit| {
+                        edit == path
+                            || edit.starts_with(&format!("{path}/"))
+                            || path.starts_with(&format!("{edit}/"))
+                    })
+            });
+            if let Some(expected) = &old.comparison {
+                baseline.comparison = Some(merge::content(
+                    &old.content,
+                    expected,
+                    &baseline.content,
+                    &mut merge::Report::default(),
+                ));
             }
-            // Page specs intentionally do not own custom.css. Keep it byte-for-byte (aside
-            // from its existing terminator convention) instead of treating it as generated
-            // content or a hand edit on every subsequent build.
-            // A spec that names `page.css` owns the sidecar until someone edits the sidecar.
-            let css = if spec.page.value.css.is_some()
-                && mashup::same_css(&current_assets.css, &old.css)
-            {
-                baseline.css.clone()
+            let css = if spec.page.value.css.is_some() {
+                let (base, current, wanted) = (
+                    json!(mashup::without_terminator(&old.css)),
+                    json!(mashup::without_terminator(&current_assets.css)),
+                    json!(mashup::without_terminator(&baseline.css)),
+                );
+                let merged = merge::merge(
+                    Some(&base),
+                    Some(&current),
+                    Some(&wanted),
+                    "custom.css",
+                    &mut report,
+                );
+                // Keep the sidecar's terminator convention when the chosen content is unchanged.
+                if merged.as_ref() == Some(&current) {
+                    current_assets.css
+                } else {
+                    baseline.css.clone()
+                }
             } else {
+                // Specs without page.css do not own the stylesheet.
                 current_assets.css
             };
             (merged, css)
@@ -385,6 +445,7 @@ fn plan_from(
                 );
                 report.conflicts.push("custom.css".into());
             }
+            baseline.comparison = Some(current.clone());
             (current, current_assets.css)
         }
     } else {
@@ -393,20 +454,31 @@ fn plan_from(
     // `custom.css` is the source of truth for CustomMashupCss. In particular, adoption must
     // not turn a stylesheet sidecar into a content.json edit: that makes the following build
     // look like both a content and stylesheet hand edit.
-    let mut lines: BTreeMap<String, (u64, BTreeMap<String, u64>)> = BTreeMap::new();
-    fn node_lines(
-        nodes: &[schema::Node],
-        ids: &BTreeMap<String, String>,
-        lines: &mut BTreeMap<String, (u64, BTreeMap<String, u64>)>,
-    ) {
+    let mut lines = SpecLines::new();
+    fn node_lines(nodes: &[schema::Node], ids: &BTreeMap<String, String>, lines: &mut SpecLines) {
         for n in nodes {
             let b = n.body();
             if let Some(id) = ids.get(&b.id.value) {
-                let props = b
+                let mut props: BTreeMap<_, _> = b
                     .props
                     .iter()
-                    .map(|(k, v)| (k.clone(), v.referenced.line().max(1)))
+                    .map(|(k, v)| {
+                        (
+                            k.clone(),
+                            (v.referenced.line().max(1), format!("props.{k}")),
+                        )
+                    })
                     .collect();
+                if let Some(text) = &b.text {
+                    let property = if matches!(n, schema::Node::Button(_)) {
+                        "Label"
+                    } else {
+                        "LabelText"
+                    };
+                    props
+                        .entry(property.into())
+                        .or_insert((text.referenced.line().max(1), "text".into()));
+                }
                 lines.insert(id.clone(), (b.id.referenced.line().max(1), props));
             }
             for child in super::compile::descendants(n) {
@@ -417,10 +489,32 @@ fn plan_from(
     for slot in spec.page.value.slots.values() {
         node_lines(&slot.value, &baseline.ids, &mut lines);
     }
+    for (alias, source) in &spec.page.value.data {
+        if let Some(id) = baseline.ids.get(&format!("$data:{alias}")) {
+            lines.insert(
+                id.clone(),
+                (source.referenced.line().max(1), BTreeMap::new()),
+            );
+        }
+    }
+    let mut diagnostic_ids = generated.allocations.clone();
+    diagnostic_ids.extend(
+        baseline
+            .ids
+            .iter()
+            .map(|(node, id)| (node.clone(), String::new(), id.clone())),
+    );
     let conflicts: Vec<_> = report
         .conflicts
         .iter()
-        .map(|path| conflict(name, &spec_name, path, &report, &lines, &spec))
+        .map(|path| {
+            let mut value = conflict(name, &spec_name, path, &report, &lines, &spec);
+            value["message"] = json!(super::ids::diagnostic(
+                value["message"].as_str().unwrap_or_default(),
+                &diagnostic_ids
+            ));
+            value
+        })
         .collect();
     let mut problems = Vec::new();
     mashup::validate::check_content(&mashup::to_sidecar(&content), &mut problems);
@@ -434,7 +528,16 @@ fn plan_from(
             problems
                 .iter()
                 .filter(|p| p.severity == mashup::validate::Severity::Error)
-                .map(|p| p.message.as_str())
+                .map(|p| {
+                    let line = lines
+                        .iter()
+                        .find(|(id, _)| super::ids::references(&p.message, id))
+                        .map_or(spec.page.referenced.line().max(1), |(_, (line, _))| *line);
+                    format!(
+                        "{spec_name}:{line}: {}",
+                        super::ids::diagnostic(&p.message, &diagnostic_ids)
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("; ")
         )));
@@ -639,6 +742,17 @@ fn plan_from(
     );
     let mut created_cells = Vec::new();
     let mut cell_notices = generated.warnings.clone();
+    if let Ok(content) = serde_json::from_str::<Value>(&generated.content) {
+        cell_notices.extend(binding_cycles(&content));
+    }
+    if let Some(source) = &copied_from {
+        cell_notices.push(format!(
+            "page.name was overridden with {name}; the copied page.yaml uses the command's name"
+        ));
+        cell_notices.extend(crate::core::mashup::authoring::copy_visibility_notes(
+            solution, source, name, true,
+        )?);
+    }
     if let Some(tokens) = &spec.tokens {
         if spec
             .page
@@ -727,9 +841,20 @@ fn plan_from(
         created_cells.push(cell.name.clone());
     }
     baseline.written = written;
-    files[3].after = baseline.bytes();
+    let baseline_bytes = baseline.bytes();
+    // Flattening and expanding an adopted tree may reorder object keys. Baseline metadata is
+    // semantic JSON too; do not turn that ordering into a write on a clean rebuild.
+    files[3].after = match &files[3].before {
+        Some(before)
+            if serde_json::from_slice::<Value>(before).ok()
+                == serde_json::from_slice::<Value>(&baseline_bytes).ok() =>
+        {
+            before.clone()
+        }
+        _ => baseline_bytes,
+    };
     let mut plan = Plan {
-        report: json!({"mashup":name,"project":project,"template":spec.page.value.template.value,"slots":spec.page.value.slots.keys().collect::<Vec<_>>(),"applied":false,"dry_run":true,"nodes":nodes,"hand_edits_kept":report.kept,"conflicts":conflicts,"cells":created_cells,"cell_notices":cell_notices,"files_state":"would write","files":files.iter().filter(|f| f.before.as_deref() != Some(&f.after)).map(|f| solution.relative(&f.path)).collect::<Vec<_>>()}),
+        report: json!({"mashup":name,"project":project,"template":spec.page.value.template.value,"slots":spec.page.value.slots.keys().collect::<Vec<_>>(),"applied":false,"dry_run":true,"nodes":nodes,"hand_edits_kept":report.kept.iter().map(|p| merge::display_path(p)).collect::<Vec<_>>(),"conflicts":conflicts,"cells":created_cells,"cell_notices":cell_notices,"files_state":"would write","files":files.iter().filter(|f| f.before.as_deref() != Some(&f.after)).map(|f| solution.relative(&f.path)).collect::<Vec<_>>()}),
         files,
         inputs,
         components,
@@ -737,6 +862,8 @@ fn plan_from(
     if plan.conflicts() {
         plan.report["files_state"] = json!("refused");
         plan.report["files"] = json!([]);
+    } else if plan.report["files"].as_array().is_some_and(Vec::is_empty) {
+        plan.report["files_state"] = json!("nothing to write");
     }
     Ok(plan)
 }
@@ -838,7 +965,11 @@ impl Plan {
             .apply(lock)
             .map_err(AuthoringError::Write)?;
         self.report["applied"] = json!(true);
-        self.report["files_state"] = json!("written");
+        if self.report["files"].as_array().is_some_and(Vec::is_empty) {
+            self.report["files_state"] = json!("nothing to write");
+        } else {
+            self.report["files_state"] = json!("written");
+        }
         self.report["dry_run"] = json!(false);
         Ok(())
     }
@@ -909,4 +1040,161 @@ fn stored_spec(
         &serde_json::to_string(&value).map_err(invalid)?,
     );
     Ok(stored.into_bytes())
+}
+
+/// One note per group of bindings that feed back into themselves through a service call, such
+/// as `param -> dropdown -> service parameter -> result -> param`. The platform allows it (each
+/// value change runs the loop once more until the value settles), so it is a note, never a refusal.
+pub(crate) fn binding_cycles(content: &Value) -> Vec<String> {
+    use std::collections::{BTreeMap, BTreeSet};
+    fn node(area: &str, id: &str, section: &str, property: &str) -> String {
+        match area {
+            "Mashup" => format!("param.{property}"),
+            "Data" => format!("data:{section}.{id}"),
+            "Session" | "UserExtensions" => format!("{area}.{property}"),
+            _ => id.to_string(),
+        }
+    }
+    let text = |v: &Value, k: &str| v[k].as_str().unwrap_or("").to_string();
+    let mut edges: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for binding in content["DataBindings"].as_array().into_iter().flatten() {
+        for map in binding["PropertyMaps"].as_array().into_iter().flatten() {
+            let from = node(
+                &text(binding, "SourceArea"),
+                &text(binding, "SourceId"),
+                &text(binding, "SourceSection"),
+                &text(map, "SourceProperty"),
+            );
+            let to = node(
+                &text(binding, "TargetArea"),
+                &text(binding, "TargetId"),
+                &text(binding, "TargetSection"),
+                &text(map, "TargetProperty"),
+            );
+            if from != to {
+                edges.entry(from).or_default().insert(to);
+            }
+        }
+    }
+    // Tarjan's strongly connected components; a component of two or more nodes is a loop.
+    struct Walk<'a> {
+        edges: &'a BTreeMap<String, BTreeSet<String>>,
+        index: BTreeMap<String, usize>,
+        low: BTreeMap<String, usize>,
+        stack: Vec<String>,
+        on: BTreeSet<String>,
+        next: usize,
+        out: Vec<Vec<String>>,
+    }
+    impl Walk<'_> {
+        fn visit(&mut self, v: &str) {
+            self.index.insert(v.into(), self.next);
+            self.low.insert(v.into(), self.next);
+            self.next += 1;
+            self.stack.push(v.into());
+            self.on.insert(v.into());
+            for w in self.edges.get(v).into_iter().flatten() {
+                if !self.index.contains_key(w) {
+                    self.visit(w);
+                    let low = self.low[v].min(self.low[w]);
+                    self.low.insert(v.into(), low);
+                } else if self.on.contains(w) {
+                    let low = self.low[v].min(self.index[w]);
+                    self.low.insert(v.into(), low);
+                }
+            }
+            if self.low[v] == self.index[v] {
+                let mut group = vec![];
+                while let Some(w) = self.stack.pop() {
+                    self.on.remove(&w);
+                    let done = w == v;
+                    group.push(w);
+                    if done {
+                        break;
+                    }
+                }
+                if group.len() > 1 {
+                    group.sort();
+                    self.out.push(group);
+                }
+            }
+        }
+    }
+    let mut walk = Walk {
+        edges: &edges,
+        index: BTreeMap::new(),
+        low: BTreeMap::new(),
+        stack: vec![],
+        on: BTreeSet::new(),
+        next: 0,
+        out: vec![],
+    };
+    let starts: Vec<String> = edges.keys().cloned().collect();
+    for start in starts {
+        if !walk.index.contains_key(&start) {
+            walk.visit(&start);
+        }
+    }
+    walk.out
+        .into_iter()
+        .filter_map(|group| {
+            let services: Vec<&str> = group
+                .iter()
+                .filter_map(|n| n.strip_prefix("data:"))
+                .map(|n| n.rsplit('.').next().unwrap_or(n))
+                .collect();
+            (!services.is_empty()).then(|| {
+                format!(
+                    "binding cycle through {}: {} (each change runs the loop again until the value settles)",
+                    services.join(", "),
+                    group
+                        .iter()
+                        .map(|n| n.strip_prefix("data:").unwrap_or(n))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod cycle_tests {
+    use super::binding_cycles;
+    use serde_json::json;
+
+    fn binding(from: (&str, &str, &str, &str), to: (&str, &str, &str, &str)) -> serde_json::Value {
+        json!({"SourceArea": from.0, "SourceId": from.1, "SourceSection": from.2,
+            "TargetArea": to.0, "TargetId": to.1, "TargetSection": to.2,
+            "PropertyMaps": [{"SourceProperty": from.3, "TargetProperty": to.3}]})
+    }
+
+    #[test]
+    fn a_loop_through_a_service_is_one_note_and_a_chain_is_none() {
+        let s = "Things_Acme.Dates";
+        let looped = json!({"DataBindings": [
+            binding(("Mashup", "mashup-root", "", "period"), ("UI", "ptcsdropdown-3", "", "SelectedText")),
+            binding(("UI", "ptcsdropdown-3", "", "SelectedText"), ("Data", "Resolve", s, "period")),
+            binding(("Data", "Resolve", s, "Period"), ("Mashup", "mashup-root", "", "period")),
+        ]});
+        let notes = binding_cycles(&looped);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].starts_with("binding cycle through Resolve: "),
+            "{notes:?}"
+        );
+        assert!(notes[0].contains("param.period") && notes[0].contains("ptcsdropdown-3"));
+
+        let chain = json!({"DataBindings": [
+            binding(("Mashup", "mashup-root", "", "period"), ("Data", "Resolve", s, "period")),
+            binding(("Data", "Resolve", s, "Period"), ("UI", "ptcslabel-4", "", "LabelText")),
+        ]});
+        assert!(binding_cycles(&chain).is_empty());
+        // A loop among widgets alone (no service) is no note.
+        let widgets = json!({"DataBindings": [
+            binding(("UI", "a-1", "", "Out"), ("UI", "b-2", "", "In")),
+            binding(("UI", "b-2", "", "Out"), ("UI", "a-1", "", "In")),
+        ]});
+        assert!(binding_cycles(&widgets).is_empty());
+    }
 }

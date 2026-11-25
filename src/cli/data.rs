@@ -332,35 +332,48 @@ pub(crate) struct Call {
     pub(crate) operands: Vec<String>,
 }
 
-/// The target, service and optional JSON text of `call`. `Thing Service [json]` is the long
-/// form; `Thing.Service [json]` splits at the last dot, as `catalog` and `trace` read it. A
-/// second operand that starts with `{` is the JSON, so the two forms never overlap.
-fn call_operands(operands: &[String]) -> Option<(String, String, Option<&str>)> {
-    // JSON text (an object, or an array that is then refused as parameters) is never a service
-    // name, so it marks the dotted form.
-    let json_second = operands.get(1).is_some_and(|text| {
-        text.trim_start_matches('\u{feff}')
-            .trim_start()
-            .starts_with(['{', '['])
-    });
-    match operands {
-        [target, service] | [target, service, _] if !json_second => Some((
-            target.clone(),
-            service.clone(),
-            operands.get(2).map(String::as_str),
-        )),
-        [dotted] | [dotted, _] => {
-            let (target, service) = dotted.rsplit_once('.')?;
-            (!target.is_empty() && !service.is_empty()).then(|| {
-                (
-                    target.to_string(),
-                    service.to_string(),
-                    operands.get(1).map(String::as_str),
-                )
-            })
-        }
-        _ => None,
+/// The target, service and the rest of `call`: one JSON object or `name=value` pairs.
+/// `Thing Service [rest]` is the long form; `Thing.Service [rest]` splits at the last dot, as
+/// `catalog` and `trace` read it. A second operand that starts with `{` or `[`, or that holds
+/// `=`, is already a parameter (a service name has neither), so the two forms never overlap.
+fn call_operands(operands: &[String]) -> Option<(String, String, &[String])> {
+    let parameter_like = operands
+        .get(1)
+        .is_some_and(|text| is_json_text(text) || text.contains('='));
+    if operands.len() >= 2 && !parameter_like {
+        return Some((operands[0].clone(), operands[1].clone(), &operands[2..]));
     }
+    let (target, service) = operands.first()?.rsplit_once('.')?;
+    (!target.is_empty() && !service.is_empty())
+        .then(|| (target.to_string(), service.to_string(), &operands[1..]))
+}
+
+/// JSON text (an object, or an array that is then refused as parameters) is never a service
+/// name or a `name=value` pair.
+fn is_json_text(text: &str) -> bool {
+    text.trim_start_matches('\u{feff}')
+        .trim_start()
+        // A pair starts with its name, so a quoted string is JSON (and refused as not an object).
+        .starts_with(['{', '[', '"'])
+}
+
+/// What follows the service: one JSON object, or `name=value` pairs (with `--param`'s).
+enum CallInputs<'a> {
+    Json(&'a str),
+    Pairs(Vec<String>),
+}
+
+fn call_inputs<'a>(rest: &'a [String], params: &[String]) -> Result<CallInputs<'a>, String> {
+    let json: Vec<&String> = rest.iter().filter(|text| is_json_text(text)).collect();
+    if json.is_empty() {
+        return Ok(CallInputs::Pairs(
+            rest.iter().chain(params).cloned().collect(),
+        ));
+    }
+    if json.len() > 1 || json.len() < rest.len() || !params.is_empty() {
+        return Err("use either key=value pairs or one JSON object".into());
+    }
+    Ok(CallInputs::Json(json[0]))
 }
 
 /// Execute exactly the named opaque service. There is no dry run because twaco cannot infer
@@ -374,39 +387,43 @@ pub(crate) fn call(solution: &Solution, args: &Call) -> u8 {
         );
         return FAILED;
     };
-    if operands.2.is_some() && !args.params.is_empty() {
-        eprintln!(
-            "{} --param cannot be mixed with the JSON positional",
-            style::prefix()
-        );
-        return FAILED;
-    }
-    let parameters = if !args.params.is_empty() {
-        match commands::call::parameter_pairs(solution, &operands.0, &operands.1, &args.params) {
-            Ok(value) => value,
-            Err(error) => {
-                eprintln!("{} {error}", style::prefix());
-                return FAILED;
-            }
+    let inputs = match call_inputs(operands.2, &args.params) {
+        Ok(inputs) => inputs,
+        Err(message) => {
+            eprintln!("{} {message}", style::prefix());
+            return FAILED;
         }
-    } else {
-        match operands.2 {
-            Some(text) => match serde_json::from_str::<serde_json::Value>(text) {
-                Ok(value) if value.is_object() => value,
-                Ok(_) => {
-                    eprintln!("{} call parameters must be a JSON object", style::prefix());
-                    return FAILED;
+    };
+    let parameters = match inputs {
+        CallInputs::Pairs(pairs) if !pairs.is_empty() => {
+            match commands::call::parameter_pairs(solution, &operands.0, &operands.1, &pairs) {
+                Ok((value, note)) => {
+                    if let Some(note) = note {
+                        eprintln!("{} {note}", style::prefix());
+                    }
+                    value
                 }
                 Err(error) => {
-                    eprintln!(
-                        "{} call parameters are not valid JSON: {error}",
-                        style::prefix()
-                    );
+                    eprintln!("{} {error}", style::prefix());
                     return FAILED;
                 }
-            },
-            None => serde_json::json!({}),
+            }
         }
+        CallInputs::Pairs(_) => serde_json::json!({}),
+        CallInputs::Json(text) => match serde_json::from_str::<serde_json::Value>(text) {
+            Ok(value) if value.is_object() => value,
+            Ok(_) => {
+                eprintln!("{} call parameters must be a JSON object", style::prefix());
+                return FAILED;
+            }
+            Err(error) => {
+                eprintln!(
+                    "{} call parameters are not valid JSON: {error}",
+                    style::prefix()
+                );
+                return FAILED;
+            }
+        },
     };
     let request = commands::call::CallRequest {
         target: operands.0,
@@ -1337,31 +1354,31 @@ fn print_info_table_summary(value: &serde_json::Value) {
 
 #[cfg(test)]
 mod call_operand_tests {
-    use super::call_operands;
+    use super::{call_inputs, call_operands, CallInputs};
 
-    fn split(operands: &[&str]) -> Option<(String, String, Option<String>)> {
+    fn split(operands: &[&str]) -> Option<(String, String, Vec<String>)> {
         let owned: Vec<String> = operands.iter().map(|text| (*text).to_string()).collect();
-        call_operands(&owned)
-            .map(|(target, service, json)| (target, service, json.map(str::to_string)))
+        call_operands(&owned).map(|(target, service, rest)| (target, service, rest.to_vec()))
+    }
+
+    fn expected(rest: &[&str]) -> Option<(String, String, Vec<String>)> {
+        Some((
+            "Acme.Press".to_string(),
+            "Run".to_string(),
+            rest.iter().map(|text| (*text).to_string()).collect(),
+        ))
     }
 
     #[test]
     fn call_takes_the_long_and_the_dotted_form() {
-        let expected = |json: Option<&str>| {
-            Some((
-                "Acme.Press".to_string(),
-                "Run".to_string(),
-                json.map(str::to_string),
-            ))
-        };
-        assert_eq!(split(&["Acme.Press", "Run"]), expected(None));
-        assert_eq!(split(&["Acme.Press", "Run", "{}"]), expected(Some("{}")));
-        assert_eq!(split(&["Acme.Press.Run"]), expected(None));
+        assert_eq!(split(&["Acme.Press", "Run"]), expected(&[]));
+        assert_eq!(split(&["Acme.Press", "Run", "{}"]), expected(&["{}"]));
+        assert_eq!(split(&["Acme.Press.Run"]), expected(&[]));
         // JSON text, even an array that is then refused as parameters, is never a service name.
-        assert_eq!(split(&["Acme.Press.Run", "[1]"]), expected(Some("[1]")));
+        assert_eq!(split(&["Acme.Press.Run", "[1]"]), expected(&["[1]"]));
         assert_eq!(
             split(&["Acme.Press.Run", " {\"a\":1}"]),
-            expected(Some(" {\"a\":1}"))
+            expected(&[" {\"a\":1}"])
         );
         assert_eq!(
             split(&["Things/Acme.Press.Run"]).map(|parts| parts.0),
@@ -1370,11 +1387,44 @@ mod call_operand_tests {
     }
 
     #[test]
+    fn bare_pairs_follow_either_form() {
+        assert_eq!(
+            split(&["Acme.Press", "Run", "a=1", "b=x=y"]),
+            expected(&["a=1", "b=x=y"])
+        );
+        assert_eq!(
+            split(&["Acme.Press.Run", "a=1", "b=2"]),
+            expected(&["a=1", "b=2"])
+        );
+    }
+
+    #[test]
     fn call_refuses_what_neither_form_reads() {
         assert_eq!(split(&[]), None);
         assert_eq!(split(&["Press"]), None);
         assert_eq!(split(&["Press."]), None);
-        assert_eq!(split(&["Acme.Press.Run", "{}", "{}"]), None);
-        assert_eq!(split(&["Acme.Press", "Run", "{}", "x"]), None);
+    }
+
+    #[test]
+    fn pairs_and_json_never_mix() {
+        let owned = |items: &[&str]| -> Vec<String> {
+            items.iter().map(|text| (*text).to_string()).collect()
+        };
+        assert!(matches!(
+            call_inputs(&owned(&["a=1"]), &owned(&["b=2"])),
+            Ok(CallInputs::Pairs(pairs)) if pairs == ["a=1", "b=2"]
+        ));
+        assert!(matches!(
+            call_inputs(&owned(&["{}"]), &[]),
+            Ok(CallInputs::Json("{}"))
+        ));
+        for (rest, params) in [
+            (vec!["{}", "a=1"], vec![]),
+            (vec!["{}"], vec!["a=1"]),
+            (vec!["{}", "{}"], vec![]),
+        ] {
+            let error = call_inputs(&owned(&rest), &owned(&params)).err().unwrap();
+            assert_eq!(error, "use either key=value pairs or one JSON object");
+        }
     }
 }

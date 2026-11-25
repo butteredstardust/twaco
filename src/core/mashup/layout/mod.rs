@@ -737,9 +737,10 @@ pub(crate) fn finish_page(document: &mut super::edit::MashupDocument) {
         .root_properties()
         .get("StyleProperties")
         .map_or(Value::Null, |styles| styles["data"].clone());
+    let page_container = page_container_id(document);
     for container in &containers {
         let node = document.at(&container.path);
-        if container.display_name != "center"
+        if page_container.as_ref().map(|(id, _)| id) != Some(&container.id)
             || node["Properties"]["flex-size"] == "fixed"
             || node["twacoLayoutAuthored"] == true
         {
@@ -759,8 +760,10 @@ pub(crate) fn finish_page(document: &mut super::edit::MashupDocument) {
         // falls short of what its rows render scrolls inside the mashup root's scroller (two
         // scrollbars at short viewports). The page scrolls once, in the mashup root.
         // A master's pages render in its page host, which scrolls on its own.
+        // A tile or card template's main slot (a cell) stays clipped to its cell.
         let master = document.value()["mashupType"] == "targetmashup";
-        if let Some(id) = id.filter(|_| !master) {
+        let page = page_container.as_ref().is_some_and(|(_, page)| *page);
+        if let Some(id) = id.filter(|_| !master && page) {
             document.set_style(&id, "flex-container", "overflow", json!("visible"));
         }
     }
@@ -808,6 +811,35 @@ pub(crate) fn finish_page(document: &mut super::edit::MashupDocument) {
             }
         }
     }
+}
+
+/// The template's content slot keeps its role when its display name changes. The blank
+/// template uses its first visible root container; other templates declare their master slot.
+/// Also says whether it is a page's own content area (the blank template's root or a `center`
+/// slot) rather than the main slot of a tile or card template that cells are built from.
+fn page_container_id(document: &super::edit::MashupDocument) -> Option<(String, bool)> {
+    static SLOTS: OnceLock<std::collections::BTreeMap<String, (String, bool)>> = OnceLock::new();
+    let root = document
+        .widgets()
+        .into_iter()
+        .find(|w| w.path.len() == 1 && w.type_id == "flexcontainer")?;
+    let node = document.at(&root.path);
+    let Some(template) = node["twacoTemplateName"].as_str() else {
+        return Some((root.id, true));
+    };
+    let slots = SLOTS.get_or_init(|| {
+        super::templates::layouts()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|template| {
+                let page = template.master_slot.as_deref() == Some("center");
+                super::authoring::template_page_container(&template)
+                    .map(|id| (template.name, (id, page)))
+            })
+            .collect()
+    });
+    let (slot, page) = slots.get(template)?;
+    document.find_exact(slot).ok().map(|w| (w.id, *page))
 }
 
 #[cfg(test)]

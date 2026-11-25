@@ -276,6 +276,8 @@ pub struct RecipePlan {
     pub wired: Vec<String>,
     /// What the wiring changed besides, such as a grid's selection turned on.
     pub notes: Vec<String>,
+    /// The notes a page build must also report: what could not be checked.
+    pub(crate) warnings: Vec<String>,
 }
 
 impl RecipePlan {
@@ -357,6 +359,7 @@ struct Work<'a> {
     removed: Vec<String>,
     wired: Vec<String>,
     notes: Vec<String>,
+    warnings: Vec<String>,
 }
 
 fn untriggered_calls(content: &Value, mashup: &str) -> Vec<String> {
@@ -864,6 +867,7 @@ impl Work<'_> {
                     removed: Vec::new(),
                     wired: Vec::new(),
                     notes: Vec::new(),
+                    warnings: Vec::new(),
                 };
                 probe.label_pairs(
                     container,
@@ -1638,6 +1642,7 @@ pub(super) fn plan_recipe_loaded(
         removed: Vec::new(),
         wired: Vec::new(),
         notes: Vec::new(),
+        warnings: Vec::new(),
     };
     let mut css = None;
     match &request.recipe {
@@ -2131,9 +2136,37 @@ pub(super) fn plan_recipe_loaded(
                     "a mashup cannot open itself".into(),
                 ));
             }
-            let child = load_existing(solution, target)?;
-            let child_document = parse_loaded(&child)?;
-            let definitions = contained_parameters(&child, &child_document)?;
+            let definitions = match load_existing(solution, target) {
+                Ok(child) => contained_parameters(&child, &parse_loaded(&child)?)?,
+                Err(AuthoringError::Unknown(_)) => {
+                    let note = format!("{target}: target mashup is outside the solution; its parameter contract cannot be checked offline");
+                    work.notes.push(note.clone());
+                    work.warnings.push(note);
+                    let mut definitions = Vec::new();
+                    for (name, address) in pass {
+                        let end = super::resolve_end(
+                            &mut work.document,
+                            Some(solution),
+                            &work.context,
+                            parse_address(address)
+                                .map_err(|e| AuthoringError::Invalid(e.to_string()))?,
+                            true,
+                            &mut vec![],
+                        )?;
+                        definitions.push(ParameterDefinition {
+                            name: name.clone(),
+                            base_type: super::base(&end).into(),
+                            direction: "IN".into(),
+                            description: String::new(),
+                            default: None,
+                            data_shape: None,
+                            visible: true,
+                        });
+                    }
+                    definitions
+                }
+                Err(error) => return Err(error),
+            };
             let cache: Vec<Value> = definitions
                 .iter()
                 .map(|def| cache_entry(def, def.default.clone()))
@@ -3104,6 +3137,7 @@ pub(super) fn plan_recipe_loaded(
         removed,
         wired,
         mut notes,
+        warnings,
         ..
     } = work;
     // Two inputs from one source raise the same note; keep the first, in order.
@@ -3117,6 +3151,7 @@ pub(super) fn plan_recipe_loaded(
         removed,
         wired,
         notes,
+        warnings,
     })
 }
 

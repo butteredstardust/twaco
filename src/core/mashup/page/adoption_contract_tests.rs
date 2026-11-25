@@ -379,6 +379,13 @@ fn orphan_contained_parameter_values_warn_and_keep_the_entity_bytes() {
     replace_content(&solution, NAME, &content);
     let report = adopt_unchanged(&solution, NAME);
     assert!(
+        !report["cell_notices"].as_array().unwrap().iter().any(|w| w
+            .as_str()
+            .unwrap()
+            .contains("orphan contained-mashup parameter value MashupParameters")),
+        "{report}"
+    );
+    assert!(
         report["cell_notices"].as_array().unwrap().iter().any(|w| w
             .as_str()
             .unwrap()

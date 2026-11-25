@@ -1,0 +1,54 @@
+<Entities><Things><Thing name="Acme.SubscriptionDemo" projectName="Acme"><Subscriptions>
+<Subscription
+                     aspect.isDistributed="false"
+                     description="Ordered, stateful rule: alert after 3 consecutive high readings (thisSub.JSONState)"
+                     enabled="true"
+                     name="EvaluateRules"
+                     aspect.isStateful="true"
+                     version="2">
+                        <ServiceImplementation
+                         description=""
+                         handlerName="Script"
+                         name="EvaluateRules">
+                            <ConfigurationTables>
+                                <ConfigurationTable
+                                 dataShapeName=""
+                                 description=""
+                                 isMultiRow="false"
+                                 name="Script"
+                                 ordinal="0">
+                                    <DataShape>
+                                        <FieldDefinitions>
+                                            <FieldDefinition
+                                             baseType="STRING"
+                                             description="code"
+                                             name="code"
+                                             ordinal="0"></FieldDefinition>
+                                        </FieldDefinitions>
+                                    </DataShape>
+                                    <Rows>
+                                        <Row>
+                                            <code>
+                                            <![CDATA[...script elided...]]>
+                                            </code>
+                                        </Row>
+                                    </Rows>
+                                </ConfigurationTable>
+                            </ConfigurationTables>
+                        </ServiceImplementation>
+                        <Events>
+                            <Event
+                             alias="Me_DataChange_Temperature"
+                             eventName="DataChange"
+                             source=""
+                             sourceProperty="Temperature"
+                             sourceType="Thing"></Event>
+                            <Event
+                             alias="Me_DataChange_Pressure"
+                             eventName="DataChange"
+                             source=""
+                             sourceProperty="Pressure"
+                             sourceType="Thing"></Event>
+                        </Events>
+                    </Subscription>
+</Subscriptions></Thing></Things></Entities>

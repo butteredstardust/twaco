@@ -480,10 +480,13 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "fmt",
         group: 1,
-        text: r#"  fmt [--check] [--apply] [--entity <name>] [--changed-since <git-rev>]
-                              format scripts and sync their entity XML; order subscription Events and RBAC sets
+        text: r#"  fmt [--all] [--check] [--apply] [--entity <name>] [--changed-since <git-rev>]
+                              format scripts and sync their entity XML; order subscription Events and RBAC sets.
+                              Plain fmt covers only files changed against HEAD plus untracked ones (the whole
+                              solution outside git) and says how many others are unformatted
+      --all                   format everything, not only the changed files
       --apply                 apply formatting (the default); incompatible with --check
-      --check                 report which files would change, write nothing
+      --check                 report which files would change, write nothing; always the whole solution
       --entity <name>         an entity name or Collection/Name glob to format (repeatable)
       --changed-since <git-rev>  format entity files and sidecars changed since this revision"#,
     },
@@ -705,7 +708,7 @@ pub(crate) const USAGE: &[Usage] = &[
   widgets --icons [<filter>] [--json]
                               the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
                               aliases, containers and editable or bindable properties with defaults, events and services
-      --icons                 the 153 CDS icon names a cds: value may take; twaco refuses any other"#,
+      --icons                 the 215 CDS icon names a cds: value may take; twaco refuses any other"#,
     },
     Usage {
         path: "mashup validate",
@@ -737,7 +740,7 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  mashup spec <mashup> [--out <path>] [--json]
                               derive a page spec before restructuring; a spec built mashup returns page.yaml; any
                               other mashup gets a YAML spec of elements, with raw widget nodes counted by type
-      --out <path>            write the spec to this file"#,
+      --out <path>            write the spec to this file, with page.css beside it when present"#,
     },
     Usage {
         path: "mashup build",
@@ -745,6 +748,7 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  mashup build <mashup> [--apply] [--json]
                               compile the YAML page spec src/<Mashup>/page.yaml and merge with the generated baseline;
                               keep independent hand edits; conflicts write nothing; plans by default
+                              read page.css beside page.yaml when page.css is declared
                               native controls, media, embed, typed expressions and navigate events: guide page-specs"#,
     },
     Usage {
@@ -1118,6 +1122,7 @@ pub(crate) const USAGE: &[Usage] = &[
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
       --spec <file>          compile a YAML page spec (page.kind: master creates a master with page_host), copy it to src/<Mashup>/page.yaml and record a generated baseline;
+                              copy the declared page.css beside the spec
                               accepts only --project, --apply and --json
       --from <address>        copy a repository mashup exactly, except identity and permissions
       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
@@ -1144,6 +1149,7 @@ pub(crate) const USAGE: &[Usage] = &[
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
       --spec <file>          compile a YAML page spec (page.kind: master creates a master with page_host), copy it to src/<Mashup>/page.yaml and record a generated baseline;
+                              copy the declared page.css beside the spec
                               accepts only --project, --apply and --json
       --from <address>        copy a repository mashup exactly, except identity and permissions
       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
@@ -1855,12 +1861,14 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "call",
         group: 3,
-        text: r#"  call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>] [--json]
+        text: r#"  call <target> <service> [<name=value>...|<json>] [--timeout <seconds>] [--detail] [--as <test user>] [--json]
       [--lang <code>] [--param <name=value>]...
                               target: Collection/Name, full name, or last dotted segment;
-                              <target>.<service> [<json>] works too, split at the last dot
-      --param <name=value>    one parameter (repeatable), typed by the known signature, else
-                              text; not with <json>
+                              <target>.<service> [...] works too, split at the last dot.
+                              name=value pairs split at the first =; typed by the service signature
+                              (NUMBER, INTEGER, LONG, BOOLEAN; text as given), an unknown name is refused
+                              with the closest one; INFOTABLE and JSON need <json>; pairs and <json> never mix
+      --param <name=value>    the long form of a name=value pair (repeatable)
       --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
       --json                  one complete service reply as JSON (logs and notices go to stderr)
       --as <test user>        call as a [[test.user]] with the profile's test_password (the profile

@@ -32,11 +32,12 @@ fn styled(solution: &Solution) -> String {
     };
     assert!(containers.len() >= 3, "{containers:?}");
     let data = &mut value["UI"]["Properties"]["StyleProperties"];
+    // As Composer stores them: each entry names its styler, and the map its styler version.
     *data = serde_json::json!({"data": {
-        containers[1].clone(): {"parts": {"$": {"$": {"background": "#F7F7F7", "border-style": "solid"}}}},
-        containers[2].clone(): {"parts": {"$": {"hover": {"opacity": 0.5}}, "title": {"$": {"color": "#112233"}}}},
-        "gone-9": {"parts": {"$": {"$": {"background": "red"}}}}
-    }});
+        containers[1].clone(): {"parts": {"$": {"$": {"background": "#F7F7F7", "border-style": "solid"}}}, "widget": "flex-container"},
+        containers[2].clone(): {"parts": {"$": {"hover": {"opacity": 0.5}}, "title": {"$": {"color": "#112233"}}}, "widget": "flex-container"},
+        "gone-9": {"parts": {"$": {"$": {"background": "red"}}}, "widget": "flex-container"}
+    }, "meta": {"type": "WidgetStyler", "version": "1.0"}});
     let assets = Assets {
         content: mashup::to_sidecar(&value),
         css: format!("{CSS}\n"),
@@ -70,6 +71,15 @@ fn a_derived_spec_carries_the_stylesheet_and_stored_styles_into_a_fresh_copy() {
     let derived = extraction::export(&solution, &name, Some(&spec_path)).unwrap();
     assert!(derived.spec.contains("css: page.css"), "{}", derived.spec);
     assert!(derived.spec.contains("styles:"), "{}", derived.spec);
+    assert!(
+        !derived
+            .notes
+            .iter()
+            .any(|note| note.contains("unsupported wiring is not carried")
+                || note.contains("styles of widgets folded")),
+        "{:?}",
+        derived.notes
+    );
     // The file is the sidecar, byte for byte (CRLF inside included).
     assert_eq!(
         std::fs::read(out.join("page.css")).unwrap(),
@@ -80,7 +90,7 @@ fn a_derived_spec_carries_the_stylesheet_and_stored_styles_into_a_fresh_copy() {
         derived
             .notes
             .iter()
-            .any(|n| n.contains("style properties not carried") && n.contains("gone-9")),
+            .any(|n| n == "stale style entry for removed widget gone-9 (harmless; dropped)"),
         "{:?}",
         derived.notes
     );
@@ -189,4 +199,28 @@ fn a_spec_returned_without_a_file_does_not_reference_page_css() {
     std::fs::write(folder.join("page.yaml"), &derived.spec).unwrap();
     let plan = super::super::build::plan(&solution, &name, None, None).unwrap();
     assert!(!plan.conflicts(), "{}", plan.report);
+}
+
+#[test]
+fn uncarried_whole_widget_styles_name_the_widget_in_words() {
+    let (_dir, solution) = element_solution();
+    let name = styled(&solution);
+    let mut content = current(&solution, &name);
+    // The root's own styles are carried as page styles; a child's are not by plain derive.
+    let id = content["UI"]["Widgets"][0]["Properties"]["Id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    content["UI"]["Properties"]["StyleProperties"]["data"][&id] =
+        serde_json::json!({"parts":{"$":{"$":{"background":"red"}}}});
+    let derived = super::super::derive::derive(&name, &content.to_string()).unwrap();
+    assert!(
+        derived
+            .notes
+            .iter()
+            .any(|note| note.contains(&id) && note.contains("the widget itself")),
+        "{:?}",
+        derived.notes
+    );
+    assert!(!derived.notes.iter().any(|note| note.contains("parts $")));
 }

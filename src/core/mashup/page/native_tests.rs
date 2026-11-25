@@ -324,15 +324,19 @@ fn navigation_refuses_unknown_parameters_and_bad_modes() {
     for (text, needle) in [
         (text.replace("mode: popup", "mode: sideways"), "mode"),
         (text.replace("params: {id:", "params: {missing:"), "missing"),
-        (
-            text.replace("Acme.Child_MU", "Acme.Missing_MU"),
-            "Acme.Missing_MU",
-        ),
     ] {
         let error = compile(&solution, "Acme", &text).unwrap_err();
         assert!(error.message.contains(needle), "{error}");
         assert!(error.line >= 13 && error.column > 0, "{error}");
     }
+    // A target outside the solution is server-side or in an extension: it warns.
+    let outside = text.replace("Acme.Child_MU", "Acme.Missing_MU");
+    let built = compile(&solution, "Acme", &outside).unwrap();
+    assert!(
+        built.warnings.iter().any(|w| w.contains("Acme.Missing_MU")),
+        "{:?}",
+        built.warnings
+    );
 }
 
 #[test]

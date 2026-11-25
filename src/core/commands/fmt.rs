@@ -13,6 +13,10 @@ pub struct FmtRequest {
     pub entities: Vec<String>,
     /// Select entity files or sidecars changed since this Git revision.
     pub changed_since: Option<String>,
+    /// With no entity and no revision given, format only what changed against `HEAD` (plus
+    /// untracked files) and count the rest, falling back to everything outside a git
+    /// repository. Never for a check: a gate judges the whole solution.
+    pub changed_default: bool,
     /// The lock-holder label the calling surface has historically shown.
     pub lock_label: &'static str,
 }
@@ -21,6 +25,9 @@ pub struct FmtRequest {
 #[derive(Debug)]
 pub struct FmtOutcome {
     pub report: workflow::FmtOutcome,
+    /// Set when the run was narrowed to the changed files by default: how many other files
+    /// are still unformatted (a plan over the rest).
+    pub others_unformatted: Option<usize>,
     #[allow(
         dead_code,
         reason = "the command facade's Effects (COMMAND_FACADE.md); read only by tests"
@@ -66,15 +73,31 @@ pub fn execute(
             lock_workspace(solution, request.lock_label, notices).map_err(FmtCommandError::Lock)?,
         ),
     };
+    let mut changed_since = request.changed_since.clone();
+    let mut narrowed = false;
+    if request.changed_default
+        && request.mode == Mode::Apply
+        && request.entities.is_empty()
+        && changed_since.is_none()
+    {
+        if bundle::validate_changed_since(solution, "HEAD").is_ok() {
+            changed_since = Some("HEAD".into());
+            narrowed = true;
+        } else {
+            notices.push(
+                "not a git repository with a commit: formatting the whole solution".to_string(),
+            );
+        }
+    }
     // Chosen under the lock, so what is formatted is what was selected.
-    let selected = if request.entities.is_empty() && request.changed_since.is_none() {
+    let selected = if request.entities.is_empty() && changed_since.is_none() {
         None
     } else {
         let found = workspace::discover(solution);
         let selected = bundle::select_included(found.entities, &request.entities)
             .map_err(FmtCommandError::Selection)?;
         let (selected, notes) =
-            bundle::select_entities(solution, selected, request.changed_since.as_deref(), &[])
+            bundle::select_entities(solution, selected, changed_since.as_deref(), &[])
                 .map_err(FmtCommandError::Selection)?;
         for note in notes {
             notices.push(note);
@@ -87,12 +110,15 @@ pub fn execute(
         selected.as_deref(),
         _lock.as_ref(),
     );
+    let others_unformatted =
+        narrowed.then(|| workflow::fmt(solution, true, None, None).changed.len());
     let workspace = match request.mode {
         Mode::Plan => Access::Read,
         Mode::Apply => Access::Write,
     };
     Ok(FmtOutcome {
         report,
+        others_unformatted,
         effects: Effects::new(workspace, Access::None),
     })
 }
@@ -107,6 +133,7 @@ mod tests {
             mode: Mode::Apply,
             entities: Vec::new(),
             changed_since: None,
+            changed_default: false,
             lock_label: "fmt",
         }
     }
@@ -180,6 +207,7 @@ mod tests {
                 mode: Mode::Plan,
                 entities: Vec::new(),
                 changed_since: None,
+                changed_default: false,
                 lock_label: "fmt",
             },
             &mut Notices::default(),
@@ -192,6 +220,7 @@ mod tests {
                 mode: Mode::Apply,
                 entities: Vec::new(),
                 changed_since: None,
+                changed_default: false,
                 lock_label: "fmt",
             },
             &mut Notices::default(),
@@ -293,6 +322,115 @@ mod tests {
         .unwrap();
         assert_eq!(outcome.report.files, 0);
         assert!(outcome.report.changed.is_empty());
+    }
+
+    fn committed_fixture() -> (tempfile::TempDir, Solution) {
+        let (root_guard, solution) = fixture();
+        let root = root_guard.path();
+        git(root, &["init", "-q"]);
+        git(root, &["add", "."]);
+        git(
+            root,
+            &[
+                "-c",
+                "user.name=Acme Test",
+                "-c",
+                "user.email=test@example.invalid",
+                "commit",
+                "-q",
+                "-m",
+                "base",
+            ],
+        );
+        (root_guard, solution)
+    }
+
+    #[test]
+    fn plain_fmt_formats_only_changed_and_untracked_files_and_counts_the_rest() {
+        let (root_guard, solution) = committed_fixture();
+        let root = root_guard.path();
+        let one = root.join("src/Acme.One/services/Run/script.js");
+        let two = root.join("src/Acme.Two/services/Run/script.js");
+        let one_before = std::fs::read(&one).unwrap();
+        // Changed against HEAD (still unformatted), and a new untracked entity.
+        std::fs::write(
+            &two,
+            "if(true){
+result=2;
+}",
+        )
+        .unwrap();
+        std::fs::write(root.join("Things/Acme.Three.xml"), entity("Acme.Three")).unwrap();
+        let three = root.join("src/Acme.Three/services/Run");
+        std::fs::create_dir_all(&three).unwrap();
+        std::fs::write(
+            three.join("script.js"),
+            "if(true){
+result=3;
+}",
+        )
+        .unwrap();
+        std::fs::write(
+            three.join("definition.xml"),
+            "<ServiceDefinition name=\"Run\"/>
+",
+        )
+        .unwrap();
+        let outcome = execute(
+            &solution,
+            &FmtRequest {
+                changed_default: true,
+                ..request()
+            },
+            &mut Notices::default(),
+        )
+        .unwrap();
+        assert_eq!(outcome.report.failed, 0, "{:?}", outcome.report.log);
+        assert!(outcome.report.changed.contains(&two));
+        assert!(outcome.report.changed.contains(&three.join("script.js")));
+        assert_eq!(std::fs::read(&one).unwrap(), one_before);
+        // The committed, unformatted entity is reported, not touched.
+        assert!(outcome.others_unformatted.unwrap() >= 1);
+
+        // --check judges everything, even with the default scope asked for.
+        let check = execute(
+            &solution,
+            &FmtRequest {
+                mode: Mode::Plan,
+                changed_default: true,
+                ..request()
+            },
+            &mut Notices::default(),
+        )
+        .unwrap();
+        assert!(check.others_unformatted.is_none());
+        assert!(check.report.changed.contains(&one));
+
+        // --all formats everything.
+        let all = execute(&solution, &request(), &mut Notices::default()).unwrap();
+        assert!(all.others_unformatted.is_none());
+        assert_ne!(std::fs::read(&one).unwrap(), one_before);
+    }
+
+    #[test]
+    fn plain_fmt_outside_git_formats_everything_with_a_note() {
+        let (_root_guard, solution) = fixture();
+        let mut notices = Notices::default();
+        let outcome = execute(
+            &solution,
+            &FmtRequest {
+                changed_default: true,
+                ..request()
+            },
+            &mut notices,
+        )
+        .unwrap();
+        assert!(outcome.others_unformatted.is_none());
+        assert_eq!(outcome.report.files, 2);
+        assert!(notices
+            .lines()
+            .iter()
+            .any(|note| note.contains("whole solution")));
     }
 
     #[test]

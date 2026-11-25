@@ -157,8 +157,9 @@ pub(crate) fn check(src: &[u8], shapes: &[DataShape]) -> Vec<TableProblem> {
             problems.push(TableProblem {
                 rule: "config-table-copy-differs",
                 message: format!(
-                    "configuration table {table}: its fields differ from {shape} ({}); evidence: local table copy compared with the named DataShape, without a server read. Some server exports retain differing copies; use `twaco entity status` to check whether this entity is kept before changing its fields",
-                    differences.join("; ")
+                    "configuration table {table}: its fields differ from {shape} ({}); evidence: local table copy compared with the named DataShape, without a server read. Some server exports retain differing copies; use `twaco entity status {}` to check whether this entity is kept before changing its fields",
+                    differences.join("; "),
+                    text(&tokens[entity], "name")
                 ),
                 blocks: false,
             });

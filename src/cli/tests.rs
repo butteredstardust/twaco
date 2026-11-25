@@ -11,6 +11,32 @@ use clap::FromArgMatches as _;
 type Route = (&'static str, usize, Vec<String>);
 
 #[test]
+fn brief83_page_css_is_documented_and_unsupported_property_flags_are_refused() {
+    for path in ["mashup spec", "mashup new", "new mashup", "mashup build"] {
+        let usage = USAGE.iter().find(|u| u.path == path).unwrap();
+        assert!(usage.text.contains("page.css"), "{path}: {}", usage.text);
+    }
+    for args in [
+        vec![
+            "entity",
+            "set",
+            "Acme.Thing",
+            "--prop",
+            "SourceURL=/Thingworx/Acme",
+        ],
+        vec![
+            "new",
+            "thing",
+            "Acme.Thing",
+            "--prop",
+            "SourceURL=/Thingworx/Acme",
+        ],
+    ] {
+        assert!(parse(&args).is_err(), "{args:?}");
+    }
+}
+
+#[test]
 fn the_help_index_shows_every_command_in_the_first_25_lines() {
     let listing = spec::listing();
     let first = listing.lines().take(25).collect::<Vec<_>>().join("\n");

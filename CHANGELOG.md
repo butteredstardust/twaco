@@ -6,6 +6,48 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Page builds name spec nodes and source lines in widget diagnostics, report retained edits to
+  managed custom.css and refuse competing stylesheet changes. The page content height floor
+  follows the template's content slot even after it is renamed, including master page areas.
+- Mashup property edits and additions note literal `//Thingworx/` URLs from the Git Bash
+  workaround. Page-spec help describes page.css, and push/deploy conflict advice names the
+  entity diff and pull commands before suggesting a forced overwrite.
+
+- `twaco call` takes bare `name=value` parameters after the service, typed by the service
+  signature, and refuses a name the signature lacks (ThingWorx ignores it silently) with the
+  closest one. Plain `twaco fmt` formats only the files changed against HEAD plus untracked
+  ones and counts the rest; `twaco fmt --all` formats everything, `--check` still judges all.
+- Page-spec round trips accept horizontal image positions and case variations in catalogue
+  options, omit read-only props, bind numbered chart sources, and retain legacy container
+  children and navigation parameter cache order/defaults. Extension wiring is carried with an
+  unchecked-contract warning, including recipe triggers; external navigation targets warn
+  instead of refusing the page. A data call's `fixed:` keeps the static value of a parameter that
+  a binding feeds, and a master's claimed root id is applied before nodes are placed, so a row
+  can keep the template center's id.
+- Remove the false-positive indexed InfoTable rows lint; indexed reads work on 10.2.1.
+  Keep the confirmed `const` loop warning concrete and catch unsupported `for...of`
+  syntax offline. Entity pushes report each advisory reference once.
+- Complete the ThingWorx 10.2 CDS catalogue from the 10.2.1 runtime bundle: 215 CDS
+  icons, including the AI icons (the bundle's 216th name belongs to `chat-panel`).
+
+- Fresh mashups built from derived page specs keep parameter defaults, root styles and layout
+  flags, custom widget ids, empty bound-label text, native session/user-extension data, mashup
+  events and services, and navigation return/geometry bindings. Semantic diff follows reordered
+  function widgets and ignores duplicate identical bindings and Composer migration/cache metadata.
+  Adoption and build share hand-edit comparison and name changed properties. Copy names override
+  `page.name`; no-op builds say `nothing to write`; conflicts locate `text`, and spec export creates
+  missing output folders.
+- New entity pushes refuse a missing server Project before importing. Read-back diagnostics
+  count template-provided additions separately from changes to authored content.
+- Mashup derive notes itemise actual losses, distinguish stale styles, and recognise carried
+  wiring despite Composer metadata. Copies warn about direct and PermissionGroup visibility,
+  including copies built from a spec (the old `page.name` names the source). Static contained-widget properties no longer warn
+  as orphan parameters.
+- Comment noun lint recognises participles, conjunctions and camelCase identifiers. Permission
+  comparisons ignore live-only built-in Group membership grants absent from exported XML,
+  preserving explicit drift and those defaults during other permission updates. Recovery
+  hints include complete entity commands.
+
 ## [0.1.77] - 2026-11-24
 
 - Mashup adoption accepts service result fields bound to mashup parameters, legacy contained

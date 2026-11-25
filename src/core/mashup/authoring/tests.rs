@@ -10106,6 +10106,61 @@ fn mashup_set_refuses_git_bash_source_url() {
 }
 
 #[test]
+fn brief83_literal_git_bash_workaround_warns_on_add_and_set() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Image_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let mut image = add_request(name, "ptcsimage");
+    image.properties = vec![(
+        "SourceURL".into(),
+        "//Thingworx/MediaEntities/Acme.Image".into(),
+    )];
+    let added = plan_add(&solution, &image).unwrap();
+    assert!(
+        added
+            .notes
+            .iter()
+            .any(|n| n.contains("protocol-relative") && n.contains("MSYS_NO_PATHCONV=1")),
+        "{:?}",
+        added.notes
+    );
+    apply_edit(&solution, &added.edit, &lock(&solution)).unwrap();
+    let set = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: name.into(),
+            widget: added.placed.id,
+            properties: vec![(
+                "SourceURL".into(),
+                json!("//Thingworx/MediaEntities/Acme.Other"),
+            )],
+            style_from: None,
+            styles: vec![],
+        },
+    )
+    .unwrap();
+    assert!(
+        set.notes.iter().any(|n| n.contains("protocol-relative")),
+        "{:?}",
+        set.notes
+    );
+    assert!(set
+        .changed
+        .iter()
+        .any(|change| change.property == "SourceURL"
+            && change.after == json!("//Thingworx/MediaEntities/Acme.Other")));
+    image.properties = vec![(
+        "SourceURL".into(),
+        "C:/Program Files/Git/Thingworx/Acme".into(),
+    )];
+    assert!(plan_add(&solution, &image)
+        .unwrap_err()
+        .to_string()
+        .contains("MSYS_NO_PATHCONV=1"));
+}
+
+#[test]
 fn collapsible_recipe_adds_an_external_toggle_and_repeats_identically() {
     let (dir, solution) = one_project();
     let mut new = request("Acme.Orders_MU");
@@ -11185,7 +11240,12 @@ fn mashup_set_checks_cds_icons_and_leaves_other_images_alone() {
             },
         )
     };
-    for good in ["cds:icon_hamburger", "Acme.Media.Logo", "/Thingworx/x.svg"] {
+    for good in [
+        "cds:icon_hamburger",
+        "cds:icon_ai_persona-alt",
+        "Acme.Media.Logo",
+        "/Thingworx/x.svg",
+    ] {
         assert!(set(good).is_ok(), "{good}");
     }
     let error = set("cds:icon_menu").unwrap_err().to_string();
@@ -14872,5 +14932,132 @@ fn tokens_config_reaches_recipes_and_separator_authoring() {
         content_of(&solution, name)["UI"]["Properties"]["StyleProperties"]["data"][&id]["parts"]
             ["$"]["$"]["background"],
         "#0B0B0B"
+    );
+}
+
+#[test]
+fn copies_warn_about_permission_group_and_direct_visibility_in_from_and_spec() {
+    let (dir, solution) = one_project();
+    let source = plan_new(&solution, &request("Acme.Reference_MU")).unwrap();
+    apply_new(&solution, &source, &lock(&solution)).unwrap();
+    write(
+        dir.path(),
+        "acme/PermissionGroups/Acme.Access.xml",
+        r#"<Entities><PermissionGroups><PermissionGroup name="Acme.Access" projectName="Acme"><EntityPermissions><EntityPermission entityType="Mashup" entityName="Acme.Reference_MU" permissionCategory="Visibility" permissionName="Visibility" isPermitted="true" onInstances="false"/></EntityPermissions></PermissionGroup></PermissionGroups></Entities>"#,
+    );
+    let mut copy = request("Acme.Copy_MU");
+    copy.from = Some("Acme.Reference_MU".into());
+    let plan = plan_new(&solution, &copy).unwrap();
+    assert!(plan.notes.iter().any(|note| note.contains("Acme.Reference_MU is visible through PermissionGroup Acme.Access; the copy is not a member") && note.contains("twaco entity push PermissionGroups/Acme.Access --apply")), "{:?}", plan.notes);
+    assert!(!plan
+        .notes
+        .iter()
+        .any(|note| note.contains("has visibility permissions")));
+    let group_spec =
+        crate::core::mashup::page::extract::extract(&solution, "Acme.Reference_MU").unwrap();
+    let group_path = dir.path().join("group-copy.yaml");
+    std::fs::write(&group_path, &group_spec.spec).unwrap();
+    let group_plan = crate::core::mashup::page::build::plan(
+        &solution,
+        "Acme.GroupCopy_MU",
+        Some("Acme"),
+        Some(&group_path),
+    )
+    .unwrap();
+    assert!(
+        group_plan.report["cell_notices"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|n| n.as_str().unwrap().contains("PermissionGroup Acme.Access")),
+        "{}",
+        group_plan.report
+    );
+
+    let xml = std::fs::read_to_string(&source.entity_path).unwrap();
+    let xml = xml.replace("<Visibility></Visibility>", "<Visibility><Principal name=\"Acme.Org\" type=\"Organization\" isPermitted=\"true\"/></Visibility>");
+    assert!(xml.contains("Acme.Org"));
+    std::fs::write(&source.entity_path, xml).unwrap();
+    let plan = plan_new(&solution, &copy).unwrap();
+    assert!(plan
+        .notes
+        .iter()
+        .any(|note| note.contains("has visibility permissions")));
+    let spec = crate::core::mashup::page::extract::extract(&solution, "Acme.Reference_MU").unwrap();
+    let path = dir.path().join("copy.yaml");
+    std::fs::write(&path, &spec.spec).unwrap();
+    let plan = crate::core::mashup::page::build::plan(
+        &solution,
+        "Acme.SpecCopy_MU",
+        Some("Acme"),
+        Some(&path),
+    )
+    .unwrap();
+    let notices = plan.report["cell_notices"].as_array().unwrap();
+    assert!(
+        notices
+            .iter()
+            .any(|n| n.as_str().unwrap().contains("PermissionGroup Acme.Access")),
+        "{}",
+        plan.report
+    );
+    assert!(
+        notices
+            .iter()
+            .any(|n| n.as_str().unwrap().contains("has visibility permissions")),
+        "{}",
+        plan.report
+    );
+    let group_path = dir.path().join("acme/PermissionGroups/Acme.Access.xml");
+    let group = std::fs::read_to_string(&group_path).unwrap().replace("</EntityPermissions>", r#"<EntityPermission entityType="Mashup" entityName="Acme.Copy_MU" permissionCategory="Visibility" isPermitted="true"/></EntityPermissions>"#);
+    std::fs::write(group_path, group).unwrap();
+    let notes =
+        copy_visibility_notes(&solution, "Acme.Reference_MU", "Acme.Copy_MU", true).unwrap();
+    assert!(
+        !notes
+            .iter()
+            .any(|note| note.contains("the copy is not a member")),
+        "{notes:?}"
+    );
+}
+
+#[test]
+fn disagreeing_mashup_sidecars_offer_complete_entity_commands() {
+    let (_dir, solution) = one_project();
+    let source = plan_new(&solution, &request("Acme.Reference_MU")).unwrap();
+    apply_new(&solution, &source, &lock(&solution)).unwrap();
+    let spec = crate::core::mashup::page::extract::extract(&solution, "Acme.Reference_MU").unwrap();
+    std::fs::write(
+        solution.src_root().join("Acme.Reference_MU/page.yaml"),
+        spec.spec,
+    )
+    .unwrap();
+    let mut content: Value =
+        serde_json::from_str(&std::fs::read_to_string(&source.content_path).unwrap()).unwrap();
+    content["UI"]["Properties"]["CustomClass"] = json!("acme-custom");
+    std::fs::write(&source.content_path, mashup::to_sidecar(&content)).unwrap();
+    let error = load_existing(&solution, "Acme.Reference_MU")
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(
+        error.contains("twaco sync Mashups/Acme.Reference_MU --apply"),
+        "{error}"
+    );
+    assert!(
+        error.contains("twaco extract Mashups/Acme.Reference_MU"),
+        "{error}"
+    );
+    let error = crate::core::mashup::page::build::plan(&solution, "Acme.Reference_MU", None, None)
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(
+        error.contains("twaco sync Mashups/Acme.Reference_MU --apply"),
+        "{error}"
+    );
+    assert!(
+        error.contains("twaco extract Mashups/Acme.Reference_MU"),
+        "{error}"
     );
 }

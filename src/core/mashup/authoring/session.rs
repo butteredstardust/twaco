@@ -2,6 +2,7 @@
 use super::{AuthoringContext, AuthoringError, ExistingMashup};
 use crate::core::{config::Solution, mashup, types};
 use mashup::edit::MashupDocument;
+use serde_json::Value;
 
 /// Where a collection's cell mashup comes from: the solution, or a page compiled in memory that
 /// the build writes beside the page.
@@ -250,6 +251,11 @@ impl Session {
         self.sync()?;
         let plan =
             super::add::plan_add_loaded(solution, request, self.loaded(), self.tokens.as_ref())?;
+        self.warnings
+            .extend(request.properties.iter().filter_map(|(name, value)| {
+                crate::core::repo::git_bash_path_note(&Value::String(value.clone()))
+                    .map(|note| format!("{name}: {note}"))
+            }));
         let id = plan.placed.id;
         self.accept(plan.edit)?;
         Ok(id)
@@ -307,7 +313,14 @@ impl Session {
                 if definitions.iter().any(|definition| definition.name == *name) {
                     true
                 } else {
-                    self.warnings.push(format!("orphan contained-mashup parameter value {name}; not a parameter of {mashup}"));
+                    let static_property = ["mashupcontainer", "ptcsmashupcontainer"].iter().any(|kind| {
+                        crate::core::widgets::catalog().by_type(kind).is_some_and(|widget| {
+                            widget.defaults.contains_key(name) || widget.property(name).is_some()
+                        })
+                    });
+                    if !static_property {
+                        self.warnings.push(format!("orphan contained-mashup parameter value {name}; not a parameter of {mashup}"));
+                    }
                     orphans.push((name.clone(), serde_json::from_str(text).unwrap_or_else(|_| serde_json::Value::String(text.clone()))));
                     false
                 }
@@ -341,6 +354,10 @@ impl Session {
         self.sync()?;
         let plan =
             super::set::plan_set_loaded(solution, request, self.loaded(), self.tokens.as_ref())?;
+        self.warnings
+            .extend(request.properties.iter().filter_map(|(name, value)| {
+                crate::core::repo::git_bash_path_note(value).map(|note| format!("{name}: {note}"))
+            }));
         if let Some(edit) = plan.edit {
             self.accept(edit)?;
         }
@@ -373,6 +390,8 @@ impl Session {
             self.loaded(),
             self.tokens.as_ref(),
         )?;
+        // Recipe notes describe what it made; only what could not be checked is a warning.
+        self.warnings.extend(plan.warnings);
         self.accept(plan.edit)
     }
 

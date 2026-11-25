@@ -67,20 +67,21 @@ impl fmt::Display for Refusal {
                  a different server-owned policy, so it cannot say which side changed; if the \
                  repository and the server agree, `twaco entity status <entity> --record` records \
                  a baseline under the current policy; otherwise look at the server's copy with \
-                 `twaco entity get <entity>` and bring its change into the repository"
+                 `twaco entity diff <entity>`, then `twaco entity pull <entity> --apply` or overwrite it with --force --apply"
             ),
             Refusal::UnknownAncestor { server, .. } => write!(
                 f,
                 "the server has a different version ({server}) and there is no baseline to say \
-                 which side changed; look at it with `twaco entity get <entity>` and bring its \
-                 change into the repository if it matters, or overwrite it with --force --apply; \
+                 which side changed; inspect `twaco entity diff <entity>` (or `twaco entity get <entity>`), \
+                 then `twaco entity pull <entity> --apply` or overwrite it with --force --apply; \
                  once both sides agree, `twaco entity status <entity> --record` records the \
                  baseline"
             ),
             Refusal::Conflict { server, baseline } => write!(
                 f,
                 "the server changed since the last sync (server baseline {baseline}, server now {server}); \
-                 pushing would overwrite that change"
+                 pushing would overwrite that change; inspect `twaco entity diff <entity>`, \
+                 then `twaco entity pull <entity> --apply` or overwrite it with --force --apply"
             ),
             Refusal::EncryptedServerOwned { parts } => write!(
                 f,
@@ -94,6 +95,11 @@ impl fmt::Display for Refusal {
 }
 
 impl Refusal {
+    /// Contextual advice shared by CLI and MCP for both push and deploy.
+    pub fn for_entity(&self, entity: &str) -> String {
+        self.to_string().replace("<entity>", entity)
+    }
+
     /// The reason shown beside an already-selected `--force`, without repeating its advice.
     pub fn short_reason(&self) -> String {
         match self {
@@ -105,6 +111,9 @@ impl Refusal {
             ),
             Self::UnknownAncestor { server, .. } => format!(
                 "the server has a different version ({server}) and there is no baseline to say which side changed"
+            ),
+            Self::Conflict {server, baseline} => format!(
+                "the server changed since the last sync (server baseline {baseline}, server now {server})"
             ),
             _ => self.to_string(),
         }
@@ -160,6 +169,10 @@ pub trait Remote {
             why: format!("{key}: server-owned parts require the Exporter"),
         })
     }
+    fn project_exists(&self, project: &str) -> Result<bool, ServerError> {
+        self.fetch(&EntityKey::new("Projects", project).map_err(ServerError::from)?)
+            .map(|entity| entity.is_some())
+    }
     fn import(&self, file_name: &str, xml: &[u8]) -> Result<(), ServerError>;
     /// REST inventory for collections unsupported by GetEntityList. Rows include projectName.
     fn collection_entities(&self, _: &str) -> Result<Vec<Value>, ServerError> {
@@ -173,6 +186,10 @@ pub trait Remote {
 }
 
 impl Remote for Client {
+    fn project_exists(&self, project: &str) -> Result<bool, ServerError> {
+        self.entity_exists(&EntityKey::new("Projects", project).map_err(ServerError::from)?)
+    }
+
     fn export_owned(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
         super::backup::Remote::export(self, key)
     }
@@ -255,6 +272,8 @@ pub enum Outcome {
 
 #[derive(Debug, thiserror::Error)]
 pub enum PushError {
+    #[error("project {0} is not on the server; push it first (`twaco entity push Projects/{0} --apply`)")]
+    MissingProject(String),
     /// The working copy cannot be hashed, including a file that holds more than one entity.
     #[error("the working copy cannot be pushed: {0}")]
     Working(NormaliseError),
@@ -267,20 +286,24 @@ pub enum PushError {
     /// something not yet observed, and the baseline was left alone.
     #[error(
         "the import succeeded, but reading the entity back failed, so what the server now \
-                 holds is unknown; the baseline was not updated. Run `twaco entity status` once \
-                 the server answers ({0})"
+                 holds is unknown; the baseline was not updated. Run `twaco entity status {entity}` once \
+                 the server answers ({source})"
     )]
-    Unverified(ServerError),
+    Unverified {
+        entity: Box<EntityKey>,
+        source: ServerError,
+    },
     #[error("{0}")]
     Baseline(BaselineError),
     /// The import said success, but the entity read back is not what was sent. The baseline
     /// was left alone, so `entity status` still shows the difference.
     #[error("the import reported success, but the server did not keep what was sent \
-                 (sent {sent}, read back {}); the baseline was not updated. `twaco entity diff` shows what the server kept{}", .read_back
+                 (sent {sent}, read back {}); the baseline was not updated. `twaco entity diff {entity}` shows what the server kept{}", .read_back
                     .as_deref()
                     .unwrap_or("nothing: the entity is missing"), where_it_differs(.differences))]
     NotKept {
-        sent: String,
+        entity: Box<EntityKey>,
+        sent: Box<str>,
         read_back: Option<String>,
         /// Where the read-back differs, names only: [`normalise::read_back_differences`].
         differences: Vec<String>,
@@ -343,6 +366,21 @@ pub(crate) fn push_with_parts(
         ancestor.policy_changed,
     );
 
+    if matches!(decision, Decision::Create) {
+        let entity = normalise::entity_of(target.document.bytes).map_err(PushError::Working)?;
+        if let Some(project) = entity
+            .attributes
+            .iter()
+            .find(|(key, _)| key == b"projectName")
+            .and_then(|(_, value)| std::str::from_utf8(value).ok())
+            .filter(|project| !project.is_empty())
+        {
+            if !remote.project_exists(project).map_err(PushError::Remote)? {
+                return Err(PushError::MissingProject(project.into()));
+            }
+        }
+    }
+
     if !apply {
         // The live copy carries the table and property definitions too, so a plan can already
         // say that an import would clear an encrypted owned value; the apply checks the export.
@@ -398,7 +436,12 @@ pub(crate) fn push_with_parts(
         .map_err(PushError::Remote)?;
     // From here on the server has changed, so a failure must say so rather than read like the
     // fetch before the import did.
-    let fetched = remote.fetch(&target.key).map_err(PushError::Unverified)?;
+    let fetched = remote
+        .fetch(&target.key)
+        .map_err(|source| PushError::Unverified {
+            entity: Box::new(target.key.clone()),
+            source,
+        })?;
     let read_back = fetched
         .as_deref()
         .map(|bytes| normalise::hash_with_grants(bytes, parts, grants))
@@ -408,7 +451,8 @@ pub(crate) fn push_with_parts(
         normalise::read_back_matches(target.document.bytes, back, parts, grants)
     }) {
         return Err(PushError::NotKept {
-            sent: working,
+            entity: Box::new(target.key.clone()),
+            sent: working.into(),
             read_back,
             differences: fetched
                 .map(|bytes| {
@@ -453,9 +497,9 @@ impl Coded for Refusal {
 impl Coded for PushError {
     fn code(&self) -> ErrorCode {
         match self {
-            Self::Working(_) | Self::Server(_) => ErrorCode::InvalidData,
+            Self::MissingProject(_) | Self::Working(_) | Self::Server(_) => ErrorCode::InvalidData,
             Self::Remote(e) => e.code(),
-            Self::Unverified(_) | Self::NotKept { .. } => ErrorCode::NotVerified,
+            Self::Unverified { .. } | Self::NotKept { .. } => ErrorCode::NotVerified,
             Self::Baseline(e) => e.code(),
         }
     }
@@ -493,6 +537,9 @@ mod tests {
     }
 
     impl Remote for Fake {
+        fn project_exists(&self, _: &str) -> Result<bool, ServerError> {
+            Ok(true)
+        }
         fn fetch(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
             Ok(self.held.borrow().clone())
         }
@@ -534,6 +581,63 @@ mod tests {
     }
 
     #[test]
+    fn a_new_entity_requires_its_project_before_import_even_when_forced() {
+        struct ProjectRemote {
+            present: bool,
+            imports: RefCell<usize>,
+        }
+        impl Remote for ProjectRemote {
+            fn fetch(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+                if key.collection() == "Projects" {
+                    return Ok(self.present.then(|| b"<Project name=\"Acme\"/>".to_vec()));
+                }
+                Ok((*self.imports.borrow() > 0)
+                    .then(|| b"<Thing name=\"Acme.New\" projectName=\"Acme\"/>".to_vec()))
+            }
+            fn import(&self, _: &str, _: &[u8]) -> Result<(), ServerError> {
+                *self.imports.borrow_mut() += 1;
+                Ok(())
+            }
+        }
+        let bytes = b"<Thing name=\"Acme.New\" projectName=\"Acme\"/>";
+        let target = Target {
+            key: EntityKey::new("Things", "Acme.New").unwrap(),
+            derived: Default::default(),
+            document: EntityDocument {
+                file_name: "Acme.New.xml",
+                bytes,
+            },
+        };
+        for apply in [false, true] {
+            let (_dir, root) = temp();
+            let remote = ProjectRemote {
+                present: false,
+                imports: RefCell::new(0),
+            };
+            let error = push(&remote, &root, &target, apply, true).unwrap_err();
+            assert_eq!(error.to_string(), "project Acme is not on the server; push it first (`twaco entity push Projects/Acme --apply`)");
+            assert_eq!(*remote.imports.borrow(), 0);
+            assert!(Baseline::load(&root, "default")
+                .unwrap()
+                .get("Things", "Acme.New")
+                .is_none());
+        }
+        let (_dir, root) = temp();
+        let remote = ProjectRemote {
+            present: true,
+            imports: RefCell::new(0),
+        };
+        assert_eq!(
+            push(&remote, &root, &target, true, false).unwrap(),
+            Outcome::Pushed { created: true }
+        );
+        assert_eq!(
+            push(&remote, &root, &target, true, false).unwrap(),
+            Outcome::AlreadyThere
+        );
+    }
+
+    #[test]
     fn a_push_with_no_baseline_says_how_to_settle_it() {
         let text = Refusal::UnknownAncestor {
             server: "s".into(),
@@ -546,6 +650,46 @@ mod tests {
             "status <entity> --record",
         ] {
             assert!(text.contains(step), "{step}: {text}");
+        }
+    }
+
+    #[test]
+    fn brief83_conflicts_say_to_diff_then_pull_or_force() {
+        let refusal = Refusal::Conflict {
+            server: "s".into(),
+            baseline: "b".into(),
+        };
+        let text = refusal.to_string();
+        for step in [
+            "twaco entity diff <entity>",
+            "twaco entity pull <entity>",
+            "--force --apply",
+        ] {
+            assert!(text.contains(step), "{step}: {text}");
+        }
+        let entity = "Things/Acme.Values";
+        for refusal in [
+            refusal,
+            Refusal::UnknownAncestor {
+                server: "s".into(),
+                policy_changed: false,
+            },
+            Refusal::UnknownAncestor {
+                server: "s".into(),
+                policy_changed: true,
+            },
+        ] {
+            let text = refusal.for_entity(entity);
+            assert!(
+                text.contains("twaco entity diff Things/Acme.Values"),
+                "{text}"
+            );
+            assert!(
+                text.contains("twaco entity pull Things/Acme.Values --apply"),
+                "{text}"
+            );
+            assert!(text.contains("--force --apply"), "{text}");
+            assert!(!text.contains("<entity>"), "{text}");
         }
     }
 
@@ -724,6 +868,9 @@ mod tests {
     }
 
     impl Remote for FailsAfterImport {
+        fn project_exists(&self, _: &str) -> Result<bool, ServerError> {
+            Ok(true)
+        }
         fn fetch(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
             if *self.imported.borrow() {
                 Err(ServerError::Transport {
@@ -749,7 +896,7 @@ mod tests {
         };
         let bytes = entity("a();");
         let error = push(&remote, &root, &target(&bytes), true, false).unwrap_err();
-        assert!(matches!(error, PushError::Unverified(_)), "{error}");
+        assert!(matches!(error, PushError::Unverified { .. }), "{error}");
         assert!(error.to_string().contains("the import succeeded"));
         assert!(!Baseline::path(&root, "default").exists());
     }
@@ -934,7 +1081,9 @@ mod tests {
         ));
         let text = refusal.to_string();
         assert!(text.contains("entity status <entity> --record"), "{text}");
-        assert!(!text.contains("--force"), "{text}");
+        assert!(text.contains("entity diff <entity>"), "{text}");
+        assert!(text.contains("entity pull <entity> --apply"), "{text}");
+        assert!(text.contains("--force --apply"), "{text}");
         assert_eq!(*fake.imports.borrow(), 0);
     }
 
@@ -975,6 +1124,9 @@ mod tests {
             imported: RefCell<bool>,
         }
         impl Remote for TemplateRemote {
+            fn project_exists(&self, _: &str) -> Result<bool, ServerError> {
+                Ok(true)
+            }
             fn fetch(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
                 Ok(self.imported.borrow().then(|| self.back.clone()))
             }

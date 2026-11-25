@@ -522,7 +522,15 @@ pub(super) fn plan_add_loaded(
             if !property_editable(widget, name) {
                 return Err(AuthoringError::Refused(format!("{name} is not editable")));
             }
-            if !contract.options.is_empty() && !contract.options.contains(&value) {
+            if !contract.options.is_empty()
+                && !contract.options.iter().any(|option| {
+                    option == &value
+                        || option
+                            .as_str()
+                            .zip(value.as_str())
+                            .is_some_and(|(a, b)| a.eq_ignore_ascii_case(b))
+                })
+            {
                 return Err(AuthoringError::Invalid(format!(
                     "{name} for {} must be one of {}",
                     widget.type_id,
@@ -562,6 +570,11 @@ pub(super) fn plan_add_loaded(
             .insert("twacoLayoutAuthored".into(), Value::Bool(true));
     }
     let mut notes = notes;
+    for (name, value) in &request.properties {
+        if let Some(note) = crate::core::repo::git_bash_path_note(&Value::String(value.clone())) {
+            notes.push(format!("{name}: {note}"));
+        }
+    }
     let path = document
         .find_exact(&placed.id)
         .map_err(AuthoringError::Edit)?

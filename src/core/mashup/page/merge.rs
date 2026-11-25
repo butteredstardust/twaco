@@ -9,6 +9,16 @@ pub(crate) struct Report {
     pub sides: std::collections::BTreeMap<String, (Option<Value>, Option<Value>)>,
 }
 
+pub(super) fn display_path(path: &str) -> String {
+    if let Some((id, property)) = path
+        .strip_prefix("content/widgets/")
+        .and_then(|p| p.split_once("/Properties/"))
+    {
+        return format!("{id}.{}", property.replace('/', "."));
+    }
+    path.into()
+}
+
 pub(crate) fn merge(
     b: Option<&Value>,
     c: Option<&Value>,
@@ -18,7 +28,7 @@ pub(crate) fn merge(
 ) -> Option<Value> {
     if g == b {
         if c != b {
-            report.kept.push(path.into());
+            changed_paths(b, c, path, &mut report.kept);
         }
         return c.cloned();
     }
@@ -54,6 +64,52 @@ pub(crate) fn merge(
     report.conflicts.push(path.into());
     report.sides.insert(path.into(), (c.cloned(), g.cloned()));
     c.cloned()
+}
+
+/// Name changed leaves even when the generated subtree is unchanged. Keyed arrays compare by
+/// identity; only a widget's child list has runtime layout order.
+fn changed_paths(b: Option<&Value>, c: Option<&Value>, path: &str, out: &mut Vec<String>) {
+    if b == c {
+        return;
+    }
+    match (b, c) {
+        (Some(Value::Object(b)), Some(Value::Object(c))) => {
+            let keys: BTreeSet<_> = b.keys().chain(c.keys()).collect();
+            for key in keys {
+                if !key.starts_with("twaco")
+                    && !matches!(key.as_str(), "id_index" | "CustomMashupCss")
+                {
+                    changed_paths(b.get(key), c.get(key), &format!("{path}/{key}"), out);
+                }
+            }
+        }
+        (Some(Value::Array(b)), Some(Value::Array(c)))
+            if b.iter().chain(c).all(|v| key(v).is_some()) =>
+        {
+            let keyed = |items: &[Value]| {
+                items
+                    .iter()
+                    .map(|v| (key(v).expect("key"), v.clone()))
+                    .collect::<std::collections::BTreeMap<_, _>>()
+            };
+            let (before, current) = (keyed(b), keyed(c));
+            let keys: BTreeSet<_> = before.keys().chain(current.keys()).collect();
+            for key in keys {
+                changed_paths(
+                    before.get(key),
+                    current.get(key),
+                    &format!("{path}/{key}"),
+                    out,
+                );
+            }
+            if path.ends_with("/Widgets")
+                && b.iter().map(key).collect::<Vec<_>>() != c.iter().map(key).collect::<Vec<_>>()
+            {
+                out.push(format!("{path}/order"));
+            }
+        }
+        _ => out.push(path.into()),
+    }
 }
 
 pub(super) fn key(value: &Value) -> Option<String> {

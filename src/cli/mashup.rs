@@ -3207,7 +3207,9 @@ fn page_build(
                 println!("would write {files} files (nothing is written until --apply)");
             }
         }
-        if !apply && conflicts.is_empty() {
+        if report["files_state"] == "nothing to write" {
+            println!("nothing to write");
+        } else if !apply && conflicts.is_empty() {
             println!("run again with --apply to write it");
         }
     }

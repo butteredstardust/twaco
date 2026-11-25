@@ -86,6 +86,11 @@ pub(super) fn plan_set_loaded(
     }
     let mut properties = request.properties.clone();
     let mut notes = menubar_properties(&document, &found.type_id, &found.id, &mut properties)?;
+    for (name, value) in &properties {
+        if let Some(note) = crate::core::repo::git_bash_path_note(value) {
+            notes.push(format!("{name}: {note}"));
+        }
+    }
     notes.extend(menubar_limit(
         solution,
         &document,
@@ -396,7 +401,15 @@ pub(super) fn plan_set_loaded(
             property_value(widget, name, supplied.clone())?
         };
         if let Some(contract) = widget.property(name) {
-            if !contract.options.is_empty() && !contract.options.contains(&value) {
+            if !contract.options.is_empty()
+                && !contract.options.iter().any(|option| {
+                    option == &value
+                        || option
+                            .as_str()
+                            .zip(value.as_str())
+                            .is_some_and(|(a, b)| a.eq_ignore_ascii_case(b))
+                })
+            {
                 return Err(AuthoringError::Invalid(format!(
                     "{name} for {} must be one of {}",
                     widget.type_id,
@@ -618,7 +631,7 @@ pub(crate) fn colour(text: &str) -> Result<String, String> {
 
 /// The styler name Composer records beside a widget's style parts. Each pair was read from the
 /// root StyleProperties of the platform kits' mashups; a type they never style is not guessed.
-fn styler_name(type_id: &str) -> Option<&'static str> {
+pub(crate) fn styler_name(type_id: &str) -> Option<&'static str> {
     Some(match type_id {
         "flexcontainer" => "flex-container",
         "ptcsbreadcrumb" => "ptcs-breadcrumb",
@@ -635,6 +648,7 @@ fn styler_name(type_id: &str) -> Option<&'static str> {
         "ptcsdivider" => "ptcs-divider",
         "ptcsdropdown" => "ptcs-dropdown",
         "ptcsdynamicpanel" => "ptcs-dynamic-panel",
+        "ptcsfileupload" => "ptcs-file-upload",
         "ptcsgrid" => "ptcs-grid",
         "ptcsimage" => "ptcs-image",
         "ptcsicon" => "ptcs-icon",
@@ -645,6 +659,7 @@ fn styler_name(type_id: &str) -> Option<&'static str> {
         "ptcslist" => "ptcs-list",
         "ptcslistshuttle" => "ptcs-list-shuttle",
         "ptcsmenubar" => "ptcs-menubar",
+        "ptcsmenubutton" => "ptcs-menu-button",
         "ptcspropertydisplay" => "ptcs-property-display",
         "ptcsradio" => "ptcs-radio",
         "ptcsslider" => "ptcs-slider",

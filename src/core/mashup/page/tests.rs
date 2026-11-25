@@ -4845,6 +4845,12 @@ fn the_q3_page_container_floor_covers_the_sum_of_its_sections() {
 #[path = "dynamic_tests.rs"]
 mod dynamic;
 
+#[path = "fresh_tests.rs"]
+mod fresh;
+
+#[path = "backlog_tests.rs"]
+mod backlog;
+
 #[path = "adoption_contract_tests.rs"]
 mod adoption_contract;
 #[test]

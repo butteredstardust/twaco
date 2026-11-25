@@ -68,7 +68,9 @@ which of its parts are fragile.
    contains no backend entity but still has project hooks. Review the planned calls before apply.
 5. **Call it, including the paths that should fail:**
    `twaco call <Thing> <Service> '<json>' --with-logs`. That prints the result, then what the
-   call wrote to ScriptLog and ApplicationLog.
+   call wrote to ScriptLog and ApplicationLog. Simple parameters can be bare pairs after the
+   service (`twaco call <Thing>.<Service> Name=value`), typed by its signature; unknown names
+   are refused; INFOTABLE and JSON need the JSON object.
 
 The gates passing is not evidence a service works. They check structure, never behaviour; most
 real defects are declarations that drifted from the code. Call the service.

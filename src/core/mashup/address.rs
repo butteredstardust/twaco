@@ -5,6 +5,11 @@ use crate::core::mashup::edit::MashupDocument;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Address {
+    Session {
+        kind: String,
+        property: String,
+        base: String,
+    },
     Ui {
         widget: String,
         property: String,
@@ -41,7 +46,7 @@ pub(crate) fn address_help(text: &str) -> String {
     } else {
         "data:Acme.Cards.GetAssets".into()
     };
-    format!("invalid mashup address `{text}`; accepted forms: data:<Entity>.<Service>, ui:<widget>.<property>, mashup:<parameter> (events: mashup:Loaded); did you mean {suggestion}?")
+    format!("invalid mashup address `{text}`; accepted forms: data:<Entity>.<Service>, ui:<widget>.<property>, mashup:<parameter>, session:<Session|UserExtensions>.<field>:<TYPE> (events: mashup:Loaded); did you mean {suggestion}?")
 }
 
 /// A bare `widget.property` names a widget property when exactly one widget of the document has
@@ -90,6 +95,18 @@ pub(crate) fn parse_address(text: &str) -> Result<Address, AddressError> {
         return Err(bad());
     }
     match area {
+        "session" => {
+            let (field, base) = rest.rsplit_once(':').unwrap_or((rest, ""));
+            let (kind, property) = field.split_once('.').ok_or_else(bad)?;
+            if !matches!(kind, "Session" | "UserExtensions") || property.is_empty() {
+                return Err(bad());
+            }
+            Ok(Address::Session {
+                kind: kind.into(),
+                property: property.into(),
+                base: base.into(),
+            })
+        }
         "ui" => {
             let (widget, property) = rest.rsplit_once('.').ok_or_else(bad)?;
             if widget.is_empty() || property.is_empty() {

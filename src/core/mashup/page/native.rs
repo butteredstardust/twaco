@@ -152,7 +152,7 @@ pub(super) fn expand(node: &mut Node, tokens: &Tokens) -> Result<(), Error> {
             }
             _ => return Err(Error::at(at, format!("text does not belong to {element}"))),
         };
-        put(b, property, text);
+        field(b, property, Some(text));
     }
     match element {
         "page_host" | "menu_bar" => {}
@@ -299,7 +299,11 @@ pub(super) fn expand(node: &mut Node, tokens: &Tokens) -> Result<(), Error> {
                     put(b, "Scaling", json!(scaling.value));
                 }
                 if let Some(position) = b.position.take() {
-                    choice(&position, &["top", "center", "bottom"], "position")?;
+                    choice(
+                        &position,
+                        &["top", "center", "bottom", "left", "right"],
+                        "position",
+                    )?;
                     put(b, "Position", json!(position.value));
                 }
             } else {

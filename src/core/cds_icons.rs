@@ -80,7 +80,7 @@ mod tests {
     #[test]
     fn the_list_is_sorted_and_whole() {
         let names = names();
-        assert_eq!(names.len(), 153);
+        assert_eq!(names.len(), 215);
         assert!(names.windows(2).all(|pair| pair[0] < pair[1]));
     }
 
@@ -89,6 +89,11 @@ mod tests {
         // What the collapsible recipe writes.
         for icon in [
             "cds:icon_hamburger",
+            "cds:icon_ai_persona-alt",
+            "cds:icon_bold",
+            "cds:icon_bar_chart",
+            "cds:icon_assign",
+            "cds:icon_border_color",
             "cds:icon_chevron_right",
             "cds:icon_chevron_left",
         ] {
@@ -97,6 +102,11 @@ mod tests {
         assert!(check("Acme.Media.Logo").is_ok());
         assert!(check("/Thingworx/MediaEntities/Acme.Logo").is_ok());
         assert!(check("").is_ok());
+    }
+
+    #[test]
+    fn chat_panel_icons_are_not_cds_icons() {
+        assert!(check("cds:icon_microphone").is_err());
     }
 
     #[test]

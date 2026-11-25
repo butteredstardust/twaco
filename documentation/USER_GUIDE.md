@@ -346,6 +346,9 @@ without it, each gate gives a summary.
 
 ### Focused script lint
 
+Plain `twaco fmt` formats only the files changed against git HEAD plus untracked ones (the
+whole solution outside git) and ends by counting what it left alone; `twaco fmt --all`
+formats everything. `twaco fmt --check` and the `formatting` gate always judge everything.
 `twaco fmt` also orders Events directly under a Subscription by alias, preserving their XML bytes and surrounding layout.
 
 `twaco lint` runs the formatting, script-trap, code-order and enabled comment rules, reporting each
@@ -396,12 +399,14 @@ A solution without `[lint]` keeps today's gates (`checks-v1`). To take up the fu
 | your hooks | a `[[check]]` command fails ([Configuration](CONFIGURATION.md#check-your-own-gates)) |
 | live parse | with `--live` or `[gates] live`: the server's own parser rejects a script |
 
-The script traps are runtime failures that look like valid JavaScript:
+The script traps cover platform syntax errors and runtime failures in otherwise valid JavaScript:
 
 - **`for-in`:** `for (x in y)` is a syntax error in the script engine.
-- **`const-in-loop`, `const-redeclared`:** `const` is function-scoped there, so two blocks
-  collide, and the caller sees "No service handler defined".
-- **`indexed-rows`:** indexing `rows.toArray()` re-reads the first row.
+- **`const-in-loop`:** on 10.2.1, `const v = rows[k].item + k` in a three-iteration loop
+  keeps the first value (`a0, a0, a0`); use `let`. A `const` inside a `forEach` callback is fine.
+- **`const-redeclared`:** function-scoped declarations in sibling blocks collide, and the
+  caller sees "No service handler defined".
+- **`for-of`:** `for (x of y)` does not compile on ThingWorx 10.2.1; use an index loop or `forEach`.
 - **`unbounded-loop`:** a `while` loop that can run forever pins a platform thread.
 - **`nan-risk`:** a NaN in a result row makes the whole service fail to serialise.
 - **`read-before-assign`:** a variable read before it is assigned.
@@ -2645,7 +2650,12 @@ keep a `jar:file:` URL and report the SDK version.
 
 - **`twaco call <Thing> <Service> '<json>'`** calls a service now. A service can write, and
   twaco cannot tell which do, so know what it does first. `--with-logs` then shows what the
-  call wrote to ScriptLog and ApplicationLog, waiting up to 3 seconds for them. A target
+  call wrote to ScriptLog and ApplicationLog, waiting up to 3 seconds for them. Simple
+  parameters can be bare pairs, `twaco call Acme.Press.Run Count=3 Name=Acme.Robot1`: split at
+  the first `=`, typed by the service's signature (numbers, booleans; text as given), and a
+  name the signature lacks is refused with the closest one, because ThingWorx would ignore it
+  silently. INFOTABLE and JSON parameters need the JSON object; pairs and a JSON object never
+  mix. A target
   other than a Thing is written `ThingTemplates/<Name>` or `Resources/<Name>`.
 - **`twaco logs ScriptLog --since 10m --level WARN`** reads a log, newest first, in local
   time. `--grep`, `--user` and `--thread` narrow it.

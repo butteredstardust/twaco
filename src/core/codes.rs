@@ -518,10 +518,21 @@ mod tests {
         // Delegation: the wrapped error decides.
         is(PushError::Remote(transport()), ErrorCode::ServerUnreachable);
         is(PushError::Remote(http()), ErrorCode::ServerError);
-        is(PushError::Unverified(transport()), ErrorCode::NotVerified);
+        is(
+            PushError::Unverified {
+                entity: Box::new(
+                    crate::core::entity::key::EntityKey::new("Things", "Acme.T").unwrap(),
+                ),
+                source: transport(),
+            },
+            ErrorCode::NotVerified,
+        );
         is(
             PushError::NotKept {
-                sent: text(),
+                entity: Box::new(
+                    crate::core::entity::key::EntityKey::new("Things", "Acme.T").unwrap(),
+                ),
+                sent: text().into(),
                 read_back: None,
                 differences: Vec::new(),
             },

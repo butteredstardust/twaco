@@ -39,7 +39,7 @@ impl Derived {
     pub(crate) fn notice(&self) -> Option<String> {
         (!self.notes.is_empty()).then(|| {
             format!(
-                "{} PermissionGroup row(s) were ignored, so their grants are not expected on targets; run `twaco permissions` for details",
+                "{} PermissionGroup row(s) were ignored, so their grants are not expected on targets; run `twaco permissions diff --all` for details",
                 self.notes.len()
             )
         })

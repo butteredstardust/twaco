@@ -283,10 +283,12 @@ where
     }
     let index = crate::core::index::Index::build(solution);
     let prerequisites = crate::core::deploy::import_prerequisites(&bytes);
+    let mut advisory_references = std::collections::BTreeSet::new();
     for reference in index.references_from(&key) {
         if reference.kind.confidence() >= crate::core::index::Confidence::Resolved
             && reference.to != key.to_string()
             && !prerequisites.contains(&reference.to)
+            && advisory_references.insert(reference.to.clone())
         {
             notices.push(format!(
                 "{label}: reference {} is advisory; it is not an import prerequisite",
@@ -535,6 +537,9 @@ mod tests {
     }
 
     impl push::Remote for Fake {
+        fn project_exists(&self, _: &str) -> Result<bool, ServerError> {
+            Ok(true)
+        }
         fn fetch(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
             let state = self.state.lock().unwrap();
             Ok(match &state.entities {
@@ -634,20 +639,45 @@ mod tests {
 
     #[test]
     fn gates_block_plans_and_applies_before_import_even_with_force() {
-        for mode in [Mode::Plan, Mode::Apply] {
+        for (script, rule, line) in [
+            (
+                "for (var i = 0; i < 6; i++) {\n    const row = i;\n}",
+                "const-in-loop",
+                2,
+            ),
+            ("for (var row of rows) {\n    use(row);\n}", "for-of", 1),
+        ] {
+            for mode in [Mode::Plan, Mode::Apply] {
+                let (_guard, root, solution, fake) = setup(None, None);
+                std::fs::write(root.join("Things/Acme.T.xml"), service_document(script)).unwrap();
+                let mut request = request(mode, true, true);
+                request.skip_checks = false;
+                let error = execute(&solution, &request, |_| fake.clone()).unwrap_err();
+                assert!(error.to_string().contains(rule), "{error}");
+                assert!(
+                    error
+                        .to_string()
+                        .contains(&format!("Things/Acme.T.xml:{line}")),
+                    "{error}"
+                );
+                assert_eq!(fake.imports(), 0);
+                assert_eq!(fake.exports(), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn verified_indexed_rows_pass_push_gates() {
+        for script in [
+            "for (var i = 0; i < t.rows.length; i++) {\n    var item = t.rows[i].item;\n}",
+            "var arr = t.rows.toArray();\nfor (var j = 0; j < arr.length; j++) {\n    var item = arr[j].item;\n}",
+        ] {
             let (_guard, root, solution, fake) = setup(None, None);
-            std::fs::write(
-                root.join("Things/Acme.T.xml"),
-                service_document("for (var i = 0; i < 6; i++) {\n    const row = i;\n}"),
-            )
-            .unwrap();
-            let mut request = request(mode, true, true);
+            std::fs::write(root.join("Things/Acme.T.xml"), service_document(script)).unwrap();
+            let mut request = request(Mode::Apply, false, false);
             request.skip_checks = false;
-            let error = execute(&solution, &request, |_| fake.clone()).unwrap_err();
-            assert!(error.to_string().contains("const-in-loop"), "{error}");
-            assert!(error.to_string().contains("Things/Acme.T.xml:2"), "{error}");
-            assert_eq!(fake.imports(), 0);
-            assert_eq!(fake.exports(), 0);
+            execute(&solution, &request, |_| fake.clone()).unwrap();
+            assert_eq!(fake.imports(), 1);
         }
     }
 
@@ -795,7 +825,7 @@ mod tests {
             fake.state.lock().unwrap().entities = Some(Default::default());
             for (name, other) in [("Acme.T", "Acme.Other"), ("Acme.Other", "Acme.T")] {
                 let xml =
-                    String::from_utf8(service_document(&format!("Things[\"{other}\"].Run();")))
+                    String::from_utf8(service_document(&format!("Things[\"{other}\"].Run(); Things[\"{other}\"].Run(); Things[\"{other}\"].Other();")))
                         .unwrap();
                 let xml = xml.replacen("name=\"Acme.T\"", &format!("name=\"{name}\""), 1);
                 std::fs::write(root.join(format!("Things/{name}.xml")), xml).unwrap();
@@ -815,10 +845,18 @@ mod tests {
                     }
                 ));
                 assert_eq!(fake.imports(), index + 1);
-                assert!(notices
-                    .lines()
-                    .iter()
-                    .any(|line| line.contains("reference") && line.contains("advisory")));
+                assert_eq!(
+                    notices
+                        .lines()
+                        .iter()
+                        .filter(
+                            |line| line.contains("is advisory; it is not an import prerequisite")
+                        )
+                        .count(),
+                    1,
+                    "{:?}",
+                    notices.lines()
+                );
             }
             assert_eq!(
                 fake.state.lock().unwrap().entities.as_ref().unwrap().len(),
@@ -1125,7 +1163,12 @@ mod tests {
         assert_eq!(error.code(), ErrorCode::InvalidArguments);
         let error = PushCommandError::Push {
             label: "Things/Acme.T".to_string(),
-            why: push::PushError::Unverified(ServerError::InvalidUrl("bad URL".to_string())),
+            why: push::PushError::Unverified {
+                entity: Box::new(
+                    crate::core::entity::key::EntityKey::new("Things", "Acme.T").unwrap(),
+                ),
+                source: ServerError::InvalidUrl("bad URL".to_string()),
+            },
             backup: None,
         };
         assert_eq!(error.code(), ErrorCode::NotVerified);
@@ -1136,6 +1179,9 @@ mod tests {
             label: "Things/Acme.T".into(),
             backup: None,
             why: push::PushError::NotKept {
+                entity: Box::new(
+                    crate::core::entity::key::EntityKey::new("Things", "Acme.T").unwrap(),
+                ),
                 sent: "sent".into(),
                 read_back: Some("back".into()),
                 differences: vec!["Thing/ThingProperties/Acme.T: missing".into()],

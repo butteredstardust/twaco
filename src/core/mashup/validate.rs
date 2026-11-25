@@ -844,25 +844,6 @@ fn check_ui_end(
             return;
         }
     }
-    // A chart with MultipleDataSources takes one data source per series, DataSource1 to
-    // DataSource<NumberOfSeries>, each an infotable it reads.
-    if let Some(series) = property.strip_prefix("DataSource").and_then(|n| {
-        n.parse::<u64>()
-            .ok()
-            .filter(|series| series.to_string() == n)
-    }) {
-        let separate = properties["MultipleDataSources"].as_bool() == Some(true);
-        let count = match &properties["NumberOfSeries"] {
-            Value::String(text) => text.trim().parse().unwrap_or(0),
-            other => other.as_u64().unwrap_or(0),
-        };
-        if separate && (1..=count).contains(&series) {
-            if source {
-                problems.push(direction(binding, id, property, source));
-            }
-            return;
-        }
-    }
     // A navigation function's other properties are its target's parameters, which the
     // contained-mashups rules judge; numbered properties (Tab2Visible) are in the defaults.
     // A collection's other properties are its cell mashup's parameters; a toolbar makes

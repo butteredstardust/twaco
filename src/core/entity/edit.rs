@@ -2219,9 +2219,9 @@ impl Edit2<'_> {
             let on_disk = read_file(&script_path)?;
             if String::from_utf8_lossy(&on_disk).replace("\r\n", "\n") != current {
                 return Err(invalid(format!(
-                    "{} differs from the XML; run twaco sync {} first, then set the service",
+                    "{} differs from the XML; run twaco sync {} --apply first, then set the service",
                     script_path.display(),
-                    doc.name()
+                    doc.label()
                 )));
             }
         }
@@ -2561,7 +2561,7 @@ impl Edit2<'_> {
             };
             if unsynced {
                 return Err(invalid(format!(
-                    "{collection}/{ancestor}'s {name} sidecar differs from its entity file; run twaco sync, then try again"
+                    "{collection}/{ancestor}'s {name} sidecar differs from its entity file; run twaco sync {collection}/{ancestor} --apply, then try again"
                 )));
             }
         }

@@ -18,6 +18,7 @@ pub(crate) struct Spec {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Page {
+    pub(crate) styles: Option<Spanned<Value>>,
     pub(crate) kind: Option<Spanned<PageKind>>,
     #[serde(default)]
     pub(crate) props: BTreeMap<String, Spanned<Value>>,
@@ -62,11 +63,19 @@ pub(crate) enum Parameter {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ParameterDetails {
+    #[serde(default, deserialize_with = "present_value")]
+    pub(crate) default: Option<Value>,
     #[serde(rename = "type")]
     pub(crate) base_type: String,
     pub(crate) direction: Option<String>,
     pub(crate) description: Option<String>,
     pub(crate) data_shape: Option<String>,
+}
+
+fn present_value<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Value>, D::Error> {
+    Value::deserialize(deserializer).map(Some)
 }
 
 impl Parameter {
@@ -115,6 +124,11 @@ pub(crate) struct Root {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Source {
+    pub(crate) widget_id: Option<Spanned<String>>,
+    /// Native Composer runtime data, rather than a Thing service.
+    pub(crate) session: Option<Spanned<String>>,
+    #[serde(default)]
+    pub(crate) fields: BTreeMap<String, Spanned<String>>,
     pub(crate) service: Option<Spanned<String>>,
     /// A ThingShape or ThingTemplate service runs on the Thing this `{bind: ...}` names at runtime.
     pub(crate) entity: Option<Spanned<Value>>,
@@ -130,6 +144,9 @@ pub(crate) struct Source {
     pub(crate) refresh: Option<Spanned<u32>>,
     #[serde(default)]
     pub(crate) params: BTreeMap<String, Spanned<Value>>,
+    /// Static values a call also stores for parameters that a binding feeds.
+    #[serde(default)]
+    pub(crate) fixed: BTreeMap<String, Spanned<Value>>,
     /// Properties of an expression's widget that the spec's own fields do not cover.
     #[serde(default)]
     pub(crate) props: BTreeMap<String, Spanned<Value>>,
@@ -434,6 +451,8 @@ impl Node {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Body {
+    /// The source widget's exact id when its readable node id is not a Composer numeric id.
+    pub(crate) widget_id: Option<Spanned<String>>,
     #[serde(skip)]
     pub(crate) value_size: Option<String>,
     #[serde(skip)]
@@ -521,7 +540,7 @@ pub(crate) struct Body {
     pub(crate) inputs: Vec<String>,
 
     #[serde(alias = "label")]
-    pub(crate) text: Option<Value>,
+    pub(crate) text: Option<Spanned<Value>>,
     pub(crate) data: Option<Spanned<String>>,
     #[serde(default)]
     pub(crate) columns: Vec<Spanned<Column>>,
@@ -885,10 +904,37 @@ fn parse_nested(
     spec.resolved_tokens = tokens;
     for source in spec.page.value.data.values() {
         let s = &source.value;
-        if s.service.is_some() == s.expression.is_some() {
+        if s.widget_id.is_some() && s.expression.is_none() {
             return Err(Error::at(
                 source.referenced,
-                "data needs exactly one of service or expression",
+                "data.widget_id belongs to an expression",
+            ));
+        }
+        if s.session.is_some() {
+            for (name, base) in &s.fields {
+                if name.is_empty()
+                    || !crate::core::entity::edit::BASE_TYPES.contains(&base.value.as_str())
+                {
+                    return Err(Error::at(
+                        base.referenced,
+                        format!("session field {name} needs a known base type"),
+                    ));
+                }
+            }
+        } else if !s.fields.is_empty() {
+            return Err(Error::at(
+                source.referenced,
+                "fields belong to a session source",
+            ));
+        }
+        if usize::from(s.service.is_some())
+            + usize::from(s.expression.is_some())
+            + usize::from(s.session.is_some())
+            != 1
+        {
+            return Err(Error::at(
+                source.referenced,
+                "data needs exactly one of service, expression or session",
             ));
         }
         if s.expression.is_some() {
@@ -973,7 +1019,7 @@ fn parse_nested(
                 ));
             }
             node.widget()?;
-            if b.text.as_ref().is_some_and(|v| !v.is_string()) {
+            if b.text.as_ref().is_some_and(|v| !v.value.is_string()) {
                 return Err(Error::at(
                     b.id.referenced,
                     "text must be a string for this element; use props for bindings",

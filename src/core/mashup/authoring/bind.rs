@@ -128,6 +128,7 @@ pub(super) fn bind_in(
     let (mut from_base, mut to_base) = (base(&from), base(&to));
     // A widget the catalogue does not know has no type of its own: it takes the other end's.
     if document.verbatim()
+        || matches!(&from, End::Data { collection, .. } if matches!(collection.as_str(), "Session" | "UserExtensions"))
         || matches!(
             &from,
             End::Data {
@@ -608,6 +609,10 @@ pub(super) fn data_call(
             None,
         ));
     };
+    if matches!(collection.as_str(), "Session" | "UserExtensions") {
+        super::source::ensure_session_source(document, collection)?;
+        return Ok((collection.clone(), collection.clone(), None));
+    }
     if let Some((section, call)) = existing_data_call(document, end)? {
         return Ok((section, call, None));
     }

@@ -332,20 +332,31 @@ pub(crate) fn read_back_matches(
     ) else {
         return false;
     };
-    let (Ok(left), Ok(mut right)) = (
+    let (Ok(mut left), Ok(mut right)) = (
         owned_comparison_tree(&sent, parts),
         owned_comparison_tree(&back, parts),
     ) else {
         return false;
     };
+    strip_template_additions(&left, &mut right);
+    if left.name == b"Thing" {
+        left.attributes
+            .retain(|(k, _)| k != b"inheritedValueStream");
+    }
+    canonical_element_bytes(&left) == canonical_element_bytes(&comparison_element(right, true))
+}
+
+/// Remove exactly the template additions accepted by read-back verification.
+fn strip_template_additions(left: &Element, right: &mut Element) -> usize {
+    let mut added = 0;
     if left.name == b"Thing" && right.name == b"Thing" {
-        let declared: Vec<_> = descendants_named(&left, b"PropertyDefinition")
+        let declared: Vec<_> = descendants_named(left, b"PropertyDefinition")
             .into_iter()
             .filter_map(|e| attribute_value(e, b"name").map(<[u8]>::to_vec))
             .collect();
-        let local_tables = descendants_named(&left, b"ConfigurationTableDefinition");
+        let local_tables = descendants_named(left, b"ConfigurationTableDefinition");
         for section in [b"ThingProperties".as_slice(), b"ConfigurationTables"] {
-            let original = elements(&left).into_iter().find(|e| e.name == section);
+            let original = elements(left).into_iter().find(|e| e.name == section);
             if let Some(Node::Element(target)) = right
                 .children
                 .iter_mut()
@@ -364,7 +375,7 @@ pub(crate) fn read_back_matches(
                             }
                         })
                     });
-                    present
+                    let keep = present
                         || if section == b"ThingProperties" {
                             declared.contains(&e.name)
                         } else {
@@ -374,21 +385,25 @@ pub(crate) fn read_back_matches(
                                 || local_tables.iter().any(|table| {
                                     attribute_value(table, b"name") == attribute_value(e, b"name")
                                 })
-                        }
+                        };
+                    if !keep {
+                        added += 1;
+                    }
+                    keep
                 });
+            }
+            // Removing all template values may leave a section that the sent entity never
+            // had. The empty wrapper is part of those additions, not another content change.
+            if original.is_none() {
+                right.children.retain(|node| !matches!(node, Node::Element(e) if e.name == section && e.children.is_empty() && e.attributes.is_empty()));
             }
         }
         // Derived from the template; valueStream remains an authored attribute.
         right
             .attributes
             .retain(|(k, _)| k != b"inheritedValueStream");
-        let mut left = left.clone();
-        left.attributes
-            .retain(|(k, _)| k != b"inheritedValueStream");
-        return canonical_element_bytes(&left)
-            == canonical_element_bytes(&comparison_element(right, true));
     }
-    canonical_element_bytes(&left) == canonical_element_bytes(&right)
+    added
 }
 
 fn descendants_named<'a>(element: &'a Element, name: &[u8]) -> Vec<&'a Element> {
@@ -471,10 +486,32 @@ pub(crate) fn read_back_differences(
     parts: &[super::server_owned::Part],
 ) -> Vec<String> {
     let inherited = super::permissions::dropped_inherited_service_permissions(sent, read_back);
-    let found = collect_differences(sent, read_back, parts, &READ_BACK, Some(MAX_DIFFERENCES));
+    let mut found = Collector {
+        kept: Vec::new(),
+        total: 0,
+        limit: Some(MAX_DIFFERENCES),
+    };
+    let mut template_added = 0;
+    if let (Ok(mut left), Ok(mut right)) = (
+        owned_comparison_tree(sent, parts),
+        owned_comparison_tree(read_back, parts),
+    ) {
+        template_added = strip_template_additions(&left, &mut right);
+        if left.name == b"Thing" {
+            left.attributes
+                .retain(|(k, _)| k != b"inheritedValueStream");
+        }
+        let right = comparison_element(right, true);
+        tree_differences(&left, &right, &READ_BACK, &mut found);
+    }
     let mut out = found.kept;
     if found.total > out.len() {
         out.push(format!("and {} more", found.total - out.len()));
+    }
+    if template_added > 0 {
+        out.push(format!(
+            "{template_added} template-provided items added by the server"
+        ));
     }
     out.extend(inherited);
     out
@@ -532,18 +569,22 @@ fn collect_differences(
     ) else {
         return out;
     };
-    differences(&sent, &read_back, &element_label(&sent), sides, &mut out);
+    tree_differences(&sent, &read_back, sides, &mut out);
+    out
+}
+
+fn tree_differences(sent: &Element, read_back: &Element, sides: &Sides, out: &mut Collector) {
+    differences(sent, read_back, &element_label(sent), sides, out);
     // The walk compares text and elements apart; only how they interleave is left.
-    if out.total == 0 && canonical_element_bytes(&sent) != canonical_element_bytes(&read_back) {
+    if out.total == 0 && canonical_element_bytes(sent) != canonical_element_bytes(read_back) {
         note(
-            &mut out,
+            out,
             format!(
                 "{}: its text and elements interleave differently",
-                element_label(&sent)
+                element_label(sent)
             ),
         );
     }
-    out
 }
 
 fn differences(sent: &Element, back: &Element, path: &str, sides: &Sides, out: &mut Collector) {
@@ -1856,6 +1897,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn read_back_changes_separate_template_additions_from_authored_project_drift() {
+        let sent = br#"<Thing name="Acme.New" projectName="Acme" thingTemplate="RemoteThing"/>"#;
+        let back = br#"<Thing name="Acme.New" projectName="PTCDefaultProject" thingTemplate="RemoteThing"><ThingProperties><isConnected><Value>false</Value></isConnected><lastConnection><Value>0</Value></lastConnection></ThingProperties></Thing>"#;
+        let changes = read_back_differences(sent, back, &[]);
+        assert_eq!(
+            changes,
+            vec![
+                "Thing[Acme.New]/@projectName: changed",
+                "2 template-provided items added by the server"
+            ]
+        );
+        assert!(!read_back_matches(sent, back, &[], &Default::default()));
+    }
+
+    #[test]
     fn property_infotable_ordinals_are_server_metadata_only_in_stored_values() {
         let xml = r#"<Thing name="Acme.Component"><ThingProperties><dependentComponents><Value><infoTable><DataShape><FieldDefinitions><FieldDefinition name="ComponentName" baseType="STRING" ordinal="1"/><FieldDefinition name="ComponentProjectName" baseType="STRING" ordinal="2"/></FieldDefinitions></DataShape><Rows><Row><ComponentName>Acme.Other</ComponentName></Row></Rows></infoTable></Value></dependentComponents></ThingProperties></Thing>"#;
         let stored = xml
@@ -1879,6 +1935,23 @@ mod tests {
                 hash(left.replace("ordinal=\"1\"", "ordinal=\"0\"").as_bytes()).unwrap()
             );
         }
+    }
+
+    #[test]
+    fn brief83_field_subscription_reordering_is_quiet() {
+        let before = include_bytes!("../../tests/fixtures/subscription_order/before.xml");
+        let after = include_bytes!("../../tests/fixtures/subscription_order/after.xml");
+        let working = hash(before).unwrap();
+        let server = hash(after).unwrap();
+        assert_eq!(working, server);
+        for baseline in [None, Some((working.as_str(), working.as_str()))] {
+            assert_eq!(
+                crate::core::push::decide(&working, Some(&server), baseline),
+                crate::core::push::Decision::AlreadyThere
+            );
+        }
+        assert!(read_back_differences(before, after, &[]).is_empty());
+        assert!(all_differences(before, after, &[], &READ_BACK).is_empty());
     }
 
     #[test]

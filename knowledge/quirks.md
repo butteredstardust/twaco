@@ -289,10 +289,12 @@ individual alphabetical XML imports.
 The Importer drops a DataShape baseDataShape relationship. Preserve inherited fields explicitly or
 check the target after import.
 
-## Iterate InfoTables with forEach and conversion
+## InfoTable traversal (10.2.1)
 
-Prefer rows.toArray().forEach and convert Java-backed values deliberately. Bare indexed iteration
-can hit engine interop behaviour.
+Live verification on ThingWorx 10.2.1 returned three distinct values (`a`, `b`, `c`) both
+from `t.rows[i].item` in an index loop and from `arr[j].item` after
+`var arr = t.rows.toArray()`. Both index loops and `rows.toArray().forEach` are valid.
+Convert Java-backed values deliberately when a JavaScript primitive is needed.
 
 ## A DataBinding applies only its first PropertyMap
 
@@ -360,9 +362,18 @@ The logging aspect has no effect without a configured value stream.
 
 ThingWorx's engine scopes const like function scope; avoid relying on block-scoped JavaScript
 semantics and account for the resulting duplicate-declaration and loop-capture consequences.
+Live verification on 10.2.1: `for (var k = 0; k < 3; k++) { const v = rows[k].item + k; }`
+keeps `a0` on all three iterations. `let` in that loop and `const` inside a `forEach` callback
+are fine.
 To keep one such finding on purpose, put `// twaco-lint-disable-next-line traps.const-in-loop:
 <reason>` on its own line above the code; twaco reports a directive that is malformed or
 suppresses nothing.
+
+## for...of does not compile (10.2.1)
+
+Live verification on ThingWorx 10.2.1: Rhino rejects `for (var row of rows)` with
+`missing ; after for-loop initializer`. Use an index loop or `forEach`. The offline
+`traps.for-of` rule catches this syntax even without a live parse gate.
 
 ## NaN in a result fails the service
 
@@ -647,8 +658,8 @@ first loop value. A bound on every service loop is mandatory.
 
 `Number(undefined)` yields NaN, which fails result serialization; `infoTable.AddRow({ SomeNumber: null })`
 omits the value instead of persisting NULL. A reusable ThingShape must call `me.AddOrUpdateDataTableEntry(...)`,
-not a fixed Thing. For InfoTables, conversion such as `String(...)` and `new Date(...)` inside
-`forEach` avoids Java-backed row views; an unconverted indexed copy can repeat the first row.
+not a fixed Thing. For InfoTables, use `String(...)` and `new Date(...)` where Java-backed
+values need conversion. Indexed reads return distinct rows on 10.2.1 (see InfoTable traversal).
 
 ## Expanded menu bars truncate labels and hide item icons
 
@@ -947,11 +958,16 @@ with fixed per-item offsets cannot follow an accordion. Field-verified on 10.2.1
 
 ## CDS icon names (10.2)
 
-Composer's CDS icon set holds 153 names (`TW.SVGImages.cds` in
-`Composer/node_modules/tw-ui-resources/dist/lib/cds.js`, ThingWorx 10.2). A `cds:` value
-naming anything else renders a blank icon without an error: there is no `cds:icon_menu`
-(the menu button is `cds:icon_hamburger`) and no `cds:icon_debug`. `twaco widgets --icons`
-lists the names.
+The 10.2.1 runtime bundle `Common/wc/lib/ptcswidgets.bundle.js` defines 215 names in
+`<ptcs-iconset-svg name="cds">`, including `icon_ai_persona-alt`. Composer's
+`TW.SVGImages.cds` in `Composer/node_modules/tw-ui-resources/dist/lib/cds.js` has only
+153. The bundle has 216 distinct `icon_*` group IDs across all sets; the extra
+`icon_microphone` belongs to `chat-panel`, not `cds`.
+
+A `cds:` value naming anything else renders a blank icon without an error: there is
+no `cds:icon_menu` (the menu button is `cds:icon_hamburger`) and no `cds:icon_debug`.
+`twaco widgets --icons` lists the CDS names. Regenerate the 10.2 catalogue with
+`node scripts/generate_cds_icons.mjs <ptcswidgets.bundle.js>`; it retains names only.
 
 ## Responsive layout quirks (10.2.1)
 

@@ -59,7 +59,83 @@ pub(crate) fn compile_pinned(
     base: &std::path::Path,
     pins: &Pins,
 ) -> Result<Artifacts, Error> {
-    super::deep(|| compile_nested(solution, project, text, base, pins))
+    super::deep(|| {
+        let mut allocator = Ids::new(std::iter::empty());
+        let result = compile_nested(solution, project, text, base, pins, &mut allocator);
+        let mut diagnostic_ids = allocator.allocated().to_vec();
+        diagnostic_ids.extend(pins.widgets.iter().cloned());
+        result
+            .map_err(|mut error| {
+                if let Ok(spec) = schema::parse_at(text, solution, base) {
+                    if error.line == spec.page.referenced.line().max(1) {
+                        if let Some(location) =
+                            diagnostic_location(&error.message, &diagnostic_ids, &spec.page.value)
+                        {
+                            error.line = location.line().max(1);
+                            error.column = location.column().max(1);
+                        }
+                    }
+                }
+                error.message = super::ids::diagnostic(&error.message, &diagnostic_ids);
+                error
+            })
+            .map(|mut artifacts| {
+                let located = artifacts
+                    .warnings
+                    .iter()
+                    .any(|message| {
+                        diagnostic_ids
+                            .iter()
+                            .any(|(_, _, id)| super::ids::references(message, id))
+                    })
+                    .then(|| schema::parse_at(text, solution, base).ok())
+                    .flatten();
+                artifacts.warnings = artifacts
+                    .warnings
+                    .iter()
+                    .map(|message| {
+                        let named = super::ids::diagnostic(message, &diagnostic_ids);
+                        match located.as_ref().and_then(|spec| {
+                            diagnostic_location(message, &diagnostic_ids, &spec.page.value)
+                        }) {
+                            Some(location) => Error::at(location, named).to_string(),
+                            None => named,
+                        }
+                    })
+                    .collect();
+                artifacts
+            })
+    })
+}
+
+fn diagnostic_location(
+    message: &str,
+    allocated: &[(String, String, String)],
+    page: &Page,
+) -> Option<Location> {
+    fn find(nodes: &[Node], id: &str) -> Option<Location> {
+        for node in nodes {
+            if node.body().id.value == id {
+                return Some(node.body().id.referenced);
+            }
+            for child in descendants(node) {
+                if let Some(location) = find(std::slice::from_ref(child), id) {
+                    return Some(location);
+                }
+            }
+        }
+        None
+    }
+    allocated.iter().find_map(|(node, _, id)| {
+        if !super::ids::references(message, id) {
+            return None;
+        }
+        if let Some(alias) = node.strip_prefix("$data:") {
+            page.data.get(alias).map(|source| source.referenced)
+        } else {
+            page.slots.values().find_map(|slot| find(&slot.value, node))
+        }
+    })
 }
 
 fn compile_nested(
@@ -68,6 +144,7 @@ fn compile_nested(
     text: &str,
     base: &std::path::Path,
     pins: &Pins,
+    allocator: &mut Ids,
 ) -> Result<Artifacts, Error> {
     let spec = schema::parse_at(text, solution, base)?;
     let page = &spec.page.value;
@@ -160,6 +237,14 @@ fn compile_nested(
                 },
             )
             .map_err(|e| Error::at(base_type.referenced, e))?;
+        if let schema::Parameter::Long(details) = &base_type.value {
+            if let Some(default) = &details.default {
+                session
+                    .document
+                    .root_properties_mut()
+                    .insert(name.clone(), default.clone());
+            }
+        }
     }
     if let Some(layout) = &page.layout {
         if layout.value != "as-built" {
@@ -169,7 +254,30 @@ fn compile_nested(
         session.document.root_mut().remove("twacoPageRules");
         session.document.set_verbatim(true);
     }
-    let mut allocator = Ids::new(session.document.widgets().into_iter().map(|w| w.id));
+    // A claimed root takes its id before nodes are placed, so a node can keep the id the template's
+    // center had.
+    if let Some(id) = page.root.as_ref().and_then(|r| r.value.id.as_ref()) {
+        let path = session
+            .document
+            .find("center")
+            .map_err(|e| Error::at(id.referenced, e))?
+            .path;
+        session
+            .document
+            .set_property(&path, "Id", json!(id.value.clone()));
+    }
+    *allocator = Ids::new(session.document.widgets().into_iter().map(|w| w.id));
+    fn preserve_ids(node: &Node, allocator: &mut Ids) {
+        if let Some(id) = &node.body().widget_id {
+            allocator.preserve(&node.body().id.value, &id.value);
+        }
+        for child in descendants(node) {
+            preserve_ids(child, allocator);
+        }
+    }
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        preserve_ids(node, allocator);
+    }
     let mut ids = BTreeMap::new();
     let mut cells = vec![];
     if let Some(title) = &page.title {
@@ -204,7 +312,7 @@ fn compile_nested(
             .map_err(|e| Error::at(title.referenced, e))?;
         stabilize(
             &mut session,
-            &mut allocator,
+            allocator,
             &old,
             &id,
             "$page",
@@ -222,7 +330,7 @@ fn compile_nested(
             let added = add(
                 solution,
                 &mut session,
-                &mut allocator,
+                allocator,
                 &mut ids,
                 page,
                 node,
@@ -237,6 +345,16 @@ fn compile_nested(
     let platform = types::cached_platform(solution);
     for (alias, source) in entity_first(page) {
         let source = &source.value;
+        if let Some(kind) = &source.session {
+            if source.service.is_some() || source.expression.is_some() {
+                return Err(Error::at(
+                    kind.referenced,
+                    "session cannot also declare a service or expression",
+                ));
+            }
+            authoring::ensure_session_source(&mut session.document, &kind.value)
+                .map_err(|e| Error::at(kind.referenced, e))?;
+        }
         let Some(service_spec) = &source.service else {
             continue;
         };
@@ -269,6 +387,7 @@ fn compile_nested(
             .params
             .iter()
             .filter(|(_, v)| binding(&v.value).is_none())
+            .chain(source.fixed.iter())
             .map(|(k, v)| format!("{k}={}", scalar(&v.value)))
             .collect();
         // A dynamic source's entity is bound with the call when it comes from a parameter or a
@@ -313,7 +432,7 @@ fn compile_nested(
         &model,
         platform.as_ref(),
         page,
-        &mut allocator,
+        allocator,
         &mut ids,
     )?;
     // Static initial rows can coexist with a bound Data property. Install that binding before
@@ -371,7 +490,7 @@ fn compile_nested(
         &model,
         platform.as_ref(),
         page,
-        &mut allocator,
+        allocator,
         &mut ids,
         &mut cells,
     )?;
@@ -430,7 +549,7 @@ fn compile_nested(
                 &mut session,
                 page,
                 &ids,
-                &mut allocator,
+                allocator,
                 &event.value.on,
                 navigate,
             )?;
@@ -465,7 +584,7 @@ fn compile_nested(
                 .get(&invoke.value)
                 .is_some_and(|s| s.value.expression.is_some())
             {
-                format!("ui:{}.Evaluate", expression_id(&invoke.value))
+                format!("ui:{}.Evaluate", expression_id(page, &invoke.value))
             } else {
                 address(page, &ids, &invoke.value, invoke.referenced)?
             }
@@ -510,7 +629,7 @@ fn compile_nested(
     let applied = apply_pins(
         &mut session,
         &mut ids,
-        &allocator,
+        allocator,
         pins,
         spec.page.referenced,
     )?;
@@ -530,6 +649,21 @@ fn compile_nested(
         .extend(crate::core::widgets::configuration_warnings(
             session.document.value(),
         ));
+    for widget in session.document.widgets() {
+        if widget.type_id == "navigationfunction" {
+            if let Some(target) = session.document.at(&widget.path)["Properties"]["TargetMashup"]
+                .as_str()
+                .filter(|name| !name.is_empty())
+            {
+                if matches!(
+                    authoring::load_existing(solution, target),
+                    Err(authoring::AuthoringError::Unknown(_))
+                ) {
+                    session.warnings.push(format!("{target}: target mashup is outside the solution; its parameter contract cannot be checked offline"));
+                }
+            }
+        }
+    }
     session.warnings.sort();
     session.warnings.dedup();
     Ok(Artifacts {
@@ -575,6 +709,23 @@ fn apply_root(
             ));
         }
         super::elements::set_or_remove(&mut session.document, &[], key, &value.value);
+    }
+    if let Some(styles) = &page.styles {
+        if !styles.value.is_object() {
+            return Err(Error::at(
+                styles.referenced,
+                "page.styles must be a map of part to state to property",
+            ));
+        }
+        let id = session.document.root_properties()["Id"]
+            .as_str()
+            .unwrap_or("mashup-root")
+            .to_string();
+        session
+            .document
+            .root_properties_mut()
+            .entry("StyleProperties")
+            .or_insert_with(|| json!({"data":{}}))["data"][id] = json!({"parts": styles.value});
     }
     if let Some(master) = &page.master {
         session
@@ -694,8 +845,8 @@ fn raw_unknown<'a>(page: &Page, node: &'a Node) -> Option<&'a str> {
     }
     let widget = node.widget().ok()?;
     crate::core::widgets::catalog()
-        .resolve(widget)
-        .is_err()
+        .by_type(widget)
+        .is_none()
         .then_some(widget)
 }
 
@@ -1025,7 +1176,7 @@ fn add(
                     label: body
                         .text
                         .as_ref()
-                        .and_then(Value::as_str)
+                        .and_then(|v| v.value.as_str())
                         .map(str::to_owned),
                     properties: props,
                 },
@@ -1567,6 +1718,17 @@ fn apply_stored_styles(
                 "styles: this node builds no widget of its own",
             ));
         };
+        // Composer records the widget's styler beside its parts; write it the same way.
+        let mut entry = json!({"parts": styles.value});
+        if let Some(styler) = session
+            .document
+            .widgets()
+            .into_iter()
+            .find(|w| &w.id == id)
+            .and_then(|w| crate::core::mashup::authoring::set::styler_name(&w.type_id))
+        {
+            entry["widget"] = json!(styler);
+        }
         let data = session
             .document
             .root_properties_mut()
@@ -1577,11 +1739,15 @@ fn apply_stored_styles(
         }
         data.as_object_mut()
             .expect("object")
+            .entry("meta")
+            .or_insert_with(|| json!({"type": "WidgetStyler", "version": "1.0"}));
+        data.as_object_mut()
+            .expect("object")
             .entry("data")
             .or_insert_with(|| json!({}))
             .as_object_mut()
             .ok_or_else(|| Error::at(styles.referenced, "StyleProperties.data is not a map"))?
-            .insert(id.clone(), json!({"parts": styles.value}));
+            .insert(id.clone(), entry);
     }
     for child in descendants(node) {
         apply_stored_styles(session, ids, child)?;
@@ -1783,7 +1949,9 @@ fn stabilize(
         && node.rsplit_once('-').is_some_and(|(_, suffix)| {
             !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
         });
-    let id = if explicit {
+    let id = if let Some(id) = allocator.preserved(node) {
+        allocator.explicit_as(node, "widget", &id)
+    } else if explicit {
         allocator.explicit(node, "widget")
     } else {
         allocator.widget(&main.type_id, node, "widget")
@@ -1987,7 +2155,9 @@ pub(super) fn call(page: &Page, alias: &str) -> String {
         return format!("{}.{field}", call(page, source));
     }
     if page.data[alias].value.expression.is_some() {
-        format!("ui:{}.Output", expression_id(alias))
+        format!("ui:{}.Output", expression_id(page, alias))
+    } else if let Some(kind) = &page.data[alias].value.session {
+        format!("session:{}", kind.value)
     } else {
         format!(
             "data:{}[as {alias}]",
@@ -2001,7 +2171,10 @@ pub(super) fn call(page: &Page, alias: &str) -> String {
     }
 }
 
-fn expression_id(alias: &str) -> String {
+fn expression_id(page: &Page, alias: &str) -> String {
+    if let Some(id) = &page.data[alias].value.widget_id {
+        return id.value.clone();
+    }
     Ids::new(std::iter::empty())
         .widget("expression2", &format!("$data:{alias}"), "widget")
         .expect("empty allocator")
@@ -2023,6 +2196,9 @@ fn add_expressions(
             continue;
         };
         let at = expression.referenced;
+        if let Some(id) = &source.widget_id {
+            allocator.preserve(&format!("$data:{alias}"), &id.value);
+        }
         if alias.is_empty() || !alias.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
             return Err(Error::at(at, "data name must contain letters, digits or _"));
         }
@@ -2133,7 +2309,7 @@ fn wire_expressions(
         if source.expression.is_none() {
             continue;
         }
-        let id = expression_id(alias);
+        let id = expression_id(page, alias);
         for (name, input) in &source.inputs {
             let value = match &input.value {
                 schema::ExpressionInput::Reference(reference) => Some(json!({"bind": reference})),
@@ -2245,6 +2421,32 @@ fn navigate_event(
             .as_str(),
         navigate.referenced,
     )?;
+    if matches!(
+        authoring::load_existing(solution, &nav.mashup.value),
+        Err(authoring::AuthoringError::Unknown(_))
+    ) {
+        let path = session
+            .document
+            .find_exact(&id)
+            .map_err(|e| Error::at(navigate.referenced, e))?
+            .path;
+        for (name, value) in &nav.params {
+            if binding(&value.value).is_some() {
+                continue;
+            }
+            let base = match &value.value {
+                Value::Bool(_) => "BOOLEAN",
+                Value::Number(_) => "NUMBER",
+                Value::Object(_) | Value::Array(_) => "JSON",
+                _ => "STRING",
+            };
+            let entry = json!({"ParameterName": name, "BaseType": base, "ParmDef": {"aspects": {"bindingDirection": "IN"}}});
+            session.document.at_mut(&path)["Properties"]["MashupParameters"]
+                .as_array_mut()
+                .expect("navigation cache")
+                .push(entry);
+        }
+    }
     let properties = nav
         .params
         .iter()
@@ -2490,6 +2692,11 @@ pub(super) fn address(
     if text == "load" {
         return Ok("mashup:Loaded".into());
     }
+    if let Some(service) = text.strip_prefix("mashup.") {
+        if !service.is_empty() && !service.contains('.') {
+            return Ok(format!("mashup:{service}"));
+        }
+    }
     if let Some(name) = text
         .strip_prefix("param.")
         .filter(|name| page.parameters.contains_key(*name))
@@ -2499,6 +2706,17 @@ pub(super) fn address(
     if page.data.contains_key(text) {
         return Ok(call(page, text));
     }
+    // `page.<property>`: a property of the mashup root widget, unless a node or data source is
+    // itself named `page`.
+    if let Some(property) = text.strip_prefix("page.") {
+        if !property.is_empty()
+            && !property.contains('.')
+            && !ids.contains_key("page")
+            && !page.data.contains_key("page")
+        {
+            return Ok(format!("ui:mashup-root.{property}"));
+        }
+    }
     if text.contains(".selected.") {
         return ids
             .get(text)
@@ -2506,6 +2724,20 @@ pub(super) fn address(
             .ok_or_else(|| Error::at(loc, format!("unknown selection reference {text}")));
     }
     if let Some((node, property)) = text.split_once('.') {
+        if let Some(source) = page.data.get(node).filter(|s| s.value.session.is_some()) {
+            let base = source.value.fields.get(property).ok_or_else(|| {
+                Error::at(
+                    loc,
+                    format!("session source {node} needs fields.{property}: TYPE"),
+                )
+            })?;
+            return Ok(format!(
+                "session:{}.{}:{}",
+                source.value.session.as_ref().expect("session").value,
+                property,
+                base.value
+            ));
+        }
         if let Some(id) = ids.get(node) {
             return Ok(format!("ui:{id}.{property}"));
         }
@@ -2514,7 +2746,7 @@ pub(super) fn address(
             .get(node)
             .is_some_and(|s| s.value.expression.is_some())
         {
-            return Ok(format!("ui:{}.{}", expression_id(node), property));
+            return Ok(format!("ui:{}.{}", expression_id(page, node), property));
         }
         if page.data.contains_key(node) {
             return Ok(if property == "SelectedRows" {
@@ -2843,7 +3075,7 @@ fn wire_collection(
             &fields,
             spec.value.status.as_ref(),
         );
-        let built = compile_nested(solution, project, &text, &cell_dir, &Pins::default())?;
+        let built = compile_pinned(solution, project, &text, &cell_dir, &Pins::default())?;
         let cell = CellSource::Generated {
             name: name.clone(),
             entity: built.entity.clone(),
@@ -3352,6 +3584,7 @@ fn component_recipe_nested(
         removed: vec![],
         wired: vec![],
         notes,
+        warnings: vec![],
     })
 }
 
