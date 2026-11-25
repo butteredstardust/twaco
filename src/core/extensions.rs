@@ -274,7 +274,11 @@ fn version_segments(name: &str, version: &str) -> Result<Vec<u64>, ExtensionErro
         .collect()
 }
 
-fn version_order(name: &str, a: &str, b: &str) -> Result<std::cmp::Ordering, ExtensionError> {
+pub(crate) fn version_order(
+    name: &str,
+    a: &str,
+    b: &str,
+) -> Result<std::cmp::Ordering, ExtensionError> {
     let (mut a, mut b) = (version_segments(name, a)?, version_segments(name, b)?);
     let longest = a.len().max(b.len());
     a.resize(longest, 0);
@@ -487,7 +491,13 @@ fn import_package(
     }
     .into_iter()
     .find(|p| p.name == package.name);
-    if now.as_ref().map(|p| p.version.as_str()) != Some(package.version.as_str()) {
+    // The server may normalise the version (1.1 to 1.1.0), so compare the numbers.
+    let confirmed = now.as_ref().is_some_and(|p| {
+        p.version == package.version
+            || version_order(&package.name, &p.version, &package.version)
+                .is_ok_and(std::cmp::Ordering::is_eq)
+    });
+    if !confirmed {
         return Err(ExtensionError::Shape(format!(
             "the import was sent, but the package list shows {} at {}",
             package.name,
@@ -931,6 +941,8 @@ mod tests {
         transient: RefCell<u32>,
         /// A package whose install the server refuses.
         refuse: Option<&'static str>,
+        /// The version the list shows for an installed package, as a server that normalises it.
+        shows: Option<&'static str>,
     }
 
     impl Fake {
@@ -949,6 +961,7 @@ mod tests {
                 list_fails_after_delete: false,
                 transient: RefCell::new(0),
                 refuse: None,
+                shows: None,
             }
         }
     }
@@ -1019,7 +1032,8 @@ mod tests {
             if !validate && !self.reject && self.install_status == 0 {
                 let mut installed = self.installed.borrow_mut();
                 installed.retain(|(n, _)| *n != package.name);
-                installed.push((package.name, package.version));
+                let version = self.shows.map_or(package.version, str::to_string);
+                installed.push((package.name, version));
             }
             let mut rows = vec![
                 json!({ "validate": { "rows": [{ "extensionReportStatus": status, "reportMessage": if self.reject { "bad package" } else { "" } }] } }),
@@ -1187,6 +1201,20 @@ mod tests {
             "{message}"
         );
         assert!(message.contains("twaco ext list"), "{message}");
+    }
+
+    #[test]
+    fn a_server_that_normalises_the_version_still_confirms_the_import() {
+        let mut fake = Fake::with(&[]);
+        fake.shows = Some("1.1.0");
+        let zip = package_zip(Some(&metadata("P", "1.1")));
+        let done = import(&fake, "p.zip", &zip, true).unwrap();
+        assert!(done.applied);
+
+        let mut fake = Fake::with(&[]);
+        fake.shows = Some("1.2.0");
+        let error = import(&fake, "p.zip", &zip, true).unwrap_err();
+        assert!(error.to_string().contains("shows P at 1.2.0"), "{error}");
     }
 
     #[test]

@@ -248,7 +248,77 @@ pub(crate) fn measure(text: &str) -> Measure {
     if run != 0 {
         out.inline_runs.push((run_start, run));
     }
+    out.prose = without_commented_code(std::mem::take(&mut out.prose));
     out
+}
+
+/// Drops comment lines that are commented-out statements, which are code and not prose: a run
+/// of consecutive lines that parses as JavaScript, else each line on its own. Only calls,
+/// assignments, updates, declarations and other statements count, so a lone word or a
+/// parenthesised remark stays prose.
+fn without_commented_code(items: Vec<Prose>) -> Vec<Prose> {
+    let mut out = Vec::new();
+    let mut index = 0;
+    while index < items.len() {
+        let mut end = index + 1;
+        while end < items.len() && items[end].line == items[end - 1].line + 1 {
+            end += 1;
+        }
+        let run = &items[index..end];
+        let joined = run
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            );
+        if parses_as_code(&joined) {
+            index = end;
+            continue;
+        }
+        out.extend(
+            run.iter()
+                .filter(|item| !parses_as_code(&item.text))
+                .cloned(),
+        );
+        index = end;
+    }
+    out
+}
+
+fn parses_as_code(text: &str) -> bool {
+    use swc_common::BytePos;
+    use swc_ecma_ast::{Expr, Stmt};
+    use swc_ecma_parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax};
+    let Ok(end) = u32::try_from(text.len()) else {
+        return false;
+    };
+    let parsed = super::script::guard_parse(|| {
+        let lexer = Lexer::new(
+            Syntax::Es(EsSyntax {
+                allow_return_outside_function: true,
+                ..Default::default()
+            }),
+            Default::default(),
+            StringInput::new(text, BytePos(0), BytePos(end)),
+            None,
+        );
+        let mut parser = Parser::new_from(lexer);
+        let script = parser.parse_script().ok()?;
+        parser.take_errors().is_empty().then_some(script)
+    });
+    let Ok(Some(script)) = parsed else {
+        return false;
+    };
+    script.body.iter().any(|statement| match statement {
+        Stmt::Expr(expression) => matches!(
+            &*expression.expr,
+            Expr::Call(_) | Expr::Assign(_) | Expr::Update(_) | Expr::New(_) | Expr::Await(_)
+        ),
+        Stmt::Empty(_) => false,
+        _ => true,
+    })
 }
 
 pub(crate) fn findings(measure: &Measure, policy: &CommentPolicy) -> Vec<CommentFinding> {
@@ -577,6 +647,34 @@ mod tests {
             .into_iter()
             .map(|finding| (finding.rule, finding.line))
             .collect()
+    }
+
+    #[test]
+    fn commented_out_statements_are_not_prose() {
+        let policy = CommentPolicy::default();
+        let source = "// let value = parseFloat(generateRandomValue(20, 120)); totalValue += value;
+let a = 1;
+// totalValue += value;
+// if (x) {
+//   y();
+// }
+let b = 2;
+";
+        assert!(rules(source, &policy)
+            .iter()
+            .all(|(rule, _)| *rule == "line-run"));
+        let prose = "// Reset the counter first; then clear the totals and the buffers.
+let a = 1;
+";
+        assert!(rules(prose, &policy)
+            .iter()
+            .any(|(rule, _)| *rule == "bundled"));
+        let words = "// Keep a;b words apart, and use a;b only in pairs.
+let a = 1;
+";
+        assert!(rules(words, &policy)
+            .iter()
+            .any(|(rule, _)| *rule == "bundled"));
     }
 
     #[test]

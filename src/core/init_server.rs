@@ -160,6 +160,7 @@ where
     let mut per_project = BTreeMap::<String, usize>::new();
     let mut dependencies = BTreeMap::<String, Vec<String>>::new();
     let mut members_owned = Vec::new();
+    let mut values_owned: Vec<String> = Vec::new();
     let mut names = Vec::new();
     let already_here: BTreeSet<(String, String)> = existing
         .as_ref()
@@ -288,6 +289,55 @@ where
             (!members_covered && matches!(key.collection.as_str(), "Groups" | "Organizations"))
                 .then(|| differs_only_in_members(remote, &key.collection, &info.name, document))
         });
+        // A timer or logger can write a Thing's property values after the export was read, so
+        // the baseline would read as server-changed minutes later. Read those Things once more
+        // after a short pause: where only the values moved, the values are the server's.
+        let mut rereads = Vec::new();
+        for (key, _, result) in &prepared {
+            let Ok((info, Some(document))) = result else {
+                continue;
+            };
+            let covered = existing.as_ref().is_some_and(|solution| {
+                super::server_owned::parts(
+                    &solution.server_owned_for(&request.profile),
+                    &key.collection,
+                    &info.name,
+                )
+                .iter()
+                .any(|part| matches!(part, super::server_owned::Part::Properties(_)))
+            });
+            if key.collection == "Things" && !covered && holds_property_values(document) {
+                rereads.push((info.name.clone(), document.clone()));
+            }
+        }
+        let skipped_rereads = rereads.len().saturating_sub(VALUE_REREAD_LIMIT);
+        rereads.truncate(VALUE_REREAD_LIMIT);
+        if !rereads.is_empty() {
+            std::thread::sleep(value_reread_pause());
+        }
+        let moving = parallel::map(&rereads, |(name, document)| {
+            differs_only_in(
+                remote,
+                "Things",
+                name,
+                document,
+                super::server_owned::Part::Properties(BTreeSet::new()),
+            )
+        });
+        for ((name, _), moved) in rereads.iter().zip(moving) {
+            match moved {
+                Ok(true) => values_owned.push(format!("Things/{name}")),
+                Ok(false) => {}
+                Err(why) => notes.push(format!(
+                    "could not read the property values of Things/{name} a second time ({why}); if a timer changes them, add a [[server_owned]] rule with parts = [\"property-values\"] for it"
+                )),
+            }
+        }
+        if skipped_rereads > 0 {
+            notes.push(format!(
+                "{skipped_rereads} more Things with property values were not read a second time (the limit is {VALUE_REREAD_LIMIT}); if a timer changes their values, add a [[server_owned]] rule with parts = [\"property-values\"]"
+            ));
+        }
         for ((key, element, result), comparison) in prepared.into_iter().zip(comparisons) {
             let (info, document) = result?;
             // A project's export carries entities of others it needs; each named project's own
@@ -429,6 +479,28 @@ where
             notes.push(format!(
                 "{} keep their members on the server: the Exporter leaves out user members, so membership is [[server_owned]]",
                 members_owned.join(", ")
+            ));
+        }
+    }
+    if !values_owned.is_empty() {
+        let mut rule = String::new();
+        add_owned(
+            &mut rule,
+            &values_owned,
+            "# A timer or logger writes these Things' property values, so their values change after\n# the export is read. They are then the server's: a change to them is not deployed.",
+            "property-values",
+        );
+        if request.missing {
+            notes.push(format!(
+                "{} changed property values between two reads a moment apart (something simulates them); add this to twaco.toml so status and deploy leave the values to the server:{}",
+                values_owned.join(", "),
+                rule.trim_end()
+            ));
+        } else {
+            toml.push_str(&rule);
+            notes.push(format!(
+                "{} changed property values between two reads a moment apart (something simulates them), so their values are [[server_owned]] (property-values)",
+                values_owned.join(", ")
             ));
         }
     }
@@ -843,6 +915,23 @@ fn differs_only_in_members<R: push::Remote>(
     name: &str,
     document: &[u8],
 ) -> Result<bool, String> {
+    differs_only_in(
+        remote,
+        collection,
+        name,
+        document,
+        super::server_owned::Part::Members,
+    )
+}
+
+/// Whether the server's copy differs from `document`, and only in `part`.
+fn differs_only_in<R: push::Remote>(
+    remote: &R,
+    collection: &str,
+    name: &str,
+    document: &[u8],
+    part: super::server_owned::Part,
+) -> Result<bool, String> {
     let key =
         super::entity::key::EntityKey::address(collection, name).map_err(|e| e.to_string())?;
     let Some(server) = remote.fetch(&key).map_err(|e| e.to_string())? else {
@@ -851,15 +940,44 @@ fn differs_only_in_members<R: push::Remote>(
     let hash = |bytes: &[u8], parts: &[super::server_owned::Part]| {
         normalise::hash_with_parts(bytes, parts).map_err(|e| e.to_string())
     };
-    let members = [super::server_owned::Part::Members];
+    let owned = [part];
     Ok(hash(document, &[])? != hash(&server, &[])?
-        && hash(document, &members)? == hash(&server, &members)?)
+        && hash(document, &owned)? == hash(&server, &owned)?)
+}
+
+/// How many Things get a second read, and how long to wait before it: a few seconds in all.
+const VALUE_REREAD_LIMIT: usize = 100;
+
+fn value_reread_pause() -> std::time::Duration {
+    if cfg!(test) {
+        std::time::Duration::ZERO
+    } else {
+        std::time::Duration::from_secs(2)
+    }
+}
+
+/// Whether a Thing document sets any property value: a non-empty `<ThingProperties>`.
+fn holds_property_values(document: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(document);
+    text.find("<ThingProperties>").is_some_and(|start| {
+        let rest = &text[start + "<ThingProperties>".len()..];
+        !rest.trim_start().starts_with("</ThingProperties>")
+    })
 }
 
 /// Membership is assigned per server; the rule keeps it out of comparison and as the server has it.
 /// A character a `[[server_owned]]` pattern refuses becomes `*`, which still matches the name;
 /// returns whether any did.
 fn add_members_owned(toml: &mut String, entities: &[String]) -> bool {
+    add_owned(
+        toml,
+        entities,
+        "# Membership is assigned per server; the export leaves out user members. All members are\n# then the server's, group members in these files included: a change to them is not deployed.",
+        "members",
+    )
+}
+
+fn add_owned(toml: &mut String, entities: &[String], comment: &str, part: &str) -> bool {
     let mut widened = false;
     let names = entities
         .iter()
@@ -880,7 +998,7 @@ fn add_members_owned(toml: &mut String, entities: &[String]) -> bool {
         .collect::<Vec<_>>()
         .join(", ");
     toml.push_str(&format!(
-        "\n# Membership is assigned per server; the export leaves out user members. All members are\n# then the server's, group members in these files included: a change to them is not deployed.\n[[server_owned]]\nentities = [{names}]\nparts = [\"members\"]\n"
+        "\n{comment}\n[[server_owned]]\nentities = [{names}]\nparts = [\"{part}\"]\n"
     ));
     widened
 }
@@ -1681,6 +1799,83 @@ mod tests {
             "{}",
             outcome.toml
         );
+    }
+
+    fn thing_with_value(name: &str, value: &str) -> String {
+        format!("<Thing name=\"{name}\" projectName=\"P\"><ThingProperties><Temp>{value}</Temp></ThingProperties></Thing>")
+    }
+
+    #[test]
+    fn things_whose_values_move_between_two_reads_are_proposed_as_server_owned() {
+        let temp = tempfile::tempdir().unwrap();
+        profile(temp.path());
+        let wrap = |inner: String| format!("<Entities><Things>{inner}</Things></Entities>");
+        let remote = Members::new(
+            wrap(thing_with_value("P.Sim", "1") + thing_with_value("P.Still", "1").as_str())
+                .into_bytes(),
+            BTreeMap::from([
+                (
+                    "Things/P.Sim".to_string(),
+                    wrap(thing_with_value("P.Sim", "2")).into_bytes(),
+                ),
+                (
+                    "Things/P.Still".to_string(),
+                    wrap(thing_with_value("P.Still", "1")).into_bytes(),
+                ),
+            ]),
+        );
+        let request = |missing| Request {
+            root: temp.path().to_path_buf(),
+            projects: vec!["P".into()],
+            apply: false,
+            missing,
+            profile: "default".into(),
+        };
+        let plan = execute(&remote, request(false)).unwrap();
+        assert!(
+            plan.toml.contains(
+                "[[server_owned]]\nentities = [\"Things/P.Sim\"]\nparts = [\"property-values\"]"
+            ),
+            "{}",
+            plan.toml
+        );
+        assert!(!plan.toml.contains("P.Still\"]"), "{}", plan.toml);
+        assert!(
+            plan.notes
+                .iter()
+                .any(|note| note.starts_with("Things/P.Sim changed property values")),
+            "{:?}",
+            plan.notes
+        );
+    }
+
+    #[test]
+    fn a_tag_vocabulary_is_adopted_from_the_export() {
+        let temp = tempfile::tempdir().unwrap();
+        profile(temp.path());
+        let remote = Members::new(
+            b"<Entities><DataTags><DataTagVocabulary name=\"P.Data\" projectName=\"P\" isDynamic=\"true\"/></DataTags><ModelTags><ModelTagVocabulary name=\"P.Model\" projectName=\"P\" isDynamic=\"true\"/></ModelTags></Entities>".to_vec(),
+            BTreeMap::new(),
+        );
+        let plan = execute(
+            &remote,
+            Request {
+                root: temp.path().to_path_buf(),
+                projects: vec!["P".into()],
+                apply: true,
+                missing: false,
+                profile: "default".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            plan.entities.get("DataTags"),
+            Some(&1),
+            "{:?}",
+            plan.entities
+        );
+        assert!(temp.path().join("DataTags/P.Data.xml").exists());
+        assert!(temp.path().join("ModelTags/P.Model.xml").exists());
     }
 
     #[test]

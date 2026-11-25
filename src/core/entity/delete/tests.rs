@@ -23,6 +23,12 @@ struct Fake {
     gateways: BTreeSet<String>,
     industrial: Vec<(String, String)>,
     template_xml: BTreeMap<String, String>,
+    /// How many DeleteProject calls the server refuses with "contains 1 other entities".
+    refuse_projects: RefCell<u32>,
+    /// Refuse DeleteProject while another held Project's dependsOn names it.
+    enforce_project_dependents: bool,
+    /// Projects whose dependsOn was imported empty.
+    cleared: RefCell<BTreeSet<String>>,
 }
 
 impl Fake {
@@ -44,6 +50,9 @@ impl Fake {
             gateways: BTreeSet::new(),
             industrial: Vec::new(),
             template_xml: BTreeMap::new(),
+            refuse_projects: RefCell::new(0),
+            enforce_project_dependents: false,
+            cleared: RefCell::new(BTreeSet::new()),
         }
     }
 }
@@ -102,7 +111,11 @@ impl Remote for Fake {
             return Ok(xml.as_bytes().to_vec());
         }
         if key.collection() == "Projects" {
-            let projects = self.depends_on.get(key.name()).cloned().unwrap_or_default();
+            let projects = if self.cleared.borrow().contains(key.name()) {
+                String::new()
+            } else {
+                self.depends_on.get(key.name()).cloned().unwrap_or_default()
+            };
             return Ok(format!("<Entities><Projects><Project name=\"{}\" dependsOn=\"{{&quot;projects&quot;:&quot;{projects}&quot;}}\"/></Projects></Entities>", key.name()).into_bytes());
         }
         let template = if self.gateways.contains(key.name()) {
@@ -126,12 +139,48 @@ impl Remote for Fake {
             "IMPORT {file_name} {}",
             String::from_utf8_lossy(xml)
         ));
+        if String::from_utf8_lossy(xml).contains(r#"{"extensions":"","projects":""}"#) {
+            self.cleared
+                .borrow_mut()
+                .insert(file_name.trim_end_matches(".xml").to_string());
+        }
         Ok(())
     }
     fn delete_service(&self, service: &str, name: &str) -> Result<(), ServerError> {
         self.calls
             .borrow_mut()
             .push(format!("SERVICE {service} {name}"));
+        if service == "DeleteProject" {
+            let refuse = |body: String| ServerError::Http {
+                method: crate::core::server::Method::Post,
+                status: 406,
+                url: format!("Resources/EntityServices/Services/{service}"),
+                body,
+            };
+            let mut refusals = self.refuse_projects.borrow_mut();
+            if *refusals > 0 {
+                *refusals -= 1;
+                return Err(refuse(format!(
+                    "The project [{name}] contains 1 other entities"
+                )));
+            }
+            if self.enforce_project_dependents {
+                let cleared = self.cleared.borrow();
+                let needs = |other: &str| {
+                    !cleared.contains(other)
+                        && self.depends_on.get(other).is_some_and(|names| {
+                            names.split(',').any(|n| n.split(':').next() == Some(name))
+                        })
+                };
+                if self.held.borrow().iter().any(|(collection, other)| {
+                    collection == "Projects" && other != name && needs(other)
+                }) {
+                    return Err(refuse(format!(
+                        "The project [{name}] has other projects depending on it - Cannot Delete"
+                    )));
+                }
+            }
+        }
         let key = self
             .held
             .borrow()
@@ -1267,4 +1316,132 @@ fn directory_delete_plans_backs_up_checks_absence_and_keeps_dependency_guards() 
             }
         );
     }
+}
+
+#[test]
+fn a_project_delete_refused_for_other_entities_is_retried_at_the_end_of_the_batch() {
+    let (_dir, _, solution) = solution();
+    let fake = Fake::new(&[("Things", "T"), ("Projects", "P")]);
+    *fake.refuse_projects.borrow_mut() = 1;
+    let report = execute(&fake, &solution, &["Projects/P", "Things/T"], true, false);
+    assert!(report.entities.iter().all(|e| e.status == Status::Deleted));
+    let deletes: Vec<String> = fake
+        .calls
+        .borrow()
+        .iter()
+        .filter(|call| call.starts_with("SERVICE"))
+        .cloned()
+        .collect();
+    assert_eq!(
+        deletes,
+        [
+            "SERVICE DeleteThing T",
+            "SERVICE DeleteProject P",
+            "SERVICE DeleteProject P"
+        ]
+    );
+}
+
+#[test]
+fn a_project_delete_that_keeps_failing_is_reported_after_a_bounded_number_of_retries() {
+    let (_dir, _, solution) = solution();
+    let fake = Fake::new(&[("Projects", "P")]);
+    *fake.refuse_projects.borrow_mut() = 100;
+    let report = execute(&fake, &solution, &["Projects/P"], true, false);
+    assert_eq!(report.entities[0].status, Status::Failed);
+    let error = report.entities[0].error.as_deref().unwrap();
+    assert!(error.contains("contains 1 other entities"), "{error}");
+    assert!(error.contains("retried 3 time(s)"), "{error}");
+    let attempts = fake
+        .calls
+        .borrow()
+        .iter()
+        .filter(|call| *call == "SERVICE DeleteProject P")
+        .count();
+    assert_eq!(attempts, 4);
+}
+
+#[test]
+fn projects_that_depend_on_each_other_have_their_dependson_cleared_before_the_deletes() {
+    let (_dir, _, solution) = solution();
+    let mut fake = Fake::new(&[("Projects", "A"), ("Projects", "B")]);
+    fake.enforce_project_dependents = true;
+    fake.depends_on.insert("A".into(), "B:1.0.0".into());
+    fake.depends_on.insert("B".into(), "A:1.0.0".into());
+    for name in ["A", "B"] {
+        fake.exports.insert(
+            name.to_string(),
+            format!(
+                r#"<Entities><Projects><Project name="{name}" dependsOn='{{"extensions":"X:1.0.0","projects":"Z:1.0.0"}}'/></Projects></Entities>"#
+            ),
+        );
+    }
+    let plan = execute(
+        &fake,
+        &solution,
+        &["Projects/A", "Projects/B"],
+        false,
+        false,
+    );
+    assert!(plan
+        .entities
+        .iter()
+        .any(|e| e.warnings.iter().any(|w| w.contains(
+            "clears the dependsOn of A, B before deleting them, because they depend on each other"
+        ))));
+    assert!(fake.calls.borrow().iter().all(|c| !c.starts_with("IMPORT")));
+
+    let report = execute(&fake, &solution, &["Projects/A", "Projects/B"], true, false);
+    assert!(
+        report.entities.iter().all(|e| e.status == Status::Deleted),
+        "{report:?}"
+    );
+    let calls = fake.calls.borrow();
+    let last_import = calls.iter().rposition(|c| c.starts_with("IMPORT")).unwrap();
+    let first_delete = calls.iter().position(|c| c.starts_with("SERVICE")).unwrap();
+    assert!(last_import < first_delete, "{calls:?}");
+    assert_eq!(calls.iter().filter(|c| c.starts_with("IMPORT")).count(), 2);
+}
+
+#[test]
+fn a_chain_of_projects_is_only_ordered_and_a_dependent_outside_the_set_is_reported() {
+    let (_dir, _, solution) = solution();
+    let mut fake = Fake::new(&[("Projects", "A"), ("Projects", "B")]);
+    fake.enforce_project_dependents = true;
+    fake.depends_on.insert("B".into(), "A:1.0.0".into());
+    let report = execute(&fake, &solution, &["Projects/A", "Projects/B"], true, false);
+    assert!(report.entities.iter().all(|e| e.status == Status::Deleted));
+    assert!(fake.calls.borrow().iter().all(|c| !c.starts_with("IMPORT")));
+
+    // C is outside the set and still depends on A: the server's refusal is reported.
+    let mut fake = Fake::new(&[("Projects", "A"), ("Projects", "C")]);
+    fake.enforce_project_dependents = true;
+    fake.depends_on.insert("C".into(), "A:1.0.0".into());
+    let report = execute(&fake, &solution, &["Projects/A"], true, false);
+    assert_eq!(report.entities[0].status, Status::Failed);
+    assert!(report.entities[0]
+        .error
+        .as_deref()
+        .unwrap()
+        .contains("other projects depending on it"));
+}
+
+#[test]
+fn a_tag_vocabulary_is_deleted_by_its_entity_service() {
+    let (_dir, _, solution) = solution();
+    let fake = Fake::new(&[("DataTags", "Acme.Data"), ("ModelTags", "Acme.Model")]);
+    let report = execute(
+        &fake,
+        &solution,
+        &["DataTags/Acme.Data", "ModelTags/Acme.Model"],
+        true,
+        false,
+    );
+    assert!(
+        report.entities.iter().all(|e| e.status == Status::Deleted),
+        "{report:?}"
+    );
+    let calls = fake.calls.borrow();
+    assert!(calls.contains(&"SERVICE DeleteDataTagVocabulary Acme.Data".to_string()));
+    assert!(calls.contains(&"SERVICE DeleteModelTagVocabulary Acme.Model".to_string()));
 }

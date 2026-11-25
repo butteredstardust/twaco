@@ -16,6 +16,29 @@ All notable changes to twaco are recorded here. The format follows
   and `mashup check` reports a binding to an old name as the advisory `migrated-property`.
 - A collection's `Event:<field>` source, a contained mashup chosen at run time, and a result
   field the service's DataShape lacks no longer stop a page build: they warn instead.
+- Comment prose rules skip commented-out code: a comment or run of comment lines that parses as
+  JavaScript statements is no longer judged as prose (no more "one sentence, two instructions"
+  or "4 nouns in a row" on a disabled statement). Prose that only contains code words is still
+  checked.
+- `ext import --apply` compares the package version the server lists semantically, so a server
+  that normalises `1.1` to `1.1.0` no longer turns a successful import into an error.
+- `import` plans and applies check each imported Project's `dependsOn` first: an extension that
+  is not installed (or installed older than required) and a project that is neither in the
+  import nor on the server are refused before anything is sent, each one named, instead of
+  an HTTP 406 at the end of an apply.
+- `entity delete` retries a Project delete that fails with "contains N other entities" after
+  all other deletes, up to three times a few seconds apart, and says so if it still fails.
+  Projects that depend on each other (a cycle inside the delete set) have their `dependsOn`
+  cleared by an import before they are deleted; the plan says so and a project that was not
+  deleted gets its original `dependsOn` back. A project outside the set that depends on one
+  inside is still refused by the server, and the error is reported.
+- Data and model tag vocabularies (`DataTags`, `ModelTags`) are known to `entity status` (no
+  more "twaco does not know the collection"), so `init --from-server --missing` adopts them,
+  and `entity delete` removes them with `DeleteDataTagVocabulary` / `DeleteModelTagVocabulary`.
+- `init --from-server` reads the property values of each Thing that has any a second time
+  after a short pause. Things whose values moved between the reads (a timer or logger
+  simulates them) are proposed as `[[server_owned]]` with `parts = ["property-values"]`, so
+  they no longer read as server-changed minutes later.
 
 - `init` now selects the new `platform-v1` lint preset: adopted scripts keep their formatting,
   code order and comments, while parse failures and script traps still block. Existing preset

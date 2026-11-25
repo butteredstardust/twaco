@@ -31,7 +31,7 @@ impl fmt::Display for Method {
 /// The delete route is an explicit allow-list. Verified ThingWorx EntityServices metadata
 /// reports one STRING input named `name` for every listed service: DeleteThing,
 /// DeleteThingTemplate, DeleteThingShape, DeleteMediaEntity, DeleteGroup, DeleteOrganization,
-/// DeleteProject and DeleteUser. Role and PermissionGroup services follow the 10.2.1 field
+/// DeleteProject and DeleteUser. The tag vocabulary services take `name` too (field-verified). Role and PermissionGroup services follow the 10.2.1 field
 /// report. Collections listed as REST use Composer's verified route.
 pub(crate) fn method_for(collection: &str) -> Option<Method> {
     let service = match collection {
@@ -45,6 +45,8 @@ pub(crate) fn method_for(collection: &str) -> Option<Method> {
         "Organizations" => Some("DeleteOrganization"),
         "Projects" => Some("DeleteProject"),
         "Users" => Some("DeleteUser"),
+        "DataTags" => Some("DeleteDataTagVocabulary"),
+        "ModelTags" => Some("DeleteModelTagVocabulary"),
         _ => None,
     };
     if let Some(service) = service {
@@ -62,7 +64,6 @@ pub(crate) fn method_for(collection: &str) -> Option<Method> {
         | "LocalizationTables"
         | "Mashups"
         | "Menus"
-        | "ModelTags"
         | "Networks"
         | "NotificationContents"
         | "NotificationDefinitions"
@@ -115,6 +116,22 @@ mod rbac_tests {
             "NotificationContents",
         ] {
             assert_eq!(method_for(collection), Some(Method::RestDelete));
+            assert!(known_collections().contains(&collection));
+        }
+    }
+
+    #[test]
+    fn tag_vocabularies_delete_through_their_entity_services() {
+        for (collection, service) in [
+            ("DataTags", "DeleteDataTagVocabulary"),
+            ("ModelTags", "DeleteModelTagVocabulary"),
+        ] {
+            assert_eq!(
+                method_for(collection),
+                Some(Method::Service {
+                    service: service.into()
+                })
+            );
             assert!(known_collections().contains(&collection));
         }
     }
