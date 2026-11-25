@@ -546,21 +546,25 @@ fn json_call_writes_one_complete_value_and_keeps_logs_on_stderr() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let (_dir, root) = temp("json");
     profile(&root, listener.local_addr().unwrap());
-    let server = std::thread::spawn(move || {
-        let replies = [
-            r#"{"dataShape":{"fieldDefinitions":{"name":{"baseType":"STRING"}}},"rows":[{"name":"one"},{"name":"two"}]}"#,
-            r#"{"rows":[]}"#,
-            r#"{"rows":[]}"#,
-            r#"{"rows":[]}"#,
-            r#"{"rows":[]}"#,
-            r#"{"rows":[]}"#,
-            r#"{"rows":[]}"#,
-            "",
-        ];
-        for body in replies {
-            let (mut stream, _) = listener.accept().unwrap();
-            receive(&mut stream);
-            answer(&mut stream, "200 OK", "application/json", body);
+    // Answer by request path: `--with-logs` polls the logs a varying number of times.
+    let server = std::thread::spawn(move || loop {
+        let (mut stream, _) = listener.accept().unwrap();
+        let request = receive(&mut stream);
+        let line = String::from_utf8_lossy(&request)
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .to_string();
+        let body = if line.contains("/Services/Table") {
+            r#"{"dataShape":{"fieldDefinitions":{"name":{"baseType":"STRING"}}},"rows":[{"name":"one"},{"name":"two"}]}"#
+        } else if line.contains("/Services/Void") {
+            ""
+        } else {
+            r#"{"rows":[]}"#
+        };
+        answer(&mut stream, "200 OK", "application/json", body);
+        if line.contains("/Services/Void") {
+            break;
         }
     });
 
