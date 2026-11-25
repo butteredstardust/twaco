@@ -6,6 +6,8 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.79] - 2026-11-25
+
 - **Page specs: the last offline kit pages copy executably, and `shape:` is an element.** A gadget
   derives as `kind: gadget` with `gadget_size` and builds a gadget entity with its widgets in the
   mashup root; a call to a service its entity dropped derives with `unknown_service` (parameter
@@ -2552,6 +2554,7 @@ The first public release.
 - `mcp` serves 39 tools over stdio to MCP clients, with compact summaries, validated arguments
   and dry runs by default for tools that can write to a server.
 
+[0.1.79]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.79
 [0.1.78]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.78
 [0.1.77]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.77
 [0.1.76]: https://github.com/butteredstardust/twaco/releases/tag/v0.1.76
