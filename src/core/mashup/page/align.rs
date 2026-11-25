@@ -28,7 +28,7 @@ fn pair(current: &[Value], generated: &[Value]) -> Vec<(usize, usize)> {
             .is_some_and(|w| w.function)
     };
     // Function widgets have no place on the page and a spec lists them apart from the layout, so
-    // their order against the layout means nothing: the n-th of a type pairs with the n-th.
+    // their order against the layout means nothing. Prefer an existing id or name, then type.
     let split = |items: &[Value]| -> (Vec<usize>, Vec<usize>) {
         (0..items.len()).partition(|&i| !is_function(&items[i]))
     };
@@ -51,7 +51,22 @@ fn pair(current: &[Value], generated: &[Value]) -> Vec<(usize, usize)> {
     for &j in &made_functions {
         if let Some(at) = left
             .iter()
-            .position(|&i| kind(&current[i]) == kind(&generated[j]))
+            .position(|&i| {
+                kind(&current[i]) == kind(&generated[j])
+                    && current[i]["Properties"]["Id"] == generated[j]["Properties"]["Id"]
+            })
+            .or_else(|| {
+                left.iter().position(|&i| {
+                    kind(&current[i]) == kind(&generated[j])
+                        && current[i]["Properties"]["DisplayName"].is_string()
+                        && current[i]["Properties"]["DisplayName"]
+                            == generated[j]["Properties"]["DisplayName"]
+                })
+            })
+            .or_else(|| {
+                left.iter()
+                    .position(|&i| kind(&current[i]) == kind(&generated[j]))
+            })
         {
             out.push((left.remove(at), j));
         }
@@ -168,7 +183,18 @@ fn endpoints(item: &Value) -> Value {
             "EventHandlerId",
             "EventHandlerService",
         ]),
-        maps
+        maps,
+        if matches!(
+            item["SourceArea"].as_str(),
+            Some("Data" | "Session" | "UserExtensions")
+        ) {
+            item["SourceDetails"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("AllData")
+        } else {
+            item["SourceDetails"].as_str().unwrap_or("")
+        }
     ])
 }
 
@@ -343,6 +369,15 @@ fn is_unstated_default(difference: &merge::Difference, kinds: &BTreeMap<String, 
     {
         return true;
     }
+    // Composer records the numeric type it saw when the binding was made (NUMBER, INTEGER or
+    // LONG); the runtime resolves the endpoint's own type, so the recorded one is no difference.
+    if difference.path.ends_with("/PropertyMaps") {
+        if let Some(current) = &difference.current {
+            if numeric_types_alike(current) == numeric_types_alike(&difference.generated) {
+                return true;
+            }
+        }
+    }
     if let (Some(Value::String(text)), Some(number)) =
         (&difference.current, difference.generated.as_f64())
     {
@@ -376,6 +411,19 @@ fn is_unstated_default(difference: &merge::Difference, kinds: &BTreeMap<String, 
         .get(*id)
         .and_then(|kind| crate::core::widgets::catalog().by_type(kind))
         .is_some_and(|widget| widget.defaults.get(*name) == Some(generated))
+}
+
+/// Property maps with every numeric base type written as NUMBER.
+fn numeric_types_alike(maps: &Value) -> Value {
+    let mut maps = maps.clone();
+    for map in maps.as_array_mut().into_iter().flatten() {
+        for key in ["SourcePropertyBaseType", "TargetPropertyBaseType"] {
+            if matches!(map[key].as_str(), Some("NUMBER" | "INTEGER" | "LONG")) {
+                map[key] = Value::String("NUMBER".into());
+            }
+        }
+    }
+    maps
 }
 
 /// Whether two child orders agree once function widgets, which have no place on the page, are
@@ -471,12 +519,9 @@ pub(super) fn lost_wiring(current: &Value, generated: &Value) -> Vec<String> {
     let mut out = vec![];
     for part in ["DataBindings", "Events"] {
         let made = generated[part].as_array().map_or(&[][..], Vec::as_slice);
-        let mut claimed = vec![false; made.len()];
         for item in current[part].as_array().into_iter().flatten() {
-            let bare = without_id(item);
-            let found = (0..made.len()).find(|&i| !claimed[i] && without_id(&made[i]) == bare);
-            if let Some(i) = found {
-                claimed[i] = true;
+            let bare = endpoints(item);
+            if made.iter().any(|item| endpoints(item) == bare) {
                 continue;
             }
             let text = |key: &str| item[key].as_str().unwrap_or("").to_string();
@@ -589,6 +634,28 @@ mod tests {
         assert_eq!(pins.get("g1").map(String::as_str), Some("k1"));
         assert_eq!(pins.get("g2").map(String::as_str), Some("k2"));
         assert!(!pins.contains_key("g3"));
+    }
+
+    #[test]
+    fn a_recorded_numeric_base_type_is_no_difference() {
+        let maps = |base: &str| {
+            json!([{"SourceProperty": "Output", "SourcePropertyBaseType": "NUMBER",
+                "TargetProperty": "PopupHeight", "TargetPropertyBaseType": base}])
+        };
+        let difference = |current: &str, generated: &str| merge::Difference {
+            path: "/DataBindings/b1/PropertyMaps".into(),
+            current: Some(maps(current)),
+            generated: maps(generated),
+        };
+        let kinds = BTreeMap::new();
+        assert!(is_unstated_default(
+            &difference("INTEGER", "NUMBER"),
+            &kinds
+        ));
+        assert!(!is_unstated_default(
+            &difference("STRING", "NUMBER"),
+            &kinds
+        ));
     }
 
     #[test]

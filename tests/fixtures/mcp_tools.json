@@ -8502,7 +8502,7 @@
           "items": true
         },
         "files_state": {
-          "description": "`would write` while planning, `written` once applied, or `refused` when conflicts prevent writes.",
+          "description": "`would write` while planning, `written` once applied, `nothing to write` for a no-op,\nor `refused` when conflicts prevent writes.",
           "type": "string"
         },
         "files": {

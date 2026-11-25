@@ -30,6 +30,7 @@ mod remove;
 pub(crate) mod session;
 mod set;
 mod source;
+pub(crate) use source::ensure_session_source;
 pub(crate) mod state_format;
 
 pub use add::{add_contained_plan_json, add_plan_json, AddContainedRequest, AddRequest};

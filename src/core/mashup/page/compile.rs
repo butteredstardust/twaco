@@ -160,6 +160,14 @@ fn compile_nested(
                 },
             )
             .map_err(|e| Error::at(base_type.referenced, e))?;
+        if let schema::Parameter::Long(details) = &base_type.value {
+            if let Some(default) = &details.default {
+                session
+                    .document
+                    .root_properties_mut()
+                    .insert(name.clone(), default.clone());
+            }
+        }
     }
     if let Some(layout) = &page.layout {
         if layout.value != "as-built" {
@@ -170,6 +178,17 @@ fn compile_nested(
         session.document.set_verbatim(true);
     }
     let mut allocator = Ids::new(session.document.widgets().into_iter().map(|w| w.id));
+    fn preserve_ids(node: &Node, allocator: &mut Ids) {
+        if let Some(id) = &node.body().widget_id {
+            allocator.preserve(&node.body().id.value, &id.value);
+        }
+        for child in descendants(node) {
+            preserve_ids(child, allocator);
+        }
+    }
+    for node in page.slots.values().flat_map(|s| &s.value) {
+        preserve_ids(node, &mut allocator);
+    }
     let mut ids = BTreeMap::new();
     let mut cells = vec![];
     if let Some(title) = &page.title {
@@ -237,6 +256,16 @@ fn compile_nested(
     let platform = types::cached_platform(solution);
     for (alias, source) in entity_first(page) {
         let source = &source.value;
+        if let Some(kind) = &source.session {
+            if source.service.is_some() || source.expression.is_some() {
+                return Err(Error::at(
+                    kind.referenced,
+                    "session cannot also declare a service or expression",
+                ));
+            }
+            authoring::ensure_session_source(&mut session.document, &kind.value)
+                .map_err(|e| Error::at(kind.referenced, e))?;
+        }
         let Some(service_spec) = &source.service else {
             continue;
         };
@@ -465,7 +494,7 @@ fn compile_nested(
                 .get(&invoke.value)
                 .is_some_and(|s| s.value.expression.is_some())
             {
-                format!("ui:{}.Evaluate", expression_id(&invoke.value))
+                format!("ui:{}.Evaluate", expression_id(page, &invoke.value))
             } else {
                 address(page, &ids, &invoke.value, invoke.referenced)?
             }
@@ -575,6 +604,23 @@ fn apply_root(
             ));
         }
         super::elements::set_or_remove(&mut session.document, &[], key, &value.value);
+    }
+    if let Some(styles) = &page.styles {
+        if !styles.value.is_object() {
+            return Err(Error::at(
+                styles.referenced,
+                "page.styles must be a map of part to state to property",
+            ));
+        }
+        let id = session.document.root_properties()["Id"]
+            .as_str()
+            .unwrap_or("mashup-root")
+            .to_string();
+        session
+            .document
+            .root_properties_mut()
+            .entry("StyleProperties")
+            .or_insert_with(|| json!({"data":{}}))["data"][id] = json!({"parts": styles.value});
     }
     if let Some(master) = &page.master {
         session
@@ -1025,7 +1071,7 @@ fn add(
                     label: body
                         .text
                         .as_ref()
-                        .and_then(Value::as_str)
+                        .and_then(|v| v.value.as_str())
                         .map(str::to_owned),
                     properties: props,
                 },
@@ -1783,7 +1829,9 @@ fn stabilize(
         && node.rsplit_once('-').is_some_and(|(_, suffix)| {
             !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
         });
-    let id = if explicit {
+    let id = if let Some(id) = allocator.preserved(node) {
+        allocator.explicit_as(node, "widget", &id)
+    } else if explicit {
         allocator.explicit(node, "widget")
     } else {
         allocator.widget(&main.type_id, node, "widget")
@@ -1987,7 +2035,9 @@ pub(super) fn call(page: &Page, alias: &str) -> String {
         return format!("{}.{field}", call(page, source));
     }
     if page.data[alias].value.expression.is_some() {
-        format!("ui:{}.Output", expression_id(alias))
+        format!("ui:{}.Output", expression_id(page, alias))
+    } else if let Some(kind) = &page.data[alias].value.session {
+        format!("session:{}", kind.value)
     } else {
         format!(
             "data:{}[as {alias}]",
@@ -2001,7 +2051,10 @@ pub(super) fn call(page: &Page, alias: &str) -> String {
     }
 }
 
-fn expression_id(alias: &str) -> String {
+fn expression_id(page: &Page, alias: &str) -> String {
+    if let Some(id) = &page.data[alias].value.widget_id {
+        return id.value.clone();
+    }
     Ids::new(std::iter::empty())
         .widget("expression2", &format!("$data:{alias}"), "widget")
         .expect("empty allocator")
@@ -2023,6 +2076,9 @@ fn add_expressions(
             continue;
         };
         let at = expression.referenced;
+        if let Some(id) = &source.widget_id {
+            allocator.preserve(&format!("$data:{alias}"), &id.value);
+        }
         if alias.is_empty() || !alias.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
             return Err(Error::at(at, "data name must contain letters, digits or _"));
         }
@@ -2133,7 +2189,7 @@ fn wire_expressions(
         if source.expression.is_none() {
             continue;
         }
-        let id = expression_id(alias);
+        let id = expression_id(page, alias);
         for (name, input) in &source.inputs {
             let value = match &input.value {
                 schema::ExpressionInput::Reference(reference) => Some(json!({"bind": reference})),
@@ -2490,6 +2546,11 @@ pub(super) fn address(
     if text == "load" {
         return Ok("mashup:Loaded".into());
     }
+    if let Some(service) = text.strip_prefix("mashup.") {
+        if !service.is_empty() && !service.contains('.') {
+            return Ok(format!("mashup:{service}"));
+        }
+    }
     if let Some(name) = text
         .strip_prefix("param.")
         .filter(|name| page.parameters.contains_key(*name))
@@ -2506,6 +2567,20 @@ pub(super) fn address(
             .ok_or_else(|| Error::at(loc, format!("unknown selection reference {text}")));
     }
     if let Some((node, property)) = text.split_once('.') {
+        if let Some(source) = page.data.get(node).filter(|s| s.value.session.is_some()) {
+            let base = source.value.fields.get(property).ok_or_else(|| {
+                Error::at(
+                    loc,
+                    format!("session source {node} needs fields.{property}: TYPE"),
+                )
+            })?;
+            return Ok(format!(
+                "session:{}.{}:{}",
+                source.value.session.as_ref().expect("session").value,
+                property,
+                base.value
+            ));
+        }
         if let Some(id) = ids.get(node) {
             return Ok(format!("ui:{id}.{property}"));
         }
@@ -2514,7 +2589,7 @@ pub(super) fn address(
             .get(node)
             .is_some_and(|s| s.value.expression.is_some())
         {
-            return Ok(format!("ui:{}.{}", expression_id(node), property));
+            return Ok(format!("ui:{}.{}", expression_id(page, node), property));
         }
         if page.data.contains_key(node) {
             return Ok(if property == "SelectedRows" {

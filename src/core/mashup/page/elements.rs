@@ -71,7 +71,7 @@ fn info_heading(b: &mut Body, kind: &str, tooltip: &str) -> Node {
     let styles: Vec<_> = b.style.iter().map(|s| s.value.clone()).collect();
     let mut row: Node = serde_saphyr::from_str(
         &json!({"row": {"id": id, "props": {"align-items": "center"}, "children": [
-            {kind: {"id": format!("{id}--title"), "text": b.text.take().unwrap_or_default(),
+            {kind: {"id": format!("{id}--title"), "text": b.text.take().map(|v| v.value).unwrap_or_default(),
                 "props": props, "style": styles}},
             {"button": {"id": format!("{id}--info"), "text": "", "props": {
                 "ButtonType": "transparent", "SVGIcon": "cds:icon_info", "Disabled": true,
@@ -207,7 +207,7 @@ fn text_size(b: &mut Body) -> Result<(), Error> {
         let lines = b
             .text
             .as_ref()
-            .and_then(serde_json::Value::as_str)
+            .and_then(|v| v.value.as_str())
             .map_or(2, |text| text.lines().count().max(1));
         default_prop(b, "Height", json!(lines * 72 + 16));
     }
@@ -454,10 +454,11 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                 }
                 Node::TrendTile(b) => {
                     let loc = b.id.referenced;
-                    let caption = b
-                        .title
-                        .take()
-                        .or_else(|| b.text.take().and_then(|v| v.as_str().map(str::to_owned)));
+                    let caption = b.title.take().or_else(|| {
+                        b.text
+                            .take()
+                            .and_then(|v| v.value.as_str().map(str::to_owned))
+                    });
                     let (Some(caption), Some(value)) = (caption, b.value.take()) else {
                         return Err(Error::at(
                             loc,
@@ -595,7 +596,7 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                         b,
                         "caption",
                         "label",
-                        json!({"text": caption, "props": {"Margin": "0", "HorizontalAlignment": "left"}}),
+                        json!({"text": caption.value, "props": {"Margin": "0", "HorizontalAlignment": "left"}}),
                     ));
                     b.children.push(child(b, "spacer", "spacer", json!({})));
                     let label = merge(
@@ -837,7 +838,10 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
                                 "KPI tile needs value: {bind: source.field} and unit",
                             ));
                         }
-                        tile.title = tile.text.take().and_then(|v| v.as_str().map(str::to_owned));
+                        tile.title = tile
+                            .text
+                            .take()
+                            .and_then(|v| v.value.as_str().map(str::to_owned));
                         if let Some(unit) = &tile.unit {
                             tile.children.push(generated(
                                 &tile,

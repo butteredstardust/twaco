@@ -154,25 +154,9 @@ fn count_widgets(content: &Value) -> usize {
     walk(&content["UI"])
 }
 
-/// Widgets by id with their own properties and their children's ids.
-fn flatten(widget: &Value, out: &mut BTreeMap<String, Value>) {
-    let mut own = widget.clone();
-    let kids: Vec<Value> = widget["Widgets"].as_array().cloned().unwrap_or_default();
-    own["Widgets"] = Value::Array(kids.iter().map(|k| k["Properties"]["Id"].clone()).collect());
-    if let Some(id) = widget["Properties"]["Id"].as_str() {
-        out.insert(id.into(), own);
-    }
-    for kid in &kids {
-        flatten(kid, out);
-    }
-}
-
 /// The widgets that differ between what was built and what is there now, named by their node in
 /// the spec where the baseline knows it.
 fn hand_edits(current: &Value, baseline: &Baseline) -> Vec<String> {
-    let (mut now, mut before) = (BTreeMap::new(), BTreeMap::new());
-    flatten(&current["UI"], &mut now);
-    flatten(&baseline.content["UI"], &mut before);
     let nodes: BTreeMap<&str, &str> = baseline
         .ids
         .iter()
@@ -183,18 +167,17 @@ fn hand_edits(current: &Value, baseline: &Baseline) -> Vec<String> {
         None => id.to_string(),
     };
     let mut changed = BTreeSet::new();
-    for id in now.keys().chain(before.keys()) {
-        if now.get(id) != before.get(id) {
+    for path in baseline.content_edits(current) {
+        if let Some(id) = path
+            .strip_prefix("content/widgets/")
+            .and_then(|p| p.split('/').next())
+        {
             changed.insert(named(id));
+        } else {
+            changed.insert(path);
         }
     }
-    let mut out: Vec<String> = changed.into_iter().collect();
-    for part in ["Data", "DataBindings", "Events"] {
-        if current.get(part) != baseline.content.get(part) {
-            out.push(format!("{part} (wiring)"));
-        }
-    }
-    out
+    changed.into_iter().collect()
 }
 
 /// The spec node with this id.
@@ -334,7 +317,8 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
             .map(|bytes| Baseline::read(&bytes));
         match baseline {
             Some(Ok(baseline)) => {
-                let exact = baseline.content == value && baseline.css == css;
+                let exact =
+                    baseline.content_edits(&value).is_empty() && baseline.css_matches(&value, &css);
                 let mut found = counted(name, spec, widgets, exact);
                 if !exact {
                     found.hand_edited = hand_edits(&value, &baseline);
@@ -478,6 +462,10 @@ pub fn export(
     let Some(path) = out else {
         return Ok(without_written_css(result));
     };
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| invalid(format!("{}: {e}", parent.display())))?;
+    }
     {
         if let Some(css) = &result.css {
             let beside = path

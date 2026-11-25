@@ -327,16 +327,23 @@ pub(super) fn resolve_trigger(
     platform: Option<&types::Platform>,
     raw: &str,
 ) -> Result<Trigger, AuthoringError> {
-    if raw == "mashup:Loaded" {
+    if let Some(event) = raw.strip_prefix("mashup:") {
+        let parameter_changed = event.strip_suffix("Changed").is_some_and(|name| {
+            document.root_properties()["_currentParameterDefs"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|d| d["ParameterName"] == name)
+        });
+        if event != "Loaded" && !parameter_changed {
+            return Err(AuthoringError::Invalid(format!("mashup event {event} is not declared; use Loaded or a declared parameter's Changed event")));
+        }
         return Ok(Trigger {
             area: "Mashup",
             section: String::new(),
             id: mashup::edit::ROOT_ID.into(),
-            event: "Loaded".into(),
+            event: event.into(),
         });
-    }
-    if raw.starts_with("mashup:") {
-        return Err(AuthoringError::Invalid("only mashup:Loaded".into()));
     }
     if let Some(rest) = raw.strip_prefix("ui:") {
         let (widget, event) = rest
@@ -490,11 +497,7 @@ pub(super) fn resolve_handler(
             });
         }
         let catalog = event_contract(&found.id, &found.type_id)?;
-        if !catalog
-            .services
-            .as_ref()
-            .is_some_and(|services| services.iter().any(|known| known == service))
-        {
+        if !catalog.has_service(service) {
             return Err(AuthoringError::Invalid(format!(
                 "widget `{}` has no service {service}",
                 found.id

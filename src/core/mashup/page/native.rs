@@ -152,7 +152,7 @@ pub(super) fn expand(node: &mut Node, tokens: &Tokens) -> Result<(), Error> {
             }
             _ => return Err(Error::at(at, format!("text does not belong to {element}"))),
         };
-        put(b, property, text);
+        field(b, property, Some(text));
     }
     match element {
         "page_host" | "menu_bar" => {}

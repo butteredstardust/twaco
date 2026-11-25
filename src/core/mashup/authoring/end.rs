@@ -45,7 +45,32 @@ pub(super) fn resolve_end(
     refreshed: &mut Vec<String>,
 ) -> Result<End, AuthoringError> {
     let (parameters, model, platform) = (context.parameters, context.model, context.platform);
+    if let Address::Session {
+        kind,
+        property,
+        base,
+    } = &address
+    {
+        if !source {
+            return Err(AuthoringError::Invalid(
+                "session data is a binding source, not a target".into(),
+            ));
+        }
+        return Ok(End::Data {
+            entity: kind.clone(),
+            collection: kind.clone(),
+            service: String::new(),
+            requested_alias: None,
+            selected_rows: false,
+            entity_name: false,
+            member: Some(property.clone()),
+            base: base.clone(),
+            property_type: "Field".into(),
+            warning: None,
+        });
+    }
     match address {
+        Address::Session { .. } => unreachable!("handled above"),
         Address::Ui { widget, property } => {
             let found = document.find_exact(&widget).map_err(AuthoringError::Edit)?;
             if found.type_id == "mashupcontainer"
@@ -733,6 +758,8 @@ pub(super) fn area(end: &End) -> &'static str {
     match end {
         End::Ui { .. } => "UI",
         End::Mashup { .. } => "Mashup",
+        End::Data { collection, .. } if collection == "Session" => "Session",
+        End::Data { collection, .. } if collection == "UserExtensions" => "UserExtensions",
         End::Data { .. } => "Data",
     }
 }

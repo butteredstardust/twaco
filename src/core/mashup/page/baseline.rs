@@ -20,6 +20,9 @@ pub(super) struct Baseline {
     pub pinned_wiring: BTreeMap<String, String>,
     pub ownership: Vec<String>,
     pub content: Value,
+    /// Expected content including values retained at adoption, never subsequent hand edits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comparison: Option<Value>,
     pub css: String,
     /// Digest of the content as last written, so a later build can tell a fresh hand edit
     /// from differences the mashup already had when twaco last wrote it (an adoption keeps
@@ -66,6 +69,7 @@ impl Baseline {
             pinned_wiring: artifacts.pins.wiring.clone(),
             ownership,
             content,
+            comparison: None,
             css: artifacts.css.clone(),
             written: String::new(),
             generated_cells: BTreeMap::new(),
@@ -80,6 +84,29 @@ impl Baseline {
     /// The digest `written` records for a content value.
     pub fn digest(content: &Value) -> String {
         crate::core::repo::sha256_hex(&serde_json::to_vec(content).expect("JSON value"))
+    }
+
+    pub(super) fn content_edits(&self, current: &Value) -> Vec<String> {
+        if !self.written.is_empty() && self.written == Self::digest(current) {
+            return vec![];
+        }
+        let expected = self.comparison.as_ref().unwrap_or(&self.content);
+        let mut report = super::merge::Report::default();
+        super::merge::content(expected, current, expected, &mut report);
+        report.kept
+    }
+
+    pub(super) fn css_matches(&self, current: &Value, css: &str) -> bool {
+        let written = !self.written.is_empty() && self.written == Self::digest(current);
+        let expected = if written {
+            Some(current)
+        } else {
+            self.comparison.as_ref()
+        };
+        let expected = expected
+            .and_then(|v| v["CustomMashupCss"].as_str())
+            .unwrap_or(&self.css);
+        crate::core::mashup::same_css(expected, css)
     }
 
     pub fn pins(&self) -> Pins {

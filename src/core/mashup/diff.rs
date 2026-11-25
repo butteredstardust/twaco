@@ -148,6 +148,7 @@ pub(super) const IGNORED_PROPERTIES: &[&str] = &[
     "DisplayName",
     "iconClass",
     "LastContainer",
+    "MigratedOn",
 ];
 /// A value Composer 10.2 saves that the widget catalogue has no default for.
 fn composer_default(type_id: Option<&str>, key: &str, value: &Value) -> bool {
@@ -170,6 +171,8 @@ const COUNTED_FAMILIES: &[(&str, &str)] = &[
     ("YAxis", "NumberOfYaxes"),
 ];
 const LAYOUT_PROPERTIES: &[&str] = &[
+    "suppressWidgetPositioning",
+    "suppressWidgetResize",
     "positioning",
     "overflow",
     "Margin",
@@ -313,16 +316,49 @@ fn normalise_pair(left: &Value, right: &Value) -> (Value, Value) {
     rewrite_widget_ids(&mut right, &right_ids);
     for value in [&mut left, &mut right] {
         strip_identity(value);
+        if value.get("mashupType").is_none() {
+            value["mashupType"] = Value::String("mashup".into());
+        }
         if let Some(ui) = value.get_mut("UI") {
+            normalise_parameter_caches(ui);
             key_parameter_defs(ui);
         }
     }
     (left, right)
 }
 
+fn normalise_parameter_caches(widget: &mut Value) {
+    for key in ["MashupParameters", "_currentParameterDefs"] {
+        let navigation = widget_type(widget) == Some("navigationfunction");
+        if let Some(defs) = widget["Properties"][key].as_array_mut() {
+            for def in defs.iter_mut() {
+                if navigation {
+                    if let Some(def) = def.as_object_mut() {
+                        def.remove("DefaultValue");
+                    }
+                }
+            }
+            defs.sort_by_key(|d| d["ParameterName"].as_str().unwrap_or("").to_string());
+        }
+    }
+    for child in widget["Widgets"].as_array_mut().into_iter().flatten() {
+        normalise_parameter_caches(child);
+    }
+}
+
 /// `_currentParameterDefs` as an object keyed by `ParameterName`, so one added or renamed
 /// parameter is one difference instead of shifting every later entry.
 fn key_parameter_defs(widget: &mut Value) {
+    // An empty cache of parameter definitions says nothing a missing one does not.
+    if widget
+        .pointer("/Properties/_currentParameterDefs")
+        .and_then(Value::as_array)
+        .is_some_and(Vec::is_empty)
+    {
+        if let Some(props) = widget.get_mut("Properties").and_then(Value::as_object_mut) {
+            props.remove("_currentParameterDefs");
+        }
+    }
     if let Some(Value::Array(defs)) = widget.pointer_mut("/Properties/_currentParameterDefs") {
         let named = defs
             .iter()
@@ -445,6 +481,55 @@ fn unpaired_ids(widget: &Value, side: &str, ids: &mut BTreeMap<String, String>) 
 
 /// Sibling index pairs in document order: both sides where the types align, one side otherwise.
 fn align(left: &[Value], right: &[Value]) -> Vec<(Option<usize>, Option<usize>)> {
+    let function = |w: &Value| {
+        widget_type(w)
+            .and_then(|t| crate::core::widgets::catalog().by_type(t))
+            .is_some_and(|w| w.function)
+    };
+    if left.iter().chain(right).any(function) {
+        let visible = |items: &[Value]| {
+            items
+                .iter()
+                .enumerate()
+                .filter(|(_, w)| !function(w))
+                .map(|(i, _)| i)
+                .collect::<Vec<_>>()
+        };
+        let (lv, rv) = (visible(left), visible(right));
+        let pick = |items: &[Value], indices: &[usize]| {
+            indices
+                .iter()
+                .map(|i| items[*i].clone())
+                .collect::<Vec<_>>()
+        };
+        let mut pairs: Vec<_> = align(&pick(left, &lv), &pick(right, &rv))
+            .into_iter()
+            .map(|(i, j)| (i.map(|i| lv[i]), j.map(|j| rv[j])))
+            .collect();
+        let mut available: Vec<_> = right
+            .iter()
+            .enumerate()
+            .filter(|(_, w)| function(w))
+            .map(|(i, _)| i)
+            .collect();
+        for (i, l) in left.iter().enumerate().filter(|(_, w)| function(w)) {
+            let same_type = |j: usize| widget_type(l) == widget_type(&right[j]);
+            let found = available
+                .iter()
+                .position(|&j| same_type(j) && same_widget(l, &right[j]))
+                .or_else(|| {
+                    available.iter().position(|&j| {
+                        same_type(j)
+                            && l["Properties"]["Expression"].is_string()
+                            && l["Properties"]["Expression"] == right[j]["Properties"]["Expression"]
+                    })
+                })
+                .or_else(|| available.iter().position(|&j| same_type(j)));
+            pairs.push((Some(i), found.map(|at| available.remove(at))));
+        }
+        pairs.extend(available.into_iter().map(|j| (None, Some(j))));
+        return pairs;
+    }
     let (n, m) = (left.len(), right.len());
     // lcs[i][j]: longest common type subsequence of left[i..] and right[j..].
     let mut lcs = vec![vec![0usize; m + 1]; n + 1];
@@ -682,6 +767,17 @@ fn strip_identity(value: &mut Value) {
                             }
                         }
                     }
+                    // The runtime resolves the endpoint's property contract. Composer versions
+                    // describe the same numeric binding with any of these compatible types.
+                    for kind in ["SourcePropertyBaseType", "TargetPropertyBaseType"] {
+                        if map
+                            .get(kind)
+                            .and_then(Value::as_str)
+                            .is_some_and(|t| matches!(t, "NUMBER" | "INTEGER" | "LONG"))
+                        {
+                            map.insert(kind.into(), Value::String("NUMBER".into()));
+                        }
+                    }
                 }
             }
         }
@@ -708,7 +804,8 @@ fn canonical(value: &Value) -> String {
     sorted(value).to_string()
 }
 
-/// Pair wiring by endpoints, retaining duplicate multiplicity and changes to binding metadata.
+/// Pair wiring by endpoints, retaining changes to metadata and distinct sources. Repeated
+/// identical bindings have the same runtime source.
 fn compare_unordered(left: &Value, right: &Value, key: &str, differences: &mut Vec<Difference>) {
     let grouped = |document: &Value| {
         let mut groups: BTreeMap<String, Vec<Value>> = BTreeMap::new();
@@ -725,6 +822,9 @@ fn compare_unordered(left: &Value, right: &Value, key: &str, differences: &mut V
         }
         for items in groups.values_mut() {
             items.sort_by_key(canonical);
+            if key == "DataBindings" {
+                items.dedup();
+            }
         }
         groups
     };
@@ -925,7 +1025,27 @@ fn readable_wiring(item: &Value, document: &Value, key: &str) -> Value {
 fn compare_ui(left: &Value, right: &Value, differences: &mut Vec<Difference>) {
     let left_ui = left.get("UI").unwrap_or(&Value::Null);
     let right_ui = right.get("UI").unwrap_or(&Value::Null);
+    let start = differences.len();
     compare_properties(left_ui, right_ui, "UI", false, false, true, differences);
+    let mut executable_defaults = BTreeSet::new();
+    for content in [left, right] {
+        for binding in content["DataBindings"].as_array().into_iter().flatten() {
+            if binding["SourceArea"] == "Mashup" {
+                for map in binding["PropertyMaps"].as_array().into_iter().flatten() {
+                    if let Some(name) = map["SourceProperty"].as_str() {
+                        executable_defaults.insert(format!("UI.Properties.{name}"));
+                    }
+                }
+            }
+        }
+    }
+    for difference in &mut differences[start..] {
+        if executable_defaults.iter().any(|path| {
+            difference.path == *path || difference.path.starts_with(&format!("{path}."))
+        }) {
+            difference.tier = DifferenceTier::Executable;
+        }
+    }
     compare_children(
         left_ui,
         right_ui,
@@ -1256,7 +1376,7 @@ fn compare_value(
                 }
             }
         }
-        _ if left != right => push(
+        _ if left != right && !numeric_equivalent(left, right) => push(
             tier,
             path.to_string(),
             (!left.is_null()).then_some(left.clone()),
@@ -1265,6 +1385,17 @@ fn compare_value(
         ),
         _ => {}
     }
+}
+
+fn numeric_equivalent(left: &Value, right: &Value) -> bool {
+    let number = |value: &Value| {
+        value
+            .as_f64()
+            .or_else(|| value.as_str()?.parse::<f64>().ok())
+    };
+    (left.is_number() || right.is_number())
+        && number(left).is_some()
+        && number(left) == number(right)
 }
 
 fn compare_optional(
@@ -1543,6 +1674,14 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_parameter_cache_equals_a_missing_one() {
+        let mut left = mashup(json!([]));
+        left["UI"]["Properties"]["_currentParameterDefs"] = json!([]);
+        let right = mashup(json!([]));
+        assert!(compare("a", "b", &left, &right, None, None, Tier::All).equal);
+    }
+
+    #[test]
     fn parameters_compare_by_name() {
         let def = |name: &str, base: &str| json!({"ParameterName": name, "BaseType": base});
         let mut left = mashup(json!([]));
@@ -1679,15 +1818,14 @@ mod tests {
     }
 
     #[test]
-    fn a_duplicated_binding_is_one_difference() {
+    fn a_duplicated_binding_has_the_same_runtime_source() {
         let one = json!({"SourceArea":"Data","SourceId":"GetA","TargetArea":"Mashup","TargetId":"mashup-root"});
         let mut left = mashup(json!([]));
         left["DataBindings"] = json!([one.clone()]);
         let mut right = mashup(json!([]));
         right["DataBindings"] = json!([one.clone(), one]);
         let result = compare("a", "b", &left, &right, None, None, Tier::All);
-        let paths: Vec<_> = result.differences.iter().map(|d| d.path.as_str()).collect();
-        assert_eq!(paths, ["DataBindings: data:GetA -> mashup"]);
+        assert!(result.equal, "{result:?}");
     }
 
     fn wired_labels(side: &str, count: usize) -> Value {
@@ -1959,6 +2097,20 @@ mod tests {
         right = left.clone();
         right["DataBindings"].as_array_mut().unwrap().reverse();
         assert!(compare("a", "b", &left, &right, None, None, Tier::All).equal);
+    }
+
+    #[test]
+    fn numeric_binding_metadata_uses_platform_numeric_compatibility() {
+        let mut left = wired_labels("a", 1);
+        left["DataBindings"][0]["PropertyMaps"][0]["TargetPropertyBaseType"] = json!("INTEGER");
+        for base in ["NUMBER", "INTEGER", "LONG"] {
+            let mut right = left.clone();
+            right["DataBindings"][0]["PropertyMaps"][0]["TargetPropertyBaseType"] = json!(base);
+            assert!(compare("a", "b", &left, &right, None, None, Tier::Executable).equal);
+        }
+        let mut right = left.clone();
+        right["DataBindings"][0]["PropertyMaps"][0]["TargetPropertyBaseType"] = json!("STRING");
+        assert!(!compare("a", "b", &left, &right, None, None, Tier::Executable).equal);
     }
 
     #[test]

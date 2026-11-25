@@ -14,6 +14,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+type SpecLines = BTreeMap<String, (u64, BTreeMap<String, (u64, String)>)>;
+
 #[derive(Debug)]
 struct File {
     path: PathBuf,
@@ -121,7 +123,7 @@ fn conflict(
     spec_name: &str,
     path: &str,
     report: &merge::Report,
-    lines: &BTreeMap<String, (u64, BTreeMap<String, u64>)>,
+    lines: &SpecLines,
     spec: &schema::Spec,
 ) -> Value {
     let segments: Vec<&str> = path.split('/').collect();
@@ -137,11 +139,10 @@ fn conflict(
                 .skip_while(|segment| **segment != "Properties")
                 .nth(1)
                 .copied();
+            let property = key.and_then(|key| props.get(key));
             (
-                key.and_then(|key| props.get(key))
-                    .copied()
-                    .unwrap_or(*id_line),
-                key,
+                property.map_or(*id_line, |p| p.0),
+                property.map(|p| p.1.as_str()),
             )
         }
         None => (spec.page.referenced.line().max(1), None),
@@ -160,7 +161,7 @@ fn conflict(
     }
     message.push_str(&format!(
         "; change {spec_name}:{line}{} or resolve the hand edit",
-        key.map_or(String::new(), |key| format!(" (props.{key})"))
+        key.map_or(String::new(), |key| format!(" ({key})"))
     ));
     out["message"] = json!(message);
     out
@@ -242,9 +243,36 @@ fn plan_from(
     };
     let yaml = text(&spec_bytes)?;
     let spec_name = solution.relative(spec_path);
-    let spec = schema::parse_at(yaml, solution, spec_path.parent().unwrap_or(&solution.root))
+    let mut spec = schema::parse_at(yaml, solution, spec_path.parent().unwrap_or(&solution.root))
         .map_err(|e| invalid(e.in_file(&spec_name)))?;
-    if spec.page.value.name.value != name {
+    let overridden =
+        spec.page.value.name.value != name && existing.is_none() && spec_file.is_some();
+    let renamed = if overridden {
+        let span = spec.page.value.name.referenced.span();
+        let offset = usize::try_from(
+            span.byte_offset()
+                .ok_or_else(|| invalid("page.name: cannot locate scalar"))?,
+        )
+        .map_err(invalid)?;
+        let len = usize::try_from(
+            span.byte_len()
+                .ok_or_else(|| invalid("page.name: cannot locate scalar"))?,
+        )
+        .map_err(invalid)?;
+        let mut renamed = yaml.to_string();
+        renamed.replace_range(
+            offset..offset + len,
+            &serde_json::to_string(name).map_err(invalid)?,
+        );
+        Some(renamed)
+    } else {
+        None
+    };
+    let yaml = renamed.as_deref().unwrap_or(yaml);
+    if overridden {
+        spec = schema::parse_at(yaml, solution, spec_path.parent().unwrap_or(&solution.root))
+            .map_err(|e| invalid(e.in_file(&spec_name)))?;
+    } else if spec.page.value.name.value != name {
         return Err(invalid(format!(
             "{}:{}: page.name must equal {name}",
             spec_path.display(),
@@ -340,10 +368,22 @@ fn plan_from(
                 &mut report,
             );
             let merged = merge::content(&old.content, &current, &baseline.content, &mut report);
-            if !old.written.is_empty() && old.written == Baseline::digest(&current) {
-                // The mashup is as twaco last wrote it: whatever differs from the spec was
-                // already there (an adoption keeps what the spec cannot say), not a new edit.
-                report.kept.retain(|path| !path.starts_with("content"));
+            let edits = old.content_edits(&current);
+            report.kept.retain(|path| {
+                !path.starts_with("content")
+                    || edits.iter().any(|edit| {
+                        edit == path
+                            || edit.starts_with(&format!("{path}/"))
+                            || path.starts_with(&format!("{edit}/"))
+                    })
+            });
+            if let Some(expected) = &old.comparison {
+                baseline.comparison = Some(merge::content(
+                    &old.content,
+                    expected,
+                    &baseline.content,
+                    &mut merge::Report::default(),
+                ));
             }
             // Page specs intentionally do not own custom.css. Keep it byte-for-byte (aside
             // from its existing terminator convention) instead of treating it as generated
@@ -385,6 +425,7 @@ fn plan_from(
                 );
                 report.conflicts.push("custom.css".into());
             }
+            baseline.comparison = Some(current.clone());
             (current, current_assets.css)
         }
     } else {
@@ -393,20 +434,31 @@ fn plan_from(
     // `custom.css` is the source of truth for CustomMashupCss. In particular, adoption must
     // not turn a stylesheet sidecar into a content.json edit: that makes the following build
     // look like both a content and stylesheet hand edit.
-    let mut lines: BTreeMap<String, (u64, BTreeMap<String, u64>)> = BTreeMap::new();
-    fn node_lines(
-        nodes: &[schema::Node],
-        ids: &BTreeMap<String, String>,
-        lines: &mut BTreeMap<String, (u64, BTreeMap<String, u64>)>,
-    ) {
+    let mut lines = SpecLines::new();
+    fn node_lines(nodes: &[schema::Node], ids: &BTreeMap<String, String>, lines: &mut SpecLines) {
         for n in nodes {
             let b = n.body();
             if let Some(id) = ids.get(&b.id.value) {
-                let props = b
+                let mut props: BTreeMap<_, _> = b
                     .props
                     .iter()
-                    .map(|(k, v)| (k.clone(), v.referenced.line().max(1)))
+                    .map(|(k, v)| {
+                        (
+                            k.clone(),
+                            (v.referenced.line().max(1), format!("props.{k}")),
+                        )
+                    })
                     .collect();
+                if let Some(text) = &b.text {
+                    let property = if matches!(n, schema::Node::Button(_)) {
+                        "Label"
+                    } else {
+                        "LabelText"
+                    };
+                    props
+                        .entry(property.into())
+                        .or_insert((text.referenced.line().max(1), "text".into()));
+                }
                 lines.insert(id.clone(), (b.id.referenced.line().max(1), props));
             }
             for child in super::compile::descendants(n) {
@@ -639,6 +691,11 @@ fn plan_from(
     );
     let mut created_cells = Vec::new();
     let mut cell_notices = generated.warnings.clone();
+    if overridden {
+        cell_notices.push(format!(
+            "page.name was overridden with {name}; the copied page.yaml uses the command's name"
+        ));
+    }
     if let Some(tokens) = &spec.tokens {
         if spec
             .page
@@ -727,9 +784,20 @@ fn plan_from(
         created_cells.push(cell.name.clone());
     }
     baseline.written = written;
-    files[3].after = baseline.bytes();
+    let baseline_bytes = baseline.bytes();
+    // Flattening and expanding an adopted tree may reorder object keys. Baseline metadata is
+    // semantic JSON too; do not turn that ordering into a write on a clean rebuild.
+    files[3].after = match &files[3].before {
+        Some(before)
+            if serde_json::from_slice::<Value>(before).ok()
+                == serde_json::from_slice::<Value>(&baseline_bytes).ok() =>
+        {
+            before.clone()
+        }
+        _ => baseline_bytes,
+    };
     let mut plan = Plan {
-        report: json!({"mashup":name,"project":project,"template":spec.page.value.template.value,"slots":spec.page.value.slots.keys().collect::<Vec<_>>(),"applied":false,"dry_run":true,"nodes":nodes,"hand_edits_kept":report.kept,"conflicts":conflicts,"cells":created_cells,"cell_notices":cell_notices,"files_state":"would write","files":files.iter().filter(|f| f.before.as_deref() != Some(&f.after)).map(|f| solution.relative(&f.path)).collect::<Vec<_>>()}),
+        report: json!({"mashup":name,"project":project,"template":spec.page.value.template.value,"slots":spec.page.value.slots.keys().collect::<Vec<_>>(),"applied":false,"dry_run":true,"nodes":nodes,"hand_edits_kept":report.kept.iter().map(|p| merge::display_path(p)).collect::<Vec<_>>(),"conflicts":conflicts,"cells":created_cells,"cell_notices":cell_notices,"files_state":"would write","files":files.iter().filter(|f| f.before.as_deref() != Some(&f.after)).map(|f| solution.relative(&f.path)).collect::<Vec<_>>()}),
         files,
         inputs,
         components,
@@ -737,6 +805,8 @@ fn plan_from(
     if plan.conflicts() {
         plan.report["files_state"] = json!("refused");
         plan.report["files"] = json!([]);
+    } else if plan.report["files"].as_array().is_some_and(Vec::is_empty) {
+        plan.report["files_state"] = json!("nothing to write");
     }
     Ok(plan)
 }
@@ -838,7 +908,11 @@ impl Plan {
             .apply(lock)
             .map_err(AuthoringError::Write)?;
         self.report["applied"] = json!(true);
-        self.report["files_state"] = json!("written");
+        if self.report["files"].as_array().is_some_and(Vec::is_empty) {
+            self.report["files_state"] = json!("nothing to write");
+        } else {
+            self.report["files_state"] = json!("written");
+        }
         self.report["dry_run"] = json!(false);
         Ok(())
     }

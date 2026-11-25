@@ -30,6 +30,7 @@ pub(crate) struct Pins {
 }
 
 pub(crate) struct Ids {
+    preserved: std::collections::BTreeMap<String, String>,
     used: BTreeSet<u64>,
     names: BTreeSet<String>,
     explicit_numbers: BTreeSet<u64>,
@@ -40,6 +41,7 @@ impl Ids {
     pub(crate) fn new(reserved: impl Iterator<Item = String>) -> Self {
         let reserved: Vec<_> = reserved.collect();
         Self {
+            preserved: std::collections::BTreeMap::new(),
             used: reserved
                 .iter()
                 .cloned()
@@ -53,6 +55,22 @@ impl Ids {
     /// What `widget` handed out, as `(node, role, id)`.
     pub(crate) fn allocated(&self) -> &[(String, String, String)] {
         &self.allocated
+    }
+    pub(crate) fn preserve(&mut self, node: &str, id: &str) {
+        self.preserved.insert(node.into(), id.into());
+    }
+    pub(crate) fn preserved(&self, node: &str) -> Option<String> {
+        self.preserved.get(node).cloned()
+    }
+    pub(crate) fn explicit_as(
+        &mut self,
+        node: &str,
+        role: &str,
+        id: &str,
+    ) -> Result<String, String> {
+        let id = self.explicit(id, role)?;
+        self.allocated.last_mut().expect("allocated").0 = node.into();
+        Ok(id)
     }
     pub(crate) fn widget(&mut self, kind: &str, node: &str, role: &str) -> Result<String, String> {
         let digest = hash(node, role);
@@ -70,20 +88,21 @@ impl Ids {
     pub(crate) fn explicit(&mut self, node: &str, role: &str) -> Result<String, String> {
         let number = node
             .rsplit_once('-')
-            .and_then(|(_, suffix)| suffix.parse::<u64>().ok())
-            .ok_or_else(|| format!("explicit widget id {node} needs a numeric suffix"))?;
+            .and_then(|(_, suffix)| suffix.parse::<u64>().ok());
         if !self.names.insert(node.into()) {
             return Err(format!("duplicate widget id {node}"));
         }
         // Composer numbers a mashup's ids uniquely; two spec ids sharing a number would also
         // share generated display names, so refuse rather than guess. (A template's own ids
         // may share a number with a source id: they differ by type.)
-        if !self.explicit_numbers.insert(number) {
-            return Err(format!(
-                "widget id {node} reuses number {number}, already taken by another widget id"
-            ));
+        if let Some(number) = number {
+            if !self.explicit_numbers.insert(number) {
+                return Err(format!(
+                    "widget id {node} reuses number {number}, already taken by another widget id"
+                ));
+            }
+            self.used.insert(number);
         }
-        self.used.insert(number);
         self.allocated.push((node.into(), role.into(), node.into()));
         Ok(node.into())
     }

@@ -6,6 +6,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Fresh mashups built from derived page specs keep parameter defaults, root styles and layout
+  flags, custom widget ids, empty bound-label text, native session/user-extension data, mashup
+  events and services, and navigation return/geometry bindings. Semantic diff follows reordered
+  function widgets and ignores duplicate identical bindings and Composer migration/cache metadata.
+  Adoption and build share hand-edit comparison and name changed properties. Copy names override
+  `page.name`; no-op builds say `nothing to write`; conflicts locate `text`, and spec export creates
+  missing output folders.
+
 ## [0.1.77] - 2026-11-24
 
 - Mashup adoption accepts service result fields bound to mashup parameters, legacy contained

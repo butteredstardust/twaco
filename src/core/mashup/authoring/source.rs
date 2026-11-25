@@ -11,6 +11,34 @@ use crate::core::{bindings, catalog, types};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
+/// Composer's two native runtime interfaces have fixed ids and no Thing entity.
+pub(crate) fn ensure_session_source(
+    document: &mut crate::core::mashup::edit::MashupDocument,
+    kind: &str,
+) -> Result<(), AuthoringError> {
+    let (id, call, interface) = match kind {
+        "Session" => ("session", "GetGlobalSessionValues", "SessionInterface"),
+        "UserExtensions" => (
+            "UserExtensions",
+            "GetCurrentUserExtensionProperties",
+            "UserExtensionInterface",
+        ),
+        _ => {
+            return Err(AuthoringError::Invalid(format!(
+                "session source {kind}: use Session or UserExtensions"
+            )))
+        }
+    };
+    document.data_mut().entry(kind).or_insert_with(|| {
+        serde_json::json!({
+            "DataName":kind, "EntityName":"", "EntityType":kind, "Id":id,
+            "Services":[{"APIMethod":"post", "Characteristic":"Services", "Id":interface,
+                "Name":call, "Parameters":{}, "RefreshInterval":0, "Target":call}]
+        })
+    });
+    Ok(())
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceKind {
     Things,

@@ -69,10 +69,17 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     // `root` and its children the slot, so an adopted page gains no extra level.
     // As built, a first container stands for it by position whatever its id (a master's root is
     // `flexcontainer-1`, not the template's); the first build pins the id.
-    let template_root = widgets_of(root).first().filter(|w| {
-        is_container(w)
-            && (exact || prop(w, "Id").as_str() == fresh.get("Id").and_then(Value::as_str))
-    });
+    let template_root = widgets_of(root)
+        .iter()
+        .find(|w| {
+            !widgets::catalog()
+                .by_type(kind(w))
+                .is_some_and(|w| w.function)
+        })
+        .filter(|w| {
+            is_container(w)
+                && (exact || prop(w, "Id").as_str() == fresh.get("Id").and_then(Value::as_str))
+        });
     // The id of a claimed root that is not the template's, so a build renames the template's.
     let root_name = template_root
         .map(|w| prop(w, "Id").clone())
@@ -89,7 +96,12 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
                 .iter()
                 .map(|w| run.node(w, direction))
                 .collect();
-            slot.extend(widgets_of(root)[1..].iter().map(|w| run.node(w, "column")));
+            slot.extend(
+                widgets_of(root)
+                    .iter()
+                    .filter(|w| !std::ptr::eq(*w, first))
+                    .map(|w| run.node(w, "column")),
+            );
             (slot, Some(page_root))
         }
         None => (
@@ -112,8 +124,13 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
             .filter(|(k, v)| {
                 !matches!(
                     k.as_str(),
-                    "Id" | "Type" | "id_index" | "_currentParameterDefs"
-                ) && fresh.get(*k) != Some(*v)
+                    "Id" | "Type"
+                        | "id_index"
+                        | "_currentParameterDefs"
+                        | "StyleProperties"
+                        | "MigratedOn"
+                ) && !run.parameters.contains(*k)
+                    && fresh.get(*k) != Some(*v)
             })
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
@@ -153,6 +170,39 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     }
     if props["UseMasterTheme"] == json!(true) {
         page.insert("use_master_theme".into(), json!(true));
+    }
+    // Root properties have no widget node to carry them. Parameter values belong to their
+    // declarations, and stored style parts use the same syntax as a widget's styles.
+    {
+        let carried = page
+            .entry("props")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .expect("props");
+        for (key, value) in props.as_object().into_iter().flatten() {
+            if !matches!(
+                key.as_str(),
+                "Id" | "Type"
+                    | "id_index"
+                    | "_currentParameterDefs"
+                    | "StyleProperties"
+                    | "MigratedOn"
+                    | "StyleTheme"
+                    | "Master"
+                    | "UseMasterTheme"
+            ) && !run.parameters.contains(key)
+            {
+                carried.insert(key.clone(), value.clone());
+            }
+        }
+        if let Some(parts) = props["StyleProperties"]["data"]
+            [props["Id"].as_str().unwrap_or("mashup-root")]
+        .get("parts")
+        {
+            page.insert("styles".into(), parts.clone());
+            run.styled
+                .insert(props["Id"].as_str().unwrap_or("mashup-root").into());
+        }
     }
     if root_name.is_some() || page_root.as_ref().is_some_and(|p| !p.is_empty()) {
         let mut spec_root = Map::new();
@@ -220,9 +270,9 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
         }
     }
     run.notes.push(if carry_styles {
-        "styles of widgets folded into elements and unsupported wiring are not carried".into()
+        "styles of widgets folded into elements are not carried".into()
     } else {
-        "unsupported wiring is not carried; widget styles are carried under styles:".into()
+        "widget styles are carried under styles:".into()
     });
     let text = render(&spec);
     Ok(Derived {
@@ -666,10 +716,14 @@ impl<'a> Run<'a> {
                     }
                 }
                 let description = definition["Description"].as_str().unwrap_or("");
-                let value = if description.is_empty() {
+                let default = props.get(name);
+                let value = if description.is_empty() && default.is_none() {
                     json!(text)
                 } else {
                     let mut details = json!({"type": base, "description": description});
+                    if let Some(default) = default {
+                        details["default"] = default.clone();
+                    }
                     if self.exact {
                         if let Some(direction) = definition["Aspects"]["bindingDirection"].as_str()
                         {
@@ -693,6 +747,7 @@ impl<'a> Run<'a> {
         let (area, id, section) = &link.source;
         let (section, field) = section.split_once('\u{1}')?;
         match area.as_str() {
+            "Session" | "UserExtensions" => Some(format!("{area}.{field}")),
             "Data" => {
                 let call = self
                     .calls
@@ -780,9 +835,8 @@ impl<'a> Run<'a> {
             // place; the catalogue's default would make the first responsive and the second 0.
             let kept = self.exact
                 && (key == "flex-size"
-                    || (key == "ResponsiveLayout" && type_id == "flexcontainer")
-                    || (matches!(key.as_str(), "Left" | "Top")
-                        && number(value).is_some_and(|n| n != 0.0)));
+                    || matches!(key.as_str(), "ResponsiveLayout" | "Z-index")
+                    || matches!(key.as_str(), "Left" | "Top"));
             if (noise(key) && !kept)
                 || (!self.exact && key == "scrolling")
                 || skip.contains(&key.as_str())
@@ -874,6 +928,7 @@ impl<'a> Run<'a> {
             // An as-built root that is not responsive stays so, like the containers below it.
             let fixed = noise(key)
                 && !matches!(key.as_str(), "DisplayName" | "flex-size")
+                && !(self.exact && matches!(key.as_str(), "Left" | "Top"))
                 && !(self.exact && key == "ResponsiveLayout" && *value == false);
             if fixed || fresh.get(key).is_some_and(|f| same(f, value)) {
                 continue;
@@ -974,6 +1029,22 @@ impl<'a> Run<'a> {
             "ptcstabset" => self.tabs(widget),
             _ => self.other(widget),
         };
+        if self.exact {
+            let id = prop(widget, "Id").as_str().unwrap_or("");
+            let numeric = id
+                .rsplit_once('-')
+                .is_some_and(|(_, suffix)| suffix.parse::<u64>().is_ok());
+            if !numeric || sanitize(id) != id {
+                if let Some(body) = node
+                    .as_object_mut()
+                    .and_then(|m| m.values_mut().next())
+                    .and_then(Value::as_object_mut)
+                    .filter(|b| b.contains_key("id"))
+                {
+                    body.insert("widget_id".into(), json!(id));
+                }
+            }
+        }
         if self.carry_styles {
             let id = prop(widget, "Id").as_str().unwrap_or("");
             let parts = &self.content["UI"]["Properties"]["StyleProperties"]["data"][id]["parts"];
@@ -1137,7 +1208,7 @@ impl<'a> Run<'a> {
             // it and the binding is listed under `bindings`; without, the inline `bind:` stays.
             let design = prop(widget, "LabelText")
                 .as_str()
-                .filter(|value| !value.is_empty() && !value.starts_with("[["))
+                .filter(|value| !value.starts_with("[["))
                 .map(str::to_string);
             match (design, bound_link) {
                 (Some(value), Some(link)) => {
@@ -1407,6 +1478,19 @@ impl<'a> Run<'a> {
         let target = text(widget, "TargetMashup").filter(|s| !s.is_empty());
         if target.is_none()
             || events.len() != 1
+            || (self.exact
+                && !id
+                    .rsplit_once('-')
+                    .is_some_and(|(_, suffix)| suffix.parse::<u64>().is_ok()))
+            || self.links.iter().any(|l| {
+                (l.source.0 == "UI" && l.source.1 == id)
+                    || (l.target.0 == "UI"
+                        && l.target.1 == id
+                        && matches!(
+                            l.target.3.as_str(),
+                            "PopupTitle" | "PopupWidth" | "PopupHeight"
+                        ))
+            })
             || self
                 .links
                 .iter()
@@ -1468,6 +1552,9 @@ impl<'a> Run<'a> {
     fn expression(&mut self, widget: &Value) -> Value {
         let alias = self.expression_names[prop(widget, "Id").as_str().unwrap_or("")].clone();
         let mut entry = Map::new();
+        if self.exact {
+            entry.insert("widget_id".into(), prop(widget, "Id").clone());
+        }
         entry.insert("expression".into(), prop(widget, "Expression").clone());
         entry.insert("output".into(), prop(widget, "OutputBaseType").clone());
         let mut declared = Map::new();
@@ -2122,6 +2209,27 @@ impl<'a> Run<'a> {
 
     fn wiring(&mut self) -> (Map<String, Value>, Vec<Value>) {
         let mut data = self.expressions.clone();
+        for kind in ["Session", "UserExtensions"] {
+            if self.content["Data"].get(kind).is_some() {
+                let mut fields = Map::new();
+                for binding in self.content["DataBindings"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                {
+                    if binding["SourceArea"] == kind {
+                        for map in binding["PropertyMaps"].as_array().into_iter().flatten() {
+                            if let Some(name) = map["SourceProperty"].as_str() {
+                                fields.insert(name.into(), map["SourcePropertyBaseType"].clone());
+                            }
+                        }
+                    }
+                }
+                if !fields.is_empty() {
+                    data.insert(kind.into(), json!({"session":kind,"fields":fields}));
+                }
+            }
+        }
         let mut events = vec![];
         let mut loaded: BTreeSet<String> = BTreeSet::new();
         for event in self.content["Events"].as_array().into_iter().flatten() {
@@ -2129,6 +2237,8 @@ impl<'a> Run<'a> {
             let trigger =
                 if get("EventTriggerArea") == "Mashup" && get("EventTriggerEvent") == "Loaded" {
                     None
+                } else if get("EventTriggerArea") == "Mashup" {
+                    Some(format!("mashup.{}", get("EventTriggerEvent")))
                 } else if get("EventTriggerArea") == "UI" {
                     Some(format!(
                         "@@{}@@.{}",
@@ -2167,10 +2277,8 @@ impl<'a> Run<'a> {
             if get("EventHandlerArea") == "UI" {
                 let unlisted = widget_type(&self.content["UI"], get("EventHandlerId"))
                     .and_then(|t| widgets::catalog().by_type(t))
-                    .and_then(|w| w.services.as_ref())
-                    .is_some_and(|services| {
-                        !services.iter().any(|s| s == get("EventHandlerService"))
-                    });
+                    .filter(|w| w.services.is_some())
+                    .is_some_and(|w| !w.has_service(get("EventHandlerService")));
                 if unlisted {
                     self.notes.push(format!(
                         "event left out: {} -> {}.{} (the widget catalogue lists no such service)",
@@ -2182,6 +2290,7 @@ impl<'a> Run<'a> {
                 }
             }
             let target = match get("EventHandlerArea") {
+                "Mashup" => Some(format!("mashup.{}", get("EventHandlerService"))),
                 "Data" => self
                     .calls
                     .iter()

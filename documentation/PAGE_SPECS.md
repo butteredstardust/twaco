@@ -109,6 +109,54 @@ parameters:
   rows: {type: INFOTABLE, data_shape: Acme.Rows_DS, direction: OUT, description: Visible rows}
 ```
 
+### Parameter defaults and root properties
+
+The long form also accepts `default`, a JSON/YAML value written exactly to the mashup's
+`UI.Properties.<parameter>`. Derive carries an existing value, including an empty string,
+`false`, zero or `null`. Short declarations remain valid and do not set a default.
+
+```yaml
+parameters:
+  Manager: {type: THINGNAME, direction: BOTH, default: Acme.Manager}
+data:
+  rows: {service: Acme.Manager_TS.GetRows, entity: {bind: param.Manager}}
+```
+
+`page.props` carries mashup-root properties, including `suppressWidgetPositioning` and
+`suppressWidgetResize`. `page.styles` carries the root's stored style parts using the same
+`part: {state: {property: value}}` map as a widget's `styles`. `page.root.props` addresses the
+first layout container, including explicit zero `Left` and `Top`. Composer's `MigratedOn`
+timestamp is omitted by derive and ignored by `mashup diff`.
+
+### Session and user-extension data
+
+Native runtime data uses a data declaration with `session: Session` or
+`session: UserExtensions`, and a `fields` map of field name to base type. These reproduce
+Composer's native data sections and interface ids; they do not invoke a Thing service.
+Use a declared field anywhere a binding source is accepted, including service params.
+
+```yaml
+data:
+  user: {session: UserExtensions, fields: {name: STRING}}
+  session: {session: Session, fields: {enabled: BOOLEAN}}
+slots:
+  center:
+    - label: {id: user_name, props: {LabelText: {bind: user.name}}}
+```
+
+The equivalent command source is `session:UserExtensions.name:STRING`, for example
+`mashup bind Acme.Page_MU --from session:UserExtensions.name:STRING --to ui:user_name.LabelText`.
+Session data is read-only. A service source or expression cannot share a declaration with
+`session`; `fields` belongs only to session declarations.
+
+### Mashup events and services
+
+An event action can invoke `mashup.CloseIfPopup` or `mashup.Refresh`. A parameter's change
+event is `mashup.<parameter>Changed`, for example
+`{on: mashup.ManagerChanged, invoke: rows}`. The corresponding command addresses are
+`mashup:CloseIfPopup`, `mashup:Refresh` and `mashup:ManagerChanged`. `load` remains the short
+form of `mashup.Loaded`. These names are checked by the shared command authoring operations.
+
 Service result fields can bind to mashup parameters, including BOTH parameters in a binding
 cycle. Result DataShapes resolve from the solution, cached platform fields, or the known
 platform `MenuEntry` shape. A server-provided shape declared under `entities.DataShapes` in
@@ -992,6 +1040,23 @@ moves. Four things make that so.
   differ in no way a build would notice, so their order is not compared, and neither are
   `id_index`, twaco's own markers or the static value of a property a binding writes.
 
+Derived specs carry a nonnumeric or otherwise nonstandard source id as `widget_id`, alongside
+the readable node `id`, for example `{label: {id: label-title, widget_id: label-title}}`.
+This keeps the exact widget id in a fresh copy without requiring an adoption baseline.
+Expression data entries also accept `widget_id`; derive writes their source expression's id
+so ordering the declarations cannot change the function that a binding addresses.
+Ordinary authored node ids continue to receive stable generated widget ids. Duplicate widget
+ids are refused.
+
+To make a fresh copy, pass the new name to `mashup new Acme.Copy_MU --spec page.yaml --apply`.
+The command's name overrides `page.name`, prints a note and updates the copied `page.yaml`;
+the input spec stays unchanged. `mashup spec --out missing/folder/page.yaml` creates missing
+parent folders before writing the spec and its stylesheet.
+
+A navigation function with return bindings or bound popup geometry stays an explicit
+`widget: {type: navigationfunction, ...}`. Folding it into an action would hide endpoints that
+other bindings need. Simpler navigation continues to use `navigate:` actions.
+
 Adoption reads a mashup as the platform does, not byte for byte. Bindings an older Composer wrote (a lower-case
 property type, no `SourceDetails`), a property the mashup does not state that the spec generates as its empty or
 default value, a number stored as text, a function widget's label and its place among the layout widgets, and a
@@ -1013,7 +1078,10 @@ resolve the hand edit
 each property it left out (`widget property`). Compile errors from `mashup build` and
 `mashup new --spec` point at the offending key's line and name the spec file that was read;
 with `--json` they are `{"error": {"file", "line", "column", "message"}}`. A plan says
-`files_state: "would write"`; the same report after `--apply` says `written`.
+`files_state: "would write"`; the same report after `--apply` says `written`. A no-op reports
+`files_state: "nothing to write"` with an empty file list. Kept hand edits name their widget
+and property path; `mashup spec` and `mashup build` share the baseline comparison, so retained
+adoption differences are not reported as new hand edits.
 
 Service completion chains derive as `{on: write.done, invoke: refresh}`; failure handlers to
 status messages derive as `{on: write.error, show: failed}`. Several sources writing the same

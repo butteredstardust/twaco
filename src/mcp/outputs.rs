@@ -1759,7 +1759,8 @@ pub(crate) struct MashupBuildResult {
     /// Each conflict has `path`, `file`, `line` and `message`, and the mashup's `current` and the
     /// spec's `generated` value where there are both.
     conflicts: Vec<Value>,
-    /// `would write` while planning, `written` once applied, or `refused` when conflicts prevent writes.
+    /// `would write` while planning, `written` once applied, `nothing to write` for a no-op,
+    /// or `refused` when conflicts prevent writes.
     files_state: String,
     files: Vec<String>,
     cells: Vec<String>,

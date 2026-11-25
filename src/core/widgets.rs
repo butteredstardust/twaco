@@ -280,6 +280,16 @@ impl Catalog {
 }
 
 impl Widget {
+    /// These widgets expose the native reset service although their builders omit it from the
+    /// design-time service list (Composer-authored mashups wire events to it). Keep command
+    /// authoring and derived event wiring in agreement.
+    pub(crate) fn has_service(&self, name: &str) -> bool {
+        const RESETTABLE: &[&str] = &["ptcstogglebutton", "ptcsdatepicker"];
+        self.services
+            .as_ref()
+            .is_some_and(|services| services.iter().any(|s| s == name))
+            || (name == "ResetToDefaultValue" && RESETTABLE.contains(&self.type_id.as_str()))
+    }
     /// A widget an extension project defines: numbered as Composer numbers every widget it has no
     /// entry for (`<type>-<n>`), never a container, never a function.
     pub(crate) fn extension(
