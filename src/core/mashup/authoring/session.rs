@@ -235,10 +235,12 @@ impl Session {
         self.entity = plan.entity_after;
         let assets = mashup::extract(&self.entity).map_err(AuthoringError::Mashup)?;
         let verbatim = self.document.verbatim();
+        let binding_types = self.document.binding_types.clone();
         self.document = mashup::edit::parse(&assets.content).map_err(AuthoringError::Edit)?;
         self.document
             .set_uuid_generator(crate::core::mashup::page::ids::uuid);
         self.document.set_verbatim(verbatim);
+        self.document.binding_types = binding_types;
         self.css = assets.css;
         Ok(())
     }
@@ -364,13 +366,28 @@ impl Session {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn source(
         &mut self,
         solution: &Solution,
         request: &super::SourceAddRequest,
     ) -> Result<(), AuthoringError> {
+        self.source_as(solution, request, None)
+    }
+
+    pub(crate) fn source_as(
+        &mut self,
+        solution: &Solution,
+        request: &super::SourceAddRequest,
+        entity_type: Option<&str>,
+    ) -> Result<(), AuthoringError> {
         self.sync()?;
-        let plan = super::source::plan_source_add_loaded(solution, request, self.loaded())?;
+        let plan = super::source::plan_source_add_loaded_as(
+            solution,
+            request,
+            self.loaded(),
+            entity_type,
+        )?;
         self.accept(plan.edit)
     }
 

@@ -462,14 +462,17 @@ pub(super) fn resolve_handler(
 ) -> Result<End, AuthoringError> {
     // The mashup's own services: a popup closing itself, a page reloading its data.
     if let Some(service) = raw.strip_prefix("mashup:") {
-        if matches!(service, "CloseIfPopup" | "Refresh") {
+        if matches!(
+            service,
+            "CloseIfPopup" | "Refresh" | "ResetInputsToDefaultValue"
+        ) {
             return Ok(End::Mashup {
                 parameter: service.into(),
                 base: String::new(),
             });
         }
         return Err(AuthoringError::Invalid(format!(
-            "a mashup's own services are mashup:CloseIfPopup and mashup:Refresh, not {raw}"
+            "a mashup's own services are mashup:CloseIfPopup, mashup:Refresh and mashup:ResetInputsToDefaultValue, not {raw}"
         )));
     }
     if let Some(rest) = raw.strip_prefix("ui:") {

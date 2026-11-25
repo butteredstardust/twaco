@@ -309,7 +309,28 @@ impl Widget {
     /// design-time service list (Composer-authored mashups wire events to it). Keep command
     /// authoring and derived event wiring in agreement.
     pub(crate) fn has_service(&self, name: &str) -> bool {
-        const RESETTABLE: &[&str] = &["ptcstogglebutton", "ptcsdatepicker"];
+        // The runtime/shared widget definitions opt these into the default reset service.
+        const RESETTABLE: &[&str] = &[
+            "ptcstogglebutton",
+            "ptcsdatepicker",
+            "ptcstextfield",
+            "ptcstextarea",
+            "ptcsdropdown",
+            "ptcscheckbox",
+            "ptcslist",
+            "ptcsrte",
+            "ptcskpidial",
+            "ptcsdynamicpanel",
+            "ptcsfileupload",
+            "ptcstoolbar",
+            "ptcschartline",
+            "ptcschartbar",
+            "ptcschartcombo",
+            "ptcschartpie",
+            "ptcschartwaterfall",
+            "ptcschartschedule",
+            "ptcschartpareto",
+        ];
         self.services
             .as_ref()
             .is_some_and(|services| services.iter().any(|s| s == name))
@@ -473,6 +494,43 @@ impl Widget {
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
+
+    #[test]
+    fn native_reset_services_follow_the_runtime_widget_flags() {
+        for kind in [
+            "ptcscheckbox",
+            "ptcsdatepicker",
+            "ptcsdropdown",
+            "ptcstextfield",
+            "ptcstextarea",
+            "ptcstogglebutton",
+            "ptcsdynamicpanel",
+            "ptcsfileupload",
+            "ptcskpidial",
+            "ptcslist",
+            "ptcsrte",
+            "ptcstoolbar",
+            "ptcschartline",
+            "ptcschartbar",
+            "ptcschartcombo",
+            "ptcschartpie",
+            "ptcschartwaterfall",
+            "ptcschartschedule",
+            "ptcschartpareto",
+        ] {
+            assert!(
+                catalog()
+                    .by_type(kind)
+                    .unwrap()
+                    .has_service("ResetToDefaultValue"),
+                "{kind}"
+            );
+        }
+        assert!(!catalog()
+            .by_type("ptcsbutton")
+            .unwrap()
+            .has_service("ResetToDefaultValue"));
+    }
 
     #[test]
     fn a_misnamed_property_suggests_the_real_one() {

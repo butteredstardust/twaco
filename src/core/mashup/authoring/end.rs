@@ -91,6 +91,16 @@ pub(super) fn resolve_end(
                     return Ok(end);
                 }
             }
+            if let Some(base) = document
+                .binding_types
+                .get(&(found.id.clone(), property.clone()))
+            {
+                return Ok(End::Ui {
+                    id: found.id,
+                    property,
+                    base: base.clone(),
+                });
+            }
             if document.verbatim()
                 && !widgets::catalog()
                     .by_type(&found.type_id)

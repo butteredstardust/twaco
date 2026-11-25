@@ -6,6 +6,11 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Page derivation keeps raw container subtrees, static template and shape services, reset
+  events and legacy binding types in fresh copies. Derived tabs retain their container ids;
+  pinned pages resolve generated id collisions and accept distinct ids sharing a number.
+  Mashup diff treats binding property-type casing consistently with adoption.
+
 - Page builds name spec nodes and source lines in widget diagnostics, report retained edits to
   managed custom.css and refuse competing stylesheet changes. The page content height floor
   follows the template's content slot even after it is renamed, including master page areas.

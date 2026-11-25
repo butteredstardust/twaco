@@ -270,6 +270,27 @@ fn compile_nested(
     fn preserve_ids(node: &Node, allocator: &mut Ids) {
         if let Some(id) = &node.body().widget_id {
             allocator.preserve(&node.body().id.value, &id.value);
+        } else {
+            let id = &node.body().id.value;
+            if !id.contains("--")
+                && id.rsplit_once('-').is_some_and(|(_, suffix)| {
+                    !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+                })
+            {
+                allocator.preserve(id, id);
+            }
+        }
+        for tab in &node.body().tabs {
+            if let Some(id) = &tab.widget_id {
+                allocator.preserve(
+                    &format!(
+                        "{}--tab-container-{}",
+                        node.body().id.value,
+                        tab.label.value
+                    ),
+                    &id.value,
+                );
+            }
         }
         for child in descendants(node) {
             preserve_ids(child, allocator);
@@ -406,7 +427,7 @@ fn compile_nested(
             None => None,
         };
         session
-            .source(
+            .source_as(
                 solution,
                 &authoring::SourceAddRequest {
                     mashup: page.name.value.clone(),
@@ -423,6 +444,7 @@ fn compile_nested(
                     max_result_sets: None,
                     param_values: params,
                 },
+                source.entity_type.as_ref().map(|kind| kind.value.as_str()),
             )
             .map_err(|e| Error::at(service_spec.referenced, e))?;
     }
@@ -836,11 +858,9 @@ fn apply_pins(
     Ok(applied)
 }
 
-/// A property's text for the add command. A number the platform writes for a pixel option (a font
-/// size of 14) is the option "14px", which the property then keeps as the spec spelled it.
-/// The type of a raw `widget:` node on an as-built page that the widget catalogue does not know.
-fn raw_unknown<'a>(page: &Page, node: &'a Node) -> Option<&'a str> {
-    if page.layout.is_none() || !matches!(node, Node::Widget(_)) {
+/// A raw widget the catalogue cannot construct; its properties and children are carried explicitly.
+fn raw_unknown(node: &Node) -> Option<&str> {
+    if !matches!(node, Node::Widget(_)) {
         return None;
     }
     let widget = node.widget().ok()?;
@@ -1082,7 +1102,13 @@ fn add(
         props.push(("LabelType".into(), "body".into()));
     }
     let (parent, previous) = position;
-    let placement = if page.layout.is_some() {
+    let raw_parent = session
+        .document
+        .find_exact(parent)
+        .map_err(|e| Error::at(loc, e))?
+        .type_id
+        != "flexcontainer";
+    let placement = if page.layout.is_some() || raw_parent {
         Placement::Append(parent.into())
     } else if let Some(anchor) = previous {
         let parent = session
@@ -1134,9 +1160,8 @@ fn add(
                 .map_err(|e| Error::at(loc, e))?;
         }
         id
-    } else if let Some(widget) = raw_unknown(page, node) {
-        // A widget the catalogue does not know (a legacy gauge) on a page built as it was found:
-        // carried verbatim, with its stored properties.
+    } else if let Some(widget) = raw_unknown(node) {
+        // Raw widgets without a catalogue entry retain their type and stored properties.
         let parent_path = session
             .document
             .find_exact(parent)
@@ -1354,6 +1379,23 @@ fn add(
                 false,
             );
             ids.insert(node, stable);
+        }
+    }
+    if !body.binding_types.is_empty() {
+        if crate::core::widgets::catalog()
+            .by_type(node.widget()?)
+            .is_some_and(|w| w.has_contract())
+        {
+            return Err(Error::at(
+                loc,
+                "binding_types is only for widgets without a catalogue contract",
+            ));
+        }
+        for (property, base) in &body.binding_types {
+            session
+                .document
+                .binding_types
+                .insert((id.clone(), property.clone()), base.value.clone());
         }
     }
     ids.insert(body.id.value.clone(), id.clone());
@@ -1956,7 +1998,7 @@ fn stabilize(
     } else {
         allocator.widget(&main.type_id, node, "widget")
     }
-    .map_err(|e| Error::at(loc, e))?;
+    .map_err(|e| Error::at(loc, format!("{e} (assigning {node})")))?;
     mapping.insert(placed.to_string(), id.clone());
     // Wrapper roles name the enclosed widget, so unrelated siblings cannot move their ids.
     for widget in new.iter().rev().filter(|w| w.id != placed) {
@@ -1967,8 +2009,14 @@ fn stabilize(
             .unwrap_or(placed);
         let child = mapping.get(child).map_or(child, String::as_str);
         let role = if let Some((_, tab)) = widget.display_name.rsplit_once(" #") {
-            let label = session.document.at(&main.path)["Properties"][format!("Tab{tab}Name")]
-                .as_str()
+            let properties = &session.document.at(&main.path)["Properties"];
+            let label = tab
+                .parse::<usize>()
+                .ok()
+                .and_then(|n| n.checked_sub(1))
+                .and_then(|n| properties["Items"].get(n))
+                .and_then(|item| item["name"].as_str())
+                .or_else(|| properties[format!("Tab{tab}Name")].as_str())
                 .unwrap_or(tab);
             format!("tab:{label}")
         } else {
@@ -2026,9 +2074,15 @@ fn stabilize(
                 format!("wrapper:{child}")
             }
         };
-        let stable = allocator
-            .widget(&widget.type_id, node, &role)
-            .map_err(|e| Error::at(loc, e))?;
+        let pinned = role
+            .strip_prefix("tab:")
+            .and_then(|label| allocator.preserved(&format!("{node}--tab-container-{label}")));
+        let stable = if let Some(pinned) = pinned {
+            allocator.explicit_as(node, &role, &pinned)
+        } else {
+            allocator.widget(&widget.type_id, node, &role)
+        }
+        .map_err(|e| Error::at(loc, format!("{e} (assigning {node}, role {role})")))?;
         mapping.insert(widget.id.clone(), stable);
     }
     rename_widgets(session, &mapping, false);

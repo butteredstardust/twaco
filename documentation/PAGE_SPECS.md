@@ -52,6 +52,16 @@ name in `status`. The existing columns recipe validates fields and embeds state 
 Services, themes and StateDefinitions are resolved from the offline solution and its cached
 platform metadata, using the same contracts as authoring commands.
 
+### Static template and shape data
+
+A service declaration may set `entity_type: template` or `entity_type: shape` to keep a
+static `ThingTemplates_` or `ThingShapes_` data section. The entity must belong to that
+collection. For example, `rows: {service: Acme.Provider.GetRows, entity_type: template}`.
+Without this field the existing entity inference applies; `entity: {bind: ...}` continues
+to select a Thing at runtime for a dynamic template or shape source. Derive carries these
+sections and their bindings in both exact and layout-rule specs. Unsupported data sections
+produce warnings identifying each lost binding endpoint.
+
 Data triggers are `on: load`, `on: <node>.<event>` or `on: every Ns` (positive integer seconds).
 An omitted trigger permits an explicit event to invoke the call. Fixed `params` use the service's
 parameter types. Derive retains static call parameters too, including those in a dynamic
@@ -159,10 +169,13 @@ Session data is read-only. A service source or expression cannot share a declara
 
 ### Mashup events and services
 
-An event action can invoke `mashup.CloseIfPopup` or `mashup.Refresh`. A parameter's change
+An event action can invoke `mashup.CloseIfPopup`, `mashup.Refresh` or
+`mashup.ResetInputsToDefaultValue`. Widgets that expose the native reset service accept
+`<node>.ResetToDefaultValue`, including text fields, date pickers and dropdowns. A parameter's change
 event is `mashup.<parameter>Changed`, for example
 `{on: mashup.ManagerChanged, invoke: rows}`. The corresponding command addresses are
-`mashup:CloseIfPopup`, `mashup:Refresh` and `mashup:ManagerChanged`. `load` remains the short
+`mashup:CloseIfPopup`, `mashup:Refresh`, `mashup:ResetInputsToDefaultValue` and
+`mashup:ManagerChanged`. `load` remains the short
 form of `mashup.Loaded`. These names are checked by the shared command authoring operations.
 
 A binding can write a property of the mashup root widget (the one `page.props` sets) as
@@ -181,6 +194,14 @@ platform `MenuEntry` shape. A server-provided shape declared under `entities.Dat
 `requirements.toml` can also be used; without its fields the build warns that field types cannot
 be checked offline. An INFOTABLE result with no DataShape supports whole-table bindings and
 carries field bindings with the same warning.
+
+Raw `widget:` nodes retain ordered `children` on both derive paths, including both native
+panes of a dynamic panel. Children still become elements wherever their contracts match.
+For widgets without a catalogue contract, `binding_types: {MaxValue: NUMBER}` preserves
+stored binding endpoint base types; it is refused on widgets with known contracts. The
+source's endpoint type takes precedence over an inferred type from a starting value.
+Binding comparison ignores property-type casing and treats omitted `SourceDetails` as an
+empty string, matching adoption's normalization.
 
 Raw charts with `MultipleDataSources: true` accept `DataSource1` through
 `DataSource<NumberOfSeries>` as INFOTABLE binding targets (up to 100). With the series count
@@ -202,7 +223,11 @@ also default to v1; pass `--rules legacy` (MCP `rules: "legacy"`) to opt out. Ex
 mashups retain their `twacoPageRules` during add, set and recipe edits; no marker means legacy.
 Widget numeric suffixes derive from SHA-256 of the ID policy version, authored node ID and
 generated role, in the range 1000?999999 (four to six digits). Template numbers are reserved. A collision
-is an error and never causes renumbering. Wrapper roles name their enclosed widgets, and sources,
+is an error on ordinary authored pages and never renumbers existing widgets. Pages with
+explicit source ids probe the next available generated number deterministically; explicit ids
+stay pinned. Distinct explicit ids may share a numeric suffix. Derived tabs carry their native
+container id as `widget_id` beside `label`, and derive preserves source widget ids when their
+readable node ids differ. Wrapper roles name their enclosed widgets, and sources,
 bindings and events use semantic addresses for deterministic UUIDs. Ordinary authoring retains
 UUIDv4 through the document's injectable generator. Identical specs and offline metadata produce
 identical artifacts. Mapping declaration order does not affect output; node array order does.

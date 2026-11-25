@@ -136,6 +136,8 @@ pub(crate) struct MashupDocument {
     /// Wiring of a widget the catalogue does not know is written as stated, not checked: set for
     /// a page built as it was found.
     verbatim: bool,
+    /// Imported contracts for raw endpoints, kept only in memory while compiling a page.
+    pub(crate) binding_types: std::collections::BTreeMap<(String, String), String>,
 }
 
 /// Parse and check a `content.json`.
@@ -184,6 +186,7 @@ impl MashupDocument {
             value,
             uuid_generator: random_uuid,
             verbatim: false,
+            binding_types: Default::default(),
         };
         document.check()?;
         Ok(document)
@@ -2015,7 +2018,13 @@ impl MashupDocument {
 
     fn place_append(&mut self, widget: &Widget, target: &str) -> Result<Placed, EditError> {
         let target = self.find(target)?;
-        if !matches!(target.type_id.as_str(), "flexcontainer" | "container") {
+        if !matches!(
+            target.type_id.as_str(),
+            "flexcontainer" | "container" | "ptcsdynamicpanel"
+        ) && widgets::catalog()
+            .by_type(&target.type_id)
+            .is_some_and(|w| !w.container)
+        {
             return Err(EditError::Refused(format!(
                 "{} is a {}, not a responsive container",
                 target.id, target.type_id

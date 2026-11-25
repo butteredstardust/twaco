@@ -190,12 +190,7 @@ fn derive_never_emits_what_its_own_build_refuses() {
         );
         let gauges = rebuilt.content.matches("\"Type\":\"gauge\"").count()
             + rebuilt.content.matches("\"Type\": \"gauge\"").count();
-        assert_eq!(
-            gauges,
-            usize::from(exact),
-            "exact {exact}\n{}",
-            derived.spec
-        );
+        assert_eq!(gauges, 1, "exact {exact}\n{}", derived.spec);
     }
 }
 

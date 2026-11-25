@@ -43,6 +43,7 @@ pub(crate) fn ensure_session_source(
 pub enum SourceKind {
     Things,
     Template,
+    Shape,
     DynamicTemplate,
     DynamicShape,
 }
@@ -68,6 +69,7 @@ impl SourceKind {
         match self {
             Self::Things => "Things",
             Self::Template => "ThingTemplates",
+            Self::Shape => "ThingShapes",
             Self::DynamicTemplate => "DynamicThingTemplates",
             Self::DynamicShape => "DynamicThingShapes",
         }
@@ -198,6 +200,15 @@ pub(super) fn plan_source_add_loaded(
     request: &SourceAddRequest,
     loaded: super::ExistingMashup,
 ) -> Result<SourceAddPlan, AuthoringError> {
+    plan_source_add_loaded_as(solution, request, loaded, None)
+}
+
+pub(super) fn plan_source_add_loaded_as(
+    solution: &Solution,
+    request: &SourceAddRequest,
+    loaded: super::ExistingMashup,
+    entity_type: Option<&str>,
+) -> Result<SourceAddPlan, AuthoringError> {
     let mut document = parse_loaded(&loaded)?;
     let (model, _) = types::load_model(solution);
     let platform = types::cached_platform(solution);
@@ -211,7 +222,21 @@ pub(super) fn plan_source_add_loaded(
                 crate::core::workspace::quoted_selector(&request.entity)
             ))
         })?;
-    let kind = SourceKind::of(&request.entity, &entity.collection, request.dynamic)?;
+    let kind = match entity_type {
+        Some("shape") if entity.collection == "ThingShapes" && !request.dynamic => {
+            SourceKind::Shape
+        }
+        Some("template") if entity.collection == "ThingTemplates" && !request.dynamic => {
+            SourceKind::Template
+        }
+        None => SourceKind::of(&request.entity, &entity.collection, request.dynamic)?,
+        Some(kind) => {
+            return Err(AuthoringError::Invalid(format!(
+                "{}: entity_type {kind} does not match its collection or dynamic entity binding",
+                request.entity
+            )))
+        }
+    };
     if request.entity_from.is_some() && !kind.dynamic() {
         return Err(AuthoringError::Refused(format!(
             "--entity-from is for a dynamic source; {} runs on itself",
@@ -505,6 +530,7 @@ pub(crate) fn list_sources(
         let kind = match entity_type {
             "Things" => "things",
             "ThingTemplates" => "template",
+            "ThingShapes" => "shape",
             "DynamicThingTemplates" => "dynamic-template",
             "DynamicThingShapes" => "dynamic-shape",
             _ => continue,

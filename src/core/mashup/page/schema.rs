@@ -124,6 +124,8 @@ pub(crate) struct Root {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Source {
+    /// Static template/shape section; omission retains ordinary source inference.
+    pub(crate) entity_type: Option<Spanned<String>>,
     pub(crate) widget_id: Option<Spanned<String>>,
     /// Native Composer runtime data, rather than a Thing service.
     pub(crate) session: Option<Spanned<String>>,
@@ -451,6 +453,9 @@ impl Node {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Body {
+    /// Stored endpoint types for widgets without a catalogue contract.
+    #[serde(default)]
+    pub(crate) binding_types: BTreeMap<String, Spanned<String>>,
     /// The source widget's exact id when its readable node id is not a Composer numeric id.
     pub(crate) widget_id: Option<Spanned<String>>,
     #[serde(skip)]
@@ -707,6 +712,7 @@ pub(crate) struct Sparkline {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Tab {
+    pub(crate) widget_id: Option<Spanned<String>>,
     pub(crate) label: Spanned<String>,
     pub(crate) mashup: Option<Spanned<String>>,
     pub(crate) content: Option<Vec<Node>>,
@@ -904,6 +910,15 @@ fn parse_nested(
     spec.resolved_tokens = tokens;
     for source in spec.page.value.data.values() {
         let s = &source.value;
+        if let Some(kind) = &s.entity_type {
+            if s.service.is_none() || !matches!(kind.value.as_str(), "template" | "shape") {
+                return Err(Error::at(
+                    kind.referenced,
+                    "entity_type needs a service and must be template or shape",
+                ));
+            }
+        }
+
         if s.widget_id.is_some() && s.expression.is_none() {
             return Err(Error::at(
                 source.referenced,
@@ -1019,6 +1034,17 @@ fn parse_nested(
                 ));
             }
             node.widget()?;
+            for (property, base) in &b.binding_types {
+                if property.is_empty()
+                    || !crate::core::entity::edit::BASE_TYPES.contains(&base.value.as_str())
+                {
+                    return Err(Error::at(
+                        base.referenced,
+                        "binding_types needs a property name and known base type",
+                    ));
+                }
+            }
+
             if b.text.as_ref().is_some_and(|v| !v.value.is_string()) {
                 return Err(Error::at(
                     b.id.referenced,

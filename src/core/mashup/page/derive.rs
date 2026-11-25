@@ -579,15 +579,15 @@ impl<'a> Run<'a> {
             unknown: BTreeSet::new(),
         };
         let mut aliases = BTreeSet::new();
-        let mut other = 0;
+        let mut unsupported = BTreeSet::new();
         for (section, entry) in content["Data"].as_object().into_iter().flatten() {
             let dynamic = matches!(
                 entry["EntityType"].as_str(),
                 Some("DynamicThingShapes" | "DynamicThingTemplates")
             );
             let named = entry["EntityName"].as_str().unwrap_or("");
-            // A dynamic section may name its shape only in its key.
-            let entity = if named.is_empty() && dynamic {
+            // Older sections may name their entity only in the section key.
+            let entity = if named.is_empty() {
                 section
                     .split_once('_')
                     .map(|(_, shape)| shape)
@@ -595,14 +595,17 @@ impl<'a> Run<'a> {
             } else {
                 named
             };
-            if !(entry["EntityType"] == "Things" || dynamic) || entity.is_empty() {
+            let collection = section.split_once('_').map(|(kind, _)| kind).unwrap_or("");
+            let static_kind = entry["EntityType"] == "Things"
+                || matches!(collection, "Things" | "ThingTemplates" | "ThingShapes");
+            if !(static_kind || dynamic) || entity.is_empty() {
                 if !entry["Services"].as_array().is_none_or(Vec::is_empty)
                     && !matches!(
                         entry["EntityType"].as_str(),
                         Some("Session" | "UserExtensions")
                     )
                 {
-                    other += 1;
+                    unsupported.insert(section.clone());
                 }
                 continue;
             }
@@ -637,10 +640,22 @@ impl<'a> Run<'a> {
                 });
             }
         }
-        if other > 0 {
-            run.notes.push(format!(
-                "{other} data entries that are not Thing services were left out"
-            ));
+        for section in &unsupported {
+            run.notes
+                .push(format!("unsupported data section left out: {section}"));
+            for binding in content["DataBindings"].as_array().into_iter().flatten() {
+                if binding["SourceSection"] == *section || binding["TargetSection"] == *section {
+                    for map in binding["PropertyMaps"].as_array().into_iter().flatten() {
+                        run.notes.push(format!(
+                            "binding lost with {section}: {}.{} -> {}.{}",
+                            binding["SourceId"].as_str().unwrap_or(""),
+                            map["SourceProperty"].as_str().unwrap_or(""),
+                            binding["TargetId"].as_str().unwrap_or(""),
+                            map["TargetProperty"].as_str().unwrap_or("")
+                        ));
+                    }
+                }
+            }
         }
         for binding in content["DataBindings"].as_array().into_iter().flatten() {
             let get = |k: &str| binding[k].as_str().unwrap_or("").to_string();
@@ -871,7 +886,12 @@ impl<'a> Run<'a> {
                 // Managed by the contained mashup; `embed` writes it.
                 continue;
             }
-            if !known_property(widget, key, data_bound) && !self.exact {
+            if !known_property(widget, key, data_bound)
+                && !self.exact
+                && widgets::catalog()
+                    .by_type(type_id)
+                    .is_some_and(|w| w.has_contract())
+            {
                 self.unknown.insert((
                     prop(widget, "Id").as_str().unwrap_or("").into(),
                     key.clone(),
@@ -1047,7 +1067,7 @@ impl<'a> Run<'a> {
             "ptcstabset" => self.tabs(widget),
             _ => self.other(widget),
         };
-        if self.exact {
+        {
             let id = prop(widget, "Id").as_str().unwrap_or("");
             let numeric = id
                 .rsplit_once('-')
@@ -1060,6 +1080,52 @@ impl<'a> Run<'a> {
                     .filter(|b| b.contains_key("id"))
                 {
                     body.insert("widget_id".into(), json!(id));
+                }
+            }
+        }
+        if !widgets::catalog()
+            .by_type(kind(widget))
+            .is_some_and(|w| w.has_contract())
+        {
+            let id = prop(widget, "Id").as_str().unwrap_or("");
+            let mut types = Map::new();
+            for binding in self.content["DataBindings"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                for (area, endpoint, property, base) in [
+                    (
+                        "SourceArea",
+                        "SourceId",
+                        "SourceProperty",
+                        "SourcePropertyBaseType",
+                    ),
+                    (
+                        "TargetArea",
+                        "TargetId",
+                        "TargetProperty",
+                        "TargetPropertyBaseType",
+                    ),
+                ] {
+                    if binding[area] == "UI" && binding[endpoint] == id {
+                        for map in binding["PropertyMaps"].as_array().into_iter().flatten() {
+                            if let (Some(property), Some(base)) =
+                                (map[property].as_str(), map[base].as_str())
+                            {
+                                types.insert(property.into(), json!(base));
+                            }
+                        }
+                    }
+                }
+            }
+            if !types.is_empty() {
+                if let Some(body) = node
+                    .as_object_mut()
+                    .and_then(|m| m.values_mut().next())
+                    .and_then(Value::as_object_mut)
+                {
+                    body.insert("binding_types".into(), json!(types));
                 }
             }
         }
@@ -1151,19 +1217,6 @@ impl<'a> Run<'a> {
             "ptcschartbar" | "ptcschartline" | "ptcschartpie" | "ptcschartpareto" | "ptcschartwaterfall" | "ptcschartcombo" => "chart needs a supported flat table feed and axis fields (pie: DataField and ValueField); unconfigured or dynamic feeds remain raw",
             _ => "no matching element contract; explicit widget properties are retained",
         };
-        let extension = matches!(
-            type_id.as_str(),
-            "googlemap" | "OpenStreetMap" | "openstreetmap"
-        );
-        if !self.exact && !extension && widgets::catalog().resolve(&type_id).is_err() {
-            // A page built by the layout rules refuses a widget the catalogue does not know;
-            // only a page built as found carries one verbatim.
-            self.notes.push(format!(
-                "widget left out: {type_id} {} (not in the widget catalogue; `mashup spec` on a mashup built by hand keeps it)",
-                self.id(widget)
-            ));
-            return Value::Null;
-        }
         self.notes_once(&format!("{type_id}: {reason}"));
         let mut body = Map::new();
         body.insert("type".into(), json!(type_id));
@@ -1175,7 +1228,7 @@ impl<'a> Run<'a> {
         if !props.is_empty() {
             body.insert("props".into(), Value::Object(props));
         }
-        if self.exact && !widgets_of(widget).is_empty() {
+        if !widgets_of(widget).is_empty() {
             body.insert(
                 "children".into(),
                 widgets_of(widget)
@@ -1183,12 +1236,6 @@ impl<'a> Run<'a> {
                     .map(|child| self.node(child, "column"))
                     .collect(),
             );
-        } else if !widgets_of(widget).is_empty() {
-            self.notes.push(format!(
-                "the children of {} {} were left out",
-                type_id,
-                self.id(widget)
-            ));
         }
         let id = self.id(widget);
         self.count("widget", Some(&type_id));
@@ -1891,7 +1938,7 @@ impl<'a> Run<'a> {
                     .iter()
                     .map(|w| self.node(w, "column"))
                     .collect();
-                let mut entry = json!({"label": label});
+                let mut entry = json!({"label": label, "widget_id": prop(tab, "Id")});
                 if !own.is_empty() {
                     entry["props"] = Value::Object(own);
                 }
@@ -2348,6 +2395,17 @@ impl<'a> Run<'a> {
         for call in &self.calls {
             let mut entry = Map::new();
             entry.insert("service".into(), json!(call.service));
+            if let Some(kind) = call
+                .section
+                .split_once('_')
+                .and_then(|(kind, _)| match kind {
+                    "ThingTemplates" => Some("template"),
+                    "ThingShapes" => Some("shape"),
+                    _ => None,
+                })
+            {
+                entry.insert("entity_type".into(), json!(kind));
+            }
             if loaded.contains(&call.alias) {
                 entry.insert("on".into(), json!("load"));
                 if call.refresh > 0 {
