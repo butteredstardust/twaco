@@ -380,7 +380,8 @@ impl Session {
             self.loaded(),
             self.tokens.as_ref(),
         )?;
-        self.warnings.extend(plan.notes);
+        // Recipe notes describe what it made; only what could not be checked is a warning.
+        self.warnings.extend(plan.warnings);
         self.accept(plan.edit)
     }
 

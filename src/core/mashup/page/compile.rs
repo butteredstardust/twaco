@@ -3507,6 +3507,7 @@ fn component_recipe_nested(
         removed: vec![],
         wired: vec![],
         notes,
+        warnings: vec![],
     })
 }
 
