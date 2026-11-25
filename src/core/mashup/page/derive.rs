@@ -933,12 +933,6 @@ impl<'a> Run<'a> {
                     continue;
                 }
             }
-            if value.get("StateFormats").is_some() {
-                self.notes_once(
-                    "state formatting snapshots are not carried; use state: on a detail_pair or status: on a grid column",
-                );
-                continue;
-            }
             if value.is_string() && value.as_str() == Some("") && !base.contains_key(key) {
                 continue;
             }
@@ -1950,11 +1944,29 @@ impl<'a> Run<'a> {
             .iter()
             .zip(kids)
             .map(|(label, tab)| {
-                let own = if self.exact {
+                let mut own = if self.exact {
                     self.props(tab, &["DisplayName"])
                 } else {
                     Map::new()
                 };
+                // A chart straight in the pane makes the build raise the pane's minimum height;
+                // state the pane's own so the copy keeps it.
+                if widgets_of(tab).iter().any(|w| {
+                    matches!(
+                        kind(w),
+                        "ptcschartline"
+                            | "ptcschartbar"
+                            | "ptcschartpie"
+                            | "ptcschartcombo"
+                            | "ptcschartpareto"
+                            | "ptcschartwaterfall"
+                    )
+                }) {
+                    own.insert(
+                        "flex-min-height".into(),
+                        prop(tab, "flex-min-height").clone(),
+                    );
+                }
                 let content: Vec<Value> = widgets_of(tab)
                     .iter()
                     .map(|w| self.node(w, "column"))
@@ -2029,7 +2041,15 @@ impl<'a> Run<'a> {
             );
             skip.push("flex-grow");
         }
-        let props = self.props(widget, &skip);
+        let mut props = self.props(widget, &skip);
+        // The build's rows and columns stretch their children unless told otherwise, and the
+        // catalogue's default is `flex-start`, so an unlisted value would come back as `stretch`.
+        for (key, built) in [("align-items", "stretch"), ("flex-wrap", "nowrap")] {
+            let value = prop(widget, key);
+            if !props.contains_key(key) && value.as_str().is_some_and(|v| v != built) {
+                props.insert(key.into(), value.clone());
+            }
+        }
         let kids: Vec<Value> = widgets_of(widget)
             .iter()
             .map(|w| self.node(w, direction))
@@ -2511,7 +2531,11 @@ impl<'a> Run<'a> {
             let to = match area.as_str() {
                 "UI" if self.ids.contains_key(id) => format!("@@{id}@@.{property}"),
                 // The mashup root is no node; `page.<property>` names its properties.
-                "UI" if id == root && root == "mashup-root" => {
+                "UI" | "Mashup"
+                    if id == root
+                        && root == "mashup-root"
+                        && !self.parameters.contains(property) =>
+                {
                     format!("page.{property}")
                 }
                 "Data" => {

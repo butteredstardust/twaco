@@ -4926,6 +4926,9 @@ fn grid_columns_author_textarea_and_boolean_whitespace_with_type_validation() {
 #[path = "milestone_tests.rs"]
 mod milestone;
 
+#[path = "page_widget_tests.rs"]
+mod page_widget;
+
 #[path = "truthful_tests.rs"]
 mod truthful;
 

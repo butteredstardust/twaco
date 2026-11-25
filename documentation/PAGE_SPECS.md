@@ -996,7 +996,7 @@ one into a widget property a `props` entry with `{bind: ...}`, a service feeding
 element's `data`, and every other trigger an `events` entry. Node ids are the widget ids with
 anything but letters, digits, `_` and `-` replaced.
 
-Not carried: state formatting snapshots, bindings and events outside the supported function contracts and data that is not a Thing service. A value derive could not write so that its own build accepts is left out with a note naming it: text
+Not carried: bindings and events outside the supported function contracts and data that is not a Thing service. A widget property holding a state formatting snapshot (a shape's `ShapeFormatter`, a StateDefinition's `StateFormats`) is carried verbatim in the node's `props`, so the build writes it back unchanged. Row and column containers state `align-items` and `flex-wrap` when they are not the build's `stretch` and `nowrap`, and a tab pane that holds a chart states its own `flex-min-height` (a `props` entry of the tab), which the chart rule no longer raises; a binding whose target is a mashup-root property outside the parameters (`StyleTheme`) is written as `to: page.<Property>`. A value derive could not write so that its own build accepts is left out with a note naming it: text
 for a numeric property, an event on a service the catalogue does not list, a reference to a navigation
 function, or (on a page built by the layout rules) a widget the catalogue does not know. On an as-built page
 a `widget:` node of an unknown type is built verbatim with the properties it states.
@@ -1045,6 +1045,41 @@ which the `pagination` element would duplicate.
 | Q3 | 57 | 49 | 7 (expression2 4, chart pie 1, grid 1, pagination 1) | 24571 |
 | Q4 | 50 | 45 | 4 (expression2 4) | 13595 |
 | S | 85 | 84 | 0 | 18513 |
+
+## `widget:` nodes
+
+`widget: {id, type, props, events, children}` places any widget in the catalogue (or in the cache of
+`twaco widgets --platform`), and `twaco widgets <type>` prints what its node takes: the properties
+with their base types, the events and the services, with a ready line to copy. Everything is
+checked against that contract when the page is read:
+
+- `type` must be a widget twaco knows or one the platform ships; a name one letter from a catalogued
+  type is refused with `did you mean`. Other types build verbatim with the properties they state.
+- `props` name properties the widget has (`did you mean` on a near miss) and take values of their base
+  type (`Disabled: maybe` is refused). A `{bind: ...}` value wires the property.
+- `events` is a list of the page's `events` entries without the widget: `on` is the bare event name
+  (`on: Changed`, not `field.Changed`), then `invoke:`, `navigate:` or `show:` as on the page. They are
+  the page's events under the node's id, so an event the widget lacks is refused with the widget's
+  events and a suggestion, a service it lacks the same. `events` belongs to `widget:` nodes alone.
+- `children` become the widget's own Widgets (a dynamic panel's panes, a legacy container); they
+  accept every element.
+
+```yaml
+- widget:
+    id: ptcsdynamicpanel-5
+    type: ptcsdynamicpanel
+    props: {Collapsed: true}
+    children:
+      - label: {id: note, text: Details}
+- widget:
+    id: city
+    type: ptcstextfield
+    props: {HintText: City}
+    events:
+      - {on: Changed, invoke: lookup}
+```
+
+Derive writes the same nodes, so a spec you read and one you write have one shape.
 
 ## Master mashups and page hosts
 

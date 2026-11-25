@@ -400,9 +400,10 @@ pub(super) fn resolve_trigger(
             )
         {
             return Err(AuthoringError::Invalid(format!(
-                "widget `{}` has no event {}; its events are {}",
+                "widget `{}` has no event {}{}; its events are {}",
                 found.id,
                 event,
+                widgets::Widget::did_you_mean(catalog.events.as_ref(), event),
                 catalog
                     .events
                     .as_ref()
@@ -502,8 +503,13 @@ pub(super) fn resolve_handler(
         let catalog = event_contract(&found.id, &found.type_id)?;
         if !catalog.has_service(service) {
             return Err(AuthoringError::Invalid(format!(
-                "widget `{}` has no service {service}",
-                found.id
+                "widget `{}` has no service {service}{}; its services are {}",
+                found.id,
+                widgets::Widget::did_you_mean(catalog.services.as_ref(), service),
+                catalog
+                    .services
+                    .as_ref()
+                    .map_or(String::new(), |services| services.join(", "))
             )));
         }
         return Ok(End::Ui {

@@ -246,6 +246,13 @@ fn print_detail(detail: &WidgetDetail) {
     }
     println!("events: {}", detail.events.join(", "));
     println!("services: {}", detail.services.join(", "));
+    if detail.bindable {
+        println!(
+            "in a page spec: {}
+  props take the properties above (name and base type are checked), events the events above, and services are targets of `invoke:` or `show:`",
+            detail.page_spec
+        );
+    }
     if let Some(note) = &detail.note {
         println!("{note}");
     }

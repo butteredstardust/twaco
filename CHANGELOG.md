@@ -6,6 +6,17 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- **Page specs: copies keep alignment and pane heights, state formatting is carried, `widget:`
+  nodes take events.** A derived spec now states `align-items` and `flex-wrap` on rows and columns
+  that differ from the build's `stretch` and `nowrap` (a copy of a `flex-start` header no longer
+  stretches), and a tab pane that holds a chart states its own `flex-min-height`, which the build
+  keeps instead of raising it to 240px. State formatting snapshots (`ShapeFormatter` and the like)
+  are carried verbatim in `props`: the 46 "state formatting snapshots are not carried" notes are
+  gone. A binding into a mashup-root property such as `StyleTheme` derives as `to: page.StyleTheme`.
+  `widget: {id, type, props, events, children}` takes the widget's events (`on: Changed`, checked
+  against its contract); a wrong event or service is refused with `did you mean`, so is a widget
+  type one letter from a catalogued one. `twaco widgets <type>` prints what its `widget:` node
+  takes, and PAGE_SPECS.md has a section on it.
 - **`widgets --platform` and `widgets --from <webapp folder>`: contracts for legacy and extension
   widgets.** Both read the installation's widget files (`Common/mashup-common-widgets-shared.js`,
   `-builder.js`, `widget-meta-values.json` and each extension's `*.ide.js`; `--platform` fetches

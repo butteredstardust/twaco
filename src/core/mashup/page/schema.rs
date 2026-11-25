@@ -548,6 +548,10 @@ pub(crate) struct Body {
     /// The `name:TYPE` inputs of an expression or validator widget, which its wiring binds to.
     #[serde(default)]
     pub(crate) inputs: Vec<String>,
+    /// What a `widget:` node's own events trigger: `on` is the bare event name. Moved to
+    /// `page.events` under the node's id once the page is read.
+    #[serde(default)]
+    pub(crate) events: Vec<Spanned<Event>>,
 
     #[serde(alias = "label")]
     pub(crate) text: Option<Spanned<Value>>,
@@ -844,6 +848,42 @@ pub(crate) fn parse(text: &str) -> Result<Spec, Error> {
     })
 }
 
+/// Move each `widget:` node's `events:` to the page's, naming the node: `on: Changed` on node
+/// `field` is `on: field.Changed` there, so one syntax (and one check) serves both.
+fn hoist_events(nodes: &mut [Node], out: &mut Vec<Spanned<Event>>) -> Result<(), Error> {
+    for node in nodes {
+        let is_widget = matches!(node, Node::Widget(_));
+        let body = node.body_mut();
+        if !body.events.is_empty() {
+            if !is_widget {
+                return Err(Error::at(
+                    body.events[0].referenced,
+                    "events belong to widget nodes; other elements take page.events with `on: id.Event`",
+                ));
+            }
+            for mut event in std::mem::take(&mut body.events) {
+                if event.value.on.value.contains('.') {
+                    return Err(Error::at(
+                        event.value.on.referenced,
+                        "a node's event is the bare event name (`on: Changed`); the node's id is added",
+                    ));
+                }
+                event.value.on.value = format!("{}.{}", body.id.value, event.value.on.value);
+                out.push(event);
+            }
+        }
+        hoist_events(&mut body.children, out)?;
+        hoist_events(&mut body.fields, out)?;
+        hoist_events(&mut body.toolbar, out)?;
+        for tab in &mut body.tabs {
+            if let Some(content) = &mut tab.content {
+                hoist_events(content, out)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn parse_solution(
     text: &str,
     solution: &crate::core::config::Solution,
@@ -902,6 +942,14 @@ fn parse_nested(
         return Err(Error::at(spec.rules.referenced, "rules must be v1"));
     }
     registry.expand_page(&mut spec.page.value)?;
+    {
+        let page = &mut spec.page.value;
+        let mut hoisted = vec![];
+        for nodes in page.slots.values_mut() {
+            hoist_events(&mut nodes.value, &mut hoisted)?;
+        }
+        page.events.extend(hoisted);
+    }
     let tokens = if let Some(source) = &spec.tokens {
         crate::core::mashup::tokens::Tokens::load(&source.value, base)
             .map_err(|e| Error::at(source.referenced, e))?

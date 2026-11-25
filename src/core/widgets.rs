@@ -713,6 +713,36 @@ impl Widget {
             })
     }
 
+    /// ` did you mean ...?` for an event or service name the widget lacks, or nothing when no
+    /// real name is close.
+    pub(crate) fn did_you_mean(names: Option<&Vec<String>>, wanted: &str) -> String {
+        let wanted = wanted.to_ascii_lowercase();
+        let mut close: Vec<(usize, &String)> = names
+            .into_iter()
+            .flatten()
+            .filter_map(|name| {
+                let lower = name.to_ascii_lowercase();
+                let distance = strsim::levenshtein(&wanted, &lower);
+                (distance <= 2 || (wanted.len() > 3 && lower.contains(&wanted)))
+                    .then_some((distance, name))
+            })
+            .collect();
+        close.sort();
+        if close.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; did you mean {}?",
+                close
+                    .into_iter()
+                    .take(3)
+                    .map(|(_, name)| name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
+    }
+
     pub(crate) fn has_event(&self, name: &str) -> bool {
         self.events
             .as_ref()
