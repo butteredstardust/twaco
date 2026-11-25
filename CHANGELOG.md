@@ -6,6 +6,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Page builds name spec nodes and source lines in widget diagnostics, report retained edits to
+  managed custom.css and refuse competing stylesheet changes. The page content height floor
+  follows the template's content slot even after it is renamed, including master page areas.
+- Mashup property edits and additions note literal `//Thingworx/` URLs from the Git Bash
+  workaround. Page-spec help describes page.css, and push/deploy conflict advice names the
+  entity diff and pull commands before suggesting a forced overwrite.
+
 - `twaco call` takes bare `name=value` parameters after the service, typed by the service
   signature, and refuses a name the signature lacks (ThingWorx ignores it silently) with the
   closest one. Plain `twaco fmt` formats only the files changed against HEAD plus untracked

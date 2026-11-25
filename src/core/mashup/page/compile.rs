@@ -59,7 +59,83 @@ pub(crate) fn compile_pinned(
     base: &std::path::Path,
     pins: &Pins,
 ) -> Result<Artifacts, Error> {
-    super::deep(|| compile_nested(solution, project, text, base, pins))
+    super::deep(|| {
+        let mut allocator = Ids::new(std::iter::empty());
+        let result = compile_nested(solution, project, text, base, pins, &mut allocator);
+        let mut diagnostic_ids = allocator.allocated().to_vec();
+        diagnostic_ids.extend(pins.widgets.iter().cloned());
+        result
+            .map_err(|mut error| {
+                if let Ok(spec) = schema::parse_at(text, solution, base) {
+                    if error.line == spec.page.referenced.line().max(1) {
+                        if let Some(location) =
+                            diagnostic_location(&error.message, &diagnostic_ids, &spec.page.value)
+                        {
+                            error.line = location.line().max(1);
+                            error.column = location.column().max(1);
+                        }
+                    }
+                }
+                error.message = super::ids::diagnostic(&error.message, &diagnostic_ids);
+                error
+            })
+            .map(|mut artifacts| {
+                let located = artifacts
+                    .warnings
+                    .iter()
+                    .any(|message| {
+                        diagnostic_ids
+                            .iter()
+                            .any(|(_, _, id)| super::ids::references(message, id))
+                    })
+                    .then(|| schema::parse_at(text, solution, base).ok())
+                    .flatten();
+                artifacts.warnings = artifacts
+                    .warnings
+                    .iter()
+                    .map(|message| {
+                        let named = super::ids::diagnostic(message, &diagnostic_ids);
+                        match located.as_ref().and_then(|spec| {
+                            diagnostic_location(message, &diagnostic_ids, &spec.page.value)
+                        }) {
+                            Some(location) => Error::at(location, named).to_string(),
+                            None => named,
+                        }
+                    })
+                    .collect();
+                artifacts
+            })
+    })
+}
+
+fn diagnostic_location(
+    message: &str,
+    allocated: &[(String, String, String)],
+    page: &Page,
+) -> Option<Location> {
+    fn find(nodes: &[Node], id: &str) -> Option<Location> {
+        for node in nodes {
+            if node.body().id.value == id {
+                return Some(node.body().id.referenced);
+            }
+            for child in descendants(node) {
+                if let Some(location) = find(std::slice::from_ref(child), id) {
+                    return Some(location);
+                }
+            }
+        }
+        None
+    }
+    allocated.iter().find_map(|(node, _, id)| {
+        if !super::ids::references(message, id) {
+            return None;
+        }
+        if let Some(alias) = node.strip_prefix("$data:") {
+            page.data.get(alias).map(|source| source.referenced)
+        } else {
+            page.slots.values().find_map(|slot| find(&slot.value, node))
+        }
+    })
 }
 
 fn compile_nested(
@@ -68,6 +144,7 @@ fn compile_nested(
     text: &str,
     base: &std::path::Path,
     pins: &Pins,
+    allocator: &mut Ids,
 ) -> Result<Artifacts, Error> {
     let spec = schema::parse_at(text, solution, base)?;
     let page = &spec.page.value;
@@ -189,7 +266,7 @@ fn compile_nested(
             .document
             .set_property(&path, "Id", json!(id.value.clone()));
     }
-    let mut allocator = Ids::new(session.document.widgets().into_iter().map(|w| w.id));
+    *allocator = Ids::new(session.document.widgets().into_iter().map(|w| w.id));
     fn preserve_ids(node: &Node, allocator: &mut Ids) {
         if let Some(id) = &node.body().widget_id {
             allocator.preserve(&node.body().id.value, &id.value);
@@ -199,7 +276,7 @@ fn compile_nested(
         }
     }
     for node in page.slots.values().flat_map(|s| &s.value) {
-        preserve_ids(node, &mut allocator);
+        preserve_ids(node, allocator);
     }
     let mut ids = BTreeMap::new();
     let mut cells = vec![];
@@ -235,7 +312,7 @@ fn compile_nested(
             .map_err(|e| Error::at(title.referenced, e))?;
         stabilize(
             &mut session,
-            &mut allocator,
+            allocator,
             &old,
             &id,
             "$page",
@@ -253,7 +330,7 @@ fn compile_nested(
             let added = add(
                 solution,
                 &mut session,
-                &mut allocator,
+                allocator,
                 &mut ids,
                 page,
                 node,
@@ -355,7 +432,7 @@ fn compile_nested(
         &model,
         platform.as_ref(),
         page,
-        &mut allocator,
+        allocator,
         &mut ids,
     )?;
     // Static initial rows can coexist with a bound Data property. Install that binding before
@@ -413,7 +490,7 @@ fn compile_nested(
         &model,
         platform.as_ref(),
         page,
-        &mut allocator,
+        allocator,
         &mut ids,
         &mut cells,
     )?;
@@ -472,7 +549,7 @@ fn compile_nested(
                 &mut session,
                 page,
                 &ids,
-                &mut allocator,
+                allocator,
                 &event.value.on,
                 navigate,
             )?;
@@ -552,7 +629,7 @@ fn compile_nested(
     let applied = apply_pins(
         &mut session,
         &mut ids,
-        &allocator,
+        allocator,
         pins,
         spec.page.referenced,
     )?;
@@ -2998,7 +3075,7 @@ fn wire_collection(
             &fields,
             spec.value.status.as_ref(),
         );
-        let built = compile_nested(solution, project, &text, &cell_dir, &Pins::default())?;
+        let built = compile_pinned(solution, project, &text, &cell_dir, &Pins::default())?;
         let cell = CellSource::Generated {
             name: name.clone(),
             entity: built.entity.clone(),

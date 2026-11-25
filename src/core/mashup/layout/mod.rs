@@ -737,9 +737,10 @@ pub(crate) fn finish_page(document: &mut super::edit::MashupDocument) {
         .root_properties()
         .get("StyleProperties")
         .map_or(Value::Null, |styles| styles["data"].clone());
+    let page_container = page_container_id(document);
     for container in &containers {
         let node = document.at(&container.path);
-        if container.display_name != "center"
+        if page_container.as_deref() != Some(&container.id)
             || node["Properties"]["flex-size"] == "fixed"
             || node["twacoLayoutAuthored"] == true
         {
@@ -808,6 +809,30 @@ pub(crate) fn finish_page(document: &mut super::edit::MashupDocument) {
             }
         }
     }
+}
+
+/// The template's content slot keeps its role when its display name changes. The blank
+/// template uses its first visible root container; other templates declare their master slot.
+fn page_container_id(document: &super::edit::MashupDocument) -> Option<String> {
+    static SLOTS: OnceLock<std::collections::BTreeMap<String, String>> = OnceLock::new();
+    let root = document
+        .widgets()
+        .into_iter()
+        .find(|w| w.path.len() == 1 && w.type_id == "flexcontainer")?;
+    let node = document.at(&root.path);
+    let Some(template) = node["twacoTemplateName"].as_str() else {
+        return Some(root.id);
+    };
+    let slots = SLOTS.get_or_init(|| {
+        super::templates::layouts()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|template| {
+                super::authoring::template_page_container(&template).map(|id| (template.name, id))
+            })
+            .collect()
+    });
+    document.find_exact(slots.get(template)?).ok().map(|w| w.id)
 }
 
 #[cfg(test)]

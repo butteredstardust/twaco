@@ -851,8 +851,9 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
                             } = conflict;
                             if let push::Decision::Refuse(reason) = decision {
                                 eprintln!(
-                                    "{} {collection}/{name}: refused: {reason}",
-                                    style::prefix()
+                                    "{} {collection}/{name}: refused: {}",
+                                    style::prefix(),
+                                    reason.for_entity(&format!("{collection}/{name}"))
                                 );
                             }
                             if let Some(hint) = &conflict.hint {
@@ -1159,7 +1160,11 @@ fn print_deploy_report(report: &deploy::Report, apply: bool, force: bool) {
                 )
             }
             push::Decision::Refuse(reason) => {
-                println!("  {label}: {} ({reason})", style::warn("would refuse"))
+                println!(
+                    "  {label}: {} ({})",
+                    style::warn("would refuse"),
+                    reason.for_entity(&label)
+                )
             }
         }
     }

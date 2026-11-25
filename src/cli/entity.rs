@@ -694,7 +694,11 @@ pub(crate) fn entity_push(solution: &Solution, args: &EntityPush) -> u8 {
                     )
                 }
                 push::Decision::Refuse(refusal) => {
-                    println!("{label}: {}: {refusal}", style::warn("would refuse"));
+                    println!(
+                        "{label}: {}: {}",
+                        style::warn("would refuse"),
+                        refusal.for_entity(&label)
+                    );
                     if request.force {
                         println!("  --force would push anyway");
                     } else {
@@ -727,7 +731,11 @@ pub(crate) fn entity_push(solution: &Solution, args: &EntityPush) -> u8 {
                     OK
                 }
                 push::Outcome::Refused(refusal) => {
-                    eprintln!("{} {label}: refused: {refusal}", style::prefix());
+                    eprintln!(
+                        "{} {label}: refused: {}",
+                        style::prefix(),
+                        refusal.for_entity(&label)
+                    );
                     eprintln!(
                         "{} nothing was sent; --force pushes anyway",
                         style::prefix()

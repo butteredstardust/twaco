@@ -569,12 +569,14 @@ pub(crate) fn deploy_tool(
             "refused": deploy::refused(&conflicts)
                 .map(|c| {
                     let (code, full) = match &c.decision {
-                        push::Decision::Refuse(reason) => (refusal_code(reason), reason.to_string()),
+                        push::Decision::Refuse(reason) => (refusal_code(reason), reason.for_entity(&format!("{}/{}", c.collection, c.name))),
                         other => ("unexpected", format!("{other:?}")),
                     };
                     let mut entry = json!({ "entity": format!("{}/{}", c.collection, c.name), "reason": code, "warnings": c.warnings, "server_owned": c.server_owned, "cleared": c.cleared, "repository_values": c.repository_values });
                     if let Some(hint) = &c.hint {
-                        entry["hint"] = json!(hint);
+                        entry["hint"] = json!(format!("{hint}; {full}"));
+                    } else {
+                        entry["hint"] = json!(full);
                     }
                     if detail {
                         entry["explanation"] = json!(full);

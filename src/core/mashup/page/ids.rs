@@ -116,6 +116,34 @@ impl Ids {
     }
 }
 
+pub(super) fn references(message: &str, id: &str) -> bool {
+    message
+        .split(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '-')))
+        .any(|word| word == id)
+}
+
+/// Diagnostics use authored node names, including data aliases, rather than temporary ids.
+pub(super) fn diagnostic(message: &str, allocated: &[(String, String, String)]) -> String {
+    let names: std::collections::BTreeMap<_, _> = allocated
+        .iter()
+        .map(|(node, _, id)| (id.as_str(), node.strip_prefix("$data:").unwrap_or(node)))
+        .collect();
+    let mut result = String::new();
+    let mut start = 0;
+    for (end, character) in message.char_indices() {
+        if character.is_alphanumeric() || matches!(character, '_' | '-') {
+            continue;
+        }
+        let word = &message[start..end];
+        result.push_str(names.get(word).copied().unwrap_or(word));
+        result.push(character);
+        start = end + character.len_utf8();
+    }
+    let word = &message[start..];
+    result.push_str(names.get(word).copied().unwrap_or(word));
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

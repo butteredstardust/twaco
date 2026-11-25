@@ -239,7 +239,7 @@ pub(crate) fn push_outcome_json(
                 ),
                 push::Decision::Refuse(refusal) => (
                     "refuse",
-                    Some((refusal.to_string(), refusal.code().as_str())),
+                    Some((refusal.for_entity(label), refusal.code().as_str())),
                 ),
             };
             match refusal {
@@ -267,7 +267,7 @@ pub(crate) fn push_outcome_json(
             result: push::Outcome::Refused(refusal),
             ..
         } => {
-            json!({ "entity": label, "dry_run": dry_run, "pushed": false, "refusal": refusal.to_string(), "code": refusal.code().as_str(), "note": "nothing was sent; force: true pushes anyway" })
+            json!({ "entity": label, "dry_run": dry_run, "pushed": false, "refusal": refusal.for_entity(label), "code": refusal.code().as_str(), "note": "nothing was sent; force: true pushes anyway" })
         }
         commands::push::PushOutcome::Applied {
             result: push::Outcome::WouldDo(_),

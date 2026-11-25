@@ -1,0 +1,116 @@
+version: 1
+rules: v1
+page:
+  name: Acme.CardCopy_MU
+  template: blank
+  layout: as-built
+  root:
+    props:
+      DisplayName: container-2
+      Margin: ""
+      align-items: center
+      justify-content: center
+      CustomClass: {bind: expression2_5}
+      _baseVersion: "10.2.0-b75"
+  parameters: {selected: "BOOLEAN:BOTH", currentOperation: "STRING:BOTH", Station: "STRING:BOTH"}
+  data:
+    expression2_5:
+      expression: "(input == \"AcmePrimary\") ? \"primary-bg\" : (input == \"ThingWorx\") ? \"platform-bg\" : (input == \"AcmeSecondary\") ? \"secondary-bg\" : (input == \"AcmeStation\") ? \"station-bg\" : \"\""
+      output: STRING
+      inputs: {input: {type: STRING, value: {bind: param.Station}}}
+      auto_evaluate: true
+      fire_on_first_value: false
+      data_change: ALWAYS
+      props:
+        DefaultNumberEvaluation: false
+        DisplayName: selectedChevron
+        Expression: "(input != \"AcmeStation\") ? \"selected-station\" : \"\";"
+    expression2_12:
+      expression: "(input == \"AcmeStation\" && input2 == true) ? true : false;"
+      output: STRING
+      inputs:
+        input: {type: STRING, value: {bind: param.Station}}
+        input2: {type: BOOLEAN, value: {bind: param.selected}}
+      auto_evaluate: true
+      fire_on_first_value: false
+      data_change: ALWAYS
+      props:
+        DefaultNumberEvaluation: false
+        DisplayName: cardBackground
+        Expression: "(input == \"AcmePrimary\") ? \"primary-bg\" : (input == \"ThingWorx\") ? \"platform-bg\" : (input == \"AcmeSecondary\") ? \"secondary-bg\" : (input == \"AcmeStation\") ? \"station-bg\" : \"\""
+        _currentParameterDefs:
+          - BaseType: STRING
+            Description: ""
+            ParameterName: input
+            bindingDirection: Target
+            bindingType: Property
+            isBindingSource: false
+            isBindingTarget: true
+            shown: true
+    expression2_14:
+      expression: "(input != \"AcmeStation\") ? \"selected-station\" : \"\";"
+      output: STRING
+      inputs: {input: {type: STRING, value: {bind: param.Station}}}
+      auto_evaluate: true
+      fire_on_first_value: false
+      data_change: ALWAYS
+      props:
+        DefaultNumberEvaluation: false
+        DisplayName: AcmeSelection
+        Expression: "(input == \"AcmeStation\" && input2 == true) ? true : false;"
+        _currentParameterDefs:
+          - BaseType: STRING
+            Description: ""
+            ParameterName: input
+            bindingDirection: Target
+            bindingType: Property
+            isBindingSource: false
+            isBindingTarget: true
+            shown: true
+          - BaseType: BOOLEAN
+            DefaultValue: false
+            Description: ""
+            ParameterName: input2
+            bindingDirection: Target
+            bindingType: Property
+            isBindingSource: false
+            isBindingTarget: true
+            shown: true
+  slots:
+    center:
+      - row:
+          id: flexcontainer-7
+          props: {ExpandCollapseTabLocation: inside, align-items: flex-end, justify-content: center}
+          children:
+            - icon:
+                id: ptcsicon-10
+                icon: "cds:icon_double_chevron_right"
+                icon_size: small
+                props: {Left: 506.8125, Top: 351, Visible: {bind: param.selected}, CustomClass: {bind: expression2_14}}
+            - label:
+                id: ptcslabel-3
+                props:
+                  LabelType: large-header
+                  Left: 411.90625
+                  Margin: "0 0 5 0"
+                  Top: 324
+                  LabelText: {bind: param.Station}
+            - icon:
+                id: ptcsicon-9
+                icon: "cds:icon_double_chevron_left"
+                icon_size: small
+                props: {Left: 506.8125, Top: 351, Visible: {bind: param.selected}, CustomClass: {bind: expression2_14}}
+      - column:
+          id: flexcontainer-6
+          props: {ExpandCollapseTabLocation: inside, align-items: center}
+          children:
+            - label:
+                id: ptcslabel-4
+                props:
+                  LabelType: large-title
+                  Left: 814.90625
+                  Margin: "5 0 0 0"
+                  Top: 444
+                  Visible: {bind: param.selected}
+                  LabelText: {bind: param.currentOperation}
+  props: {_baseVersion: "10.2.0-b75"}

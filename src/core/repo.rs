@@ -152,6 +152,20 @@ pub(crate) fn refuse_git_bash_value(value: &Value) -> Result<(), RepoError> {
     Ok(())
 }
 
+/// A literal MSYS escape is also a protocol-relative URL. Keep the value, but make its meaning
+/// explicit so callers do not silently treat a host name as a local ThingWorx path.
+pub(crate) fn git_bash_path_note(value: &Value) -> Option<&'static str> {
+    let found = match value {
+        Value::String(text) => text
+            .get(..12)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("//Thingworx/")),
+        Value::Array(items) => items.iter().any(|v| git_bash_path_note(v).is_some()),
+        Value::Object(items) => items.values().any(|v| git_bash_path_note(v).is_some()),
+        _ => false,
+    };
+    found.then_some("//Thingworx/ is a protocol-relative URL (host Thingworx), not a local server path; use MSYS_NO_PATHCONV=1 with /Thingworx/ and run again")
+}
+
 /// A `Git` folder is a Git for Windows install when it sits where installers put it (Program
 /// Files, a per-user Programs folder, scoop) or holds the install's own `usr`/`mingw64` tree; a
 /// folder that is merely named Git (`D:/data/Git/archive.csv`) is not one.

@@ -298,6 +298,11 @@ fn plan_from(
         &old.as_ref().map(Baseline::pins).unwrap_or_default(),
     )
     .map_err(|e| invalid(e.in_file(&spec_name)))?;
+    for warning in &mut generated.warnings {
+        if let Some(located) = warning.strip_prefix("page.yaml:") {
+            *warning = format!("{spec_name}:{located}");
+        }
+    }
     let mut baseline = Baseline::generated(&generated, name, project);
     let entity_path = existing.map_or_else(
         || {
@@ -388,15 +393,27 @@ fn plan_from(
                     &mut merge::Report::default(),
                 ));
             }
-            // Page specs intentionally do not own custom.css. Keep it byte-for-byte (aside
-            // from its existing terminator convention) instead of treating it as generated
-            // content or a hand edit on every subsequent build.
-            // A spec that names `page.css` owns the sidecar until someone edits the sidecar.
-            let css = if spec.page.value.css.is_some()
-                && mashup::same_css(&current_assets.css, &old.css)
-            {
-                baseline.css.clone()
+            let css = if spec.page.value.css.is_some() {
+                let (base, current, wanted) = (
+                    json!(mashup::without_terminator(&old.css)),
+                    json!(mashup::without_terminator(&current_assets.css)),
+                    json!(mashup::without_terminator(&baseline.css)),
+                );
+                let merged = merge::merge(
+                    Some(&base),
+                    Some(&current),
+                    Some(&wanted),
+                    "custom.css",
+                    &mut report,
+                );
+                // Keep the sidecar's terminator convention when the chosen content is unchanged.
+                if merged.as_ref() == Some(&current) {
+                    current_assets.css
+                } else {
+                    baseline.css.clone()
+                }
             } else {
+                // Specs without page.css do not own the stylesheet.
                 current_assets.css
             };
             (merged, css)
@@ -472,10 +489,32 @@ fn plan_from(
     for slot in spec.page.value.slots.values() {
         node_lines(&slot.value, &baseline.ids, &mut lines);
     }
+    for (alias, source) in &spec.page.value.data {
+        if let Some(id) = baseline.ids.get(&format!("$data:{alias}")) {
+            lines.insert(
+                id.clone(),
+                (source.referenced.line().max(1), BTreeMap::new()),
+            );
+        }
+    }
+    let mut diagnostic_ids = generated.allocations.clone();
+    diagnostic_ids.extend(
+        baseline
+            .ids
+            .iter()
+            .map(|(node, id)| (node.clone(), String::new(), id.clone())),
+    );
     let conflicts: Vec<_> = report
         .conflicts
         .iter()
-        .map(|path| conflict(name, &spec_name, path, &report, &lines, &spec))
+        .map(|path| {
+            let mut value = conflict(name, &spec_name, path, &report, &lines, &spec);
+            value["message"] = json!(super::ids::diagnostic(
+                value["message"].as_str().unwrap_or_default(),
+                &diagnostic_ids
+            ));
+            value
+        })
         .collect();
     let mut problems = Vec::new();
     mashup::validate::check_content(&mashup::to_sidecar(&content), &mut problems);
@@ -489,7 +528,16 @@ fn plan_from(
             problems
                 .iter()
                 .filter(|p| p.severity == mashup::validate::Severity::Error)
-                .map(|p| p.message.as_str())
+                .map(|p| {
+                    let line = lines
+                        .iter()
+                        .find(|(id, _)| super::ids::references(&p.message, id))
+                        .map_or(spec.page.referenced.line().max(1), |(_, (line, _))| *line);
+                    format!(
+                        "{spec_name}:{line}: {}",
+                        super::ids::diagnostic(&p.message, &diagnostic_ids)
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("; ")
         )));

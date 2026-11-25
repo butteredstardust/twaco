@@ -4848,6 +4848,9 @@ mod dynamic;
 #[path = "fresh_tests.rs"]
 mod fresh;
 
+#[path = "backlog_tests.rs"]
+mod backlog;
+
 #[path = "adoption_contract_tests.rs"]
 mod adoption_contract;
 #[test]

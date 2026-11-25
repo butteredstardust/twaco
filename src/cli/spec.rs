@@ -740,7 +740,7 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  mashup spec <mashup> [--out <path>] [--json]
                               derive a page spec before restructuring; a spec built mashup returns page.yaml; any
                               other mashup gets a YAML spec of elements, with raw widget nodes counted by type
-      --out <path>            write the spec to this file"#,
+      --out <path>            write the spec to this file, with page.css beside it when present"#,
     },
     Usage {
         path: "mashup build",
@@ -748,6 +748,7 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  mashup build <mashup> [--apply] [--json]
                               compile the YAML page spec src/<Mashup>/page.yaml and merge with the generated baseline;
                               keep independent hand edits; conflicts write nothing; plans by default
+                              read page.css beside page.yaml when page.css is declared
                               native controls, media, embed, typed expressions and navigate events: guide page-specs"#,
     },
     Usage {
@@ -1121,6 +1122,7 @@ pub(crate) const USAGE: &[Usage] = &[
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
       --spec <file>          compile a YAML page spec (page.kind: master creates a master with page_host), copy it to src/<Mashup>/page.yaml and record a generated baseline;
+                              copy the declared page.css beside the spec
                               accepts only --project, --apply and --json
       --from <address>        copy a repository mashup exactly, except identity and permissions
       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
@@ -1147,6 +1149,7 @@ pub(crate) const USAGE: &[Usage] = &[
                               create a ThingWorx 10.2 responsive mashup as Composer would: its entity file
                               and its content sidecars; plan unless --apply
       --spec <file>          compile a YAML page spec (page.kind: master creates a master with page_host), copy it to src/<Mashup>/page.yaml and record a generated baseline;
+                              copy the declared page.css beside the spec
                               accepts only --project, --apply and --json
       --from <address>        copy a repository mashup exactly, except identity and permissions
       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields

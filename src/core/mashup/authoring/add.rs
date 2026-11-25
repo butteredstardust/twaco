@@ -570,6 +570,11 @@ pub(super) fn plan_add_loaded(
             .insert("twacoLayoutAuthored".into(), Value::Bool(true));
     }
     let mut notes = notes;
+    for (name, value) in &request.properties {
+        if let Some(note) = crate::core::repo::git_bash_path_note(&Value::String(value.clone())) {
+            notes.push(format!("{name}: {note}"));
+        }
+    }
     let path = document
         .find_exact(&placed.id)
         .map_err(AuthoringError::Edit)?

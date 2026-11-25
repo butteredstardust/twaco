@@ -33,6 +33,16 @@ mod source;
 pub(crate) use source::ensure_session_source;
 pub(crate) mod state_format;
 
+pub(super) fn template_page_container(
+    template: &mashup::templates::LayoutTemplate,
+) -> Option<String> {
+    let skeleton = new::new_document(template, false, "PTC Convergence Theme").ok()?;
+    skeleton
+        .find(template.master_slot.as_deref()?)
+        .ok()
+        .map(|w| w.id)
+}
+
 pub use add::{add_contained_plan_json, add_plan_json, AddContainedRequest, AddRequest};
 pub(crate) use add::{
     function_property, plan_add, plan_add_contained, property_editable, property_value,

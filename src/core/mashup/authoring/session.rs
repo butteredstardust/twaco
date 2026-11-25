@@ -2,6 +2,7 @@
 use super::{AuthoringContext, AuthoringError, ExistingMashup};
 use crate::core::{config::Solution, mashup, types};
 use mashup::edit::MashupDocument;
+use serde_json::Value;
 
 /// Where a collection's cell mashup comes from: the solution, or a page compiled in memory that
 /// the build writes beside the page.
@@ -250,6 +251,11 @@ impl Session {
         self.sync()?;
         let plan =
             super::add::plan_add_loaded(solution, request, self.loaded(), self.tokens.as_ref())?;
+        self.warnings
+            .extend(request.properties.iter().filter_map(|(name, value)| {
+                crate::core::repo::git_bash_path_note(&Value::String(value.clone()))
+                    .map(|note| format!("{name}: {note}"))
+            }));
         let id = plan.placed.id;
         self.accept(plan.edit)?;
         Ok(id)
@@ -348,6 +354,10 @@ impl Session {
         self.sync()?;
         let plan =
             super::set::plan_set_loaded(solution, request, self.loaded(), self.tokens.as_ref())?;
+        self.warnings
+            .extend(request.properties.iter().filter_map(|(name, value)| {
+                crate::core::repo::git_bash_path_note(value).map(|note| format!("{name}: {note}"))
+            }));
         if let Some(edit) = plan.edit {
             self.accept(edit)?;
         }

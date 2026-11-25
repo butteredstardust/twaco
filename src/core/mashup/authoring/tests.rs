@@ -10106,6 +10106,61 @@ fn mashup_set_refuses_git_bash_source_url() {
 }
 
 #[test]
+fn brief83_literal_git_bash_workaround_warns_on_add_and_set() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Image_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let mut image = add_request(name, "ptcsimage");
+    image.properties = vec![(
+        "SourceURL".into(),
+        "//Thingworx/MediaEntities/Acme.Image".into(),
+    )];
+    let added = plan_add(&solution, &image).unwrap();
+    assert!(
+        added
+            .notes
+            .iter()
+            .any(|n| n.contains("protocol-relative") && n.contains("MSYS_NO_PATHCONV=1")),
+        "{:?}",
+        added.notes
+    );
+    apply_edit(&solution, &added.edit, &lock(&solution)).unwrap();
+    let set = plan_set(
+        &solution,
+        &SetRequest {
+            mashup: name.into(),
+            widget: added.placed.id,
+            properties: vec![(
+                "SourceURL".into(),
+                json!("//Thingworx/MediaEntities/Acme.Other"),
+            )],
+            style_from: None,
+            styles: vec![],
+        },
+    )
+    .unwrap();
+    assert!(
+        set.notes.iter().any(|n| n.contains("protocol-relative")),
+        "{:?}",
+        set.notes
+    );
+    assert!(set
+        .changed
+        .iter()
+        .any(|change| change.property == "SourceURL"
+            && change.after == json!("//Thingworx/MediaEntities/Acme.Other")));
+    image.properties = vec![(
+        "SourceURL".into(),
+        "C:/Program Files/Git/Thingworx/Acme".into(),
+    )];
+    assert!(plan_add(&solution, &image)
+        .unwrap_err()
+        .to_string()
+        .contains("MSYS_NO_PATHCONV=1"));
+}
+
+#[test]
 fn collapsible_recipe_adds_an_external_toggle_and_repeats_identically() {
     let (dir, solution) = one_project();
     let mut new = request("Acme.Orders_MU");

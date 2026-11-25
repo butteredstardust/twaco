@@ -67,20 +67,21 @@ impl fmt::Display for Refusal {
                  a different server-owned policy, so it cannot say which side changed; if the \
                  repository and the server agree, `twaco entity status <entity> --record` records \
                  a baseline under the current policy; otherwise look at the server's copy with \
-                 `twaco entity get <entity>` and bring its change into the repository"
+                 `twaco entity diff <entity>`, then `twaco entity pull <entity> --apply` or overwrite it with --force --apply"
             ),
             Refusal::UnknownAncestor { server, .. } => write!(
                 f,
                 "the server has a different version ({server}) and there is no baseline to say \
-                 which side changed; look at it with `twaco entity get <entity>` and bring its \
-                 change into the repository if it matters, or overwrite it with --force --apply; \
+                 which side changed; inspect `twaco entity diff <entity>` (or `twaco entity get <entity>`), \
+                 then `twaco entity pull <entity> --apply` or overwrite it with --force --apply; \
                  once both sides agree, `twaco entity status <entity> --record` records the \
                  baseline"
             ),
             Refusal::Conflict { server, baseline } => write!(
                 f,
                 "the server changed since the last sync (server baseline {baseline}, server now {server}); \
-                 pushing would overwrite that change"
+                 pushing would overwrite that change; inspect `twaco entity diff <entity>`, \
+                 then `twaco entity pull <entity> --apply` or overwrite it with --force --apply"
             ),
             Refusal::EncryptedServerOwned { parts } => write!(
                 f,
@@ -94,6 +95,11 @@ impl fmt::Display for Refusal {
 }
 
 impl Refusal {
+    /// Contextual advice shared by CLI and MCP for both push and deploy.
+    pub fn for_entity(&self, entity: &str) -> String {
+        self.to_string().replace("<entity>", entity)
+    }
+
     /// The reason shown beside an already-selected `--force`, without repeating its advice.
     pub fn short_reason(&self) -> String {
         match self {
@@ -105,6 +111,9 @@ impl Refusal {
             ),
             Self::UnknownAncestor { server, .. } => format!(
                 "the server has a different version ({server}) and there is no baseline to say which side changed"
+            ),
+            Self::Conflict {server, baseline} => format!(
+                "the server changed since the last sync (server baseline {baseline}, server now {server})"
             ),
             _ => self.to_string(),
         }
@@ -645,6 +654,46 @@ mod tests {
     }
 
     #[test]
+    fn brief83_conflicts_say_to_diff_then_pull_or_force() {
+        let refusal = Refusal::Conflict {
+            server: "s".into(),
+            baseline: "b".into(),
+        };
+        let text = refusal.to_string();
+        for step in [
+            "twaco entity diff <entity>",
+            "twaco entity pull <entity>",
+            "--force --apply",
+        ] {
+            assert!(text.contains(step), "{step}: {text}");
+        }
+        let entity = "Things/Acme.Values";
+        for refusal in [
+            refusal,
+            Refusal::UnknownAncestor {
+                server: "s".into(),
+                policy_changed: false,
+            },
+            Refusal::UnknownAncestor {
+                server: "s".into(),
+                policy_changed: true,
+            },
+        ] {
+            let text = refusal.for_entity(entity);
+            assert!(
+                text.contains("twaco entity diff Things/Acme.Values"),
+                "{text}"
+            );
+            assert!(
+                text.contains("twaco entity pull Things/Acme.Values --apply"),
+                "{text}"
+            );
+            assert!(text.contains("--force --apply"), "{text}");
+            assert!(!text.contains("<entity>"), "{text}");
+        }
+    }
+
+    #[test]
     fn refusal_text_never_has_two_spaces() {
         for refusal in [
             Refusal::DeletedOnServer,
@@ -1032,7 +1081,9 @@ mod tests {
         ));
         let text = refusal.to_string();
         assert!(text.contains("entity status <entity> --record"), "{text}");
-        assert!(!text.contains("--force"), "{text}");
+        assert!(text.contains("entity diff <entity>"), "{text}");
+        assert!(text.contains("entity pull <entity> --apply"), "{text}");
+        assert!(text.contains("--force --apply"), "{text}");
         assert_eq!(*fake.imports.borrow(), 0);
     }
 

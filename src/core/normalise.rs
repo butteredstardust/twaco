@@ -1938,6 +1938,23 @@ mod tests {
     }
 
     #[test]
+    fn brief83_field_subscription_reordering_is_quiet() {
+        let before = include_bytes!("../../tests/fixtures/subscription_order/before.xml");
+        let after = include_bytes!("../../tests/fixtures/subscription_order/after.xml");
+        let working = hash(before).unwrap();
+        let server = hash(after).unwrap();
+        assert_eq!(working, server);
+        for baseline in [None, Some((working.as_str(), working.as_str()))] {
+            assert_eq!(
+                crate::core::push::decide(&working, Some(&server), baseline),
+                crate::core::push::Decision::AlreadyThere
+            );
+        }
+        assert!(read_back_differences(before, after, &[]).is_empty());
+        assert!(all_differences(before, after, &[], &READ_BACK).is_empty());
+    }
+
+    #[test]
     fn subscription_event_order_is_a_set_only_under_subscription() {
         let temperature = r#"<Event alias="Me_DataChange_Temperature" eventName="DataChange" source="" sourceProperty="Temperature" sourceType="Thing"/>"#;
         let pressure = temperature.replace("Temperature", "Pressure");

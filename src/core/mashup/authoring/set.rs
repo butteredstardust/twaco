@@ -86,6 +86,11 @@ pub(super) fn plan_set_loaded(
     }
     let mut properties = request.properties.clone();
     let mut notes = menubar_properties(&document, &found.type_id, &found.id, &mut properties)?;
+    for (name, value) in &properties {
+        if let Some(note) = crate::core::repo::git_bash_path_note(value) {
+            notes.push(format!("{name}: {note}"));
+        }
+    }
     notes.extend(menubar_limit(
         solution,
         &document,
