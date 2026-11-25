@@ -264,7 +264,7 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
                 .collect();
             let extra = style
                 .as_object()
-                .is_some_and(|e| e.keys().any(|k| k != "parts"));
+                .is_some_and(|e| e.keys().any(|k| k != "parts" && k != "widget"));
             if parts.is_empty() && !extra {
                 continue;
             }
@@ -1092,9 +1092,10 @@ impl<'a> Run<'a> {
             let id = prop(widget, "Id").as_str().unwrap_or("");
             let entry = &self.content["UI"]["Properties"]["StyleProperties"]["data"][id];
             let parts = &entry["parts"];
+            // `widget` is the styler label Composer records; a build writes it back.
             let others = entry
                 .as_object()
-                .is_some_and(|e| e.keys().any(|k| k != "parts"));
+                .is_some_and(|e| e.keys().any(|k| k != "parts" && k != "widget"));
             if parts.as_object().is_some_and(|p| !p.is_empty()) && !others {
                 if let Some(body) = node
                     .as_object_mut()

@@ -32,11 +32,12 @@ fn styled(solution: &Solution) -> String {
     };
     assert!(containers.len() >= 3, "{containers:?}");
     let data = &mut value["UI"]["Properties"]["StyleProperties"];
+    // As Composer stores them: each entry names its styler, and the map its styler version.
     *data = serde_json::json!({"data": {
-        containers[1].clone(): {"parts": {"$": {"$": {"background": "#F7F7F7", "border-style": "solid"}}}},
-        containers[2].clone(): {"parts": {"$": {"hover": {"opacity": 0.5}}, "title": {"$": {"color": "#112233"}}}},
-        "gone-9": {"parts": {"$": {"$": {"background": "red"}}}}
-    }});
+        containers[1].clone(): {"parts": {"$": {"$": {"background": "#F7F7F7", "border-style": "solid"}}}, "widget": "flex-container"},
+        containers[2].clone(): {"parts": {"$": {"hover": {"opacity": 0.5}}, "title": {"$": {"color": "#112233"}}}, "widget": "flex-container"},
+        "gone-9": {"parts": {"$": {"$": {"background": "red"}}}, "widget": "flex-container"}
+    }, "meta": {"type": "WidgetStyler", "version": "1.0"}});
     let assets = Assets {
         content: mashup::to_sidecar(&value),
         css: format!("{CSS}\n"),

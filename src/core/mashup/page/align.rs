@@ -369,6 +369,17 @@ fn is_unstated_default(difference: &merge::Difference, kinds: &BTreeMap<String, 
     {
         return true;
     }
+    // The styler label and the styler version beside stored styles describe them; content
+    // without them (older or hand-written) styles the widget the same.
+    if difference.current.as_ref().is_none_or(Value::is_null)
+        && (difference.path == "/UI/Properties/StyleProperties/meta"
+            || (difference
+                .path
+                .starts_with("/UI/Properties/StyleProperties/data/")
+                && difference.path.ends_with("/widget")))
+    {
+        return true;
+    }
     // Composer records the numeric type it saw when the binding was made (NUMBER, INTEGER or
     // LONG); the runtime resolves the endpoint's own type, so the recorded one is no difference.
     if difference.path.ends_with("/PropertyMaps") {
@@ -682,6 +693,37 @@ mod tests {
         assert_eq!(pins.get("g1").map(String::as_str), Some("k1"));
         assert_eq!(pins.get("g2").map(String::as_str), Some("k2"));
         assert!(!pins.contains_key("g3"));
+    }
+
+    #[test]
+    fn a_missing_styler_label_or_version_is_no_difference() {
+        let kinds = BTreeMap::new();
+        let missing = |path: &str, generated: Value| merge::Difference {
+            path: path.into(),
+            current: None,
+            generated,
+        };
+        assert!(is_unstated_default(
+            &missing(
+                "/UI/Properties/StyleProperties/data/flexcontainer-4/widget",
+                json!("flex-container")
+            ),
+            &kinds
+        ));
+        assert!(is_unstated_default(
+            &missing(
+                "/UI/Properties/StyleProperties/meta",
+                json!({"type": "WidgetStyler", "version": "1.0"})
+            ),
+            &kinds
+        ));
+        assert!(!is_unstated_default(
+            &missing(
+                "/UI/Properties/StyleProperties/data/flexcontainer-4/parts",
+                json!({"$": {"$": {"background": "red"}}})
+            ),
+            &kinds
+        ));
     }
 
     #[test]

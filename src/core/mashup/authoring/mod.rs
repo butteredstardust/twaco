@@ -28,7 +28,7 @@ mod parameter;
 mod recipes;
 mod remove;
 pub(crate) mod session;
-mod set;
+pub(crate) mod set;
 mod source;
 pub(crate) use source::ensure_session_source;
 pub(crate) mod state_format;

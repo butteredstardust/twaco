@@ -1613,6 +1613,17 @@ fn apply_stored_styles(
                 "styles: this node builds no widget of its own",
             ));
         };
+        // Composer records the widget's styler beside its parts; write it the same way.
+        let mut entry = json!({"parts": styles.value});
+        if let Some(styler) = session
+            .document
+            .widgets()
+            .into_iter()
+            .find(|w| &w.id == id)
+            .and_then(|w| crate::core::mashup::authoring::set::styler_name(&w.type_id))
+        {
+            entry["widget"] = json!(styler);
+        }
         let data = session
             .document
             .root_properties_mut()
@@ -1623,11 +1634,15 @@ fn apply_stored_styles(
         }
         data.as_object_mut()
             .expect("object")
+            .entry("meta")
+            .or_insert_with(|| json!({"type": "WidgetStyler", "version": "1.0"}));
+        data.as_object_mut()
+            .expect("object")
             .entry("data")
             .or_insert_with(|| json!({}))
             .as_object_mut()
             .ok_or_else(|| Error::at(styles.referenced, "StyleProperties.data is not a map"))?
-            .insert(id.clone(), json!({"parts": styles.value}));
+            .insert(id.clone(), entry);
     }
     for child in descendants(node) {
         apply_stored_styles(session, ids, child)?;

@@ -618,7 +618,7 @@ pub(crate) fn colour(text: &str) -> Result<String, String> {
 
 /// The styler name Composer records beside a widget's style parts. Each pair was read from the
 /// root StyleProperties of the platform kits' mashups; a type they never style is not guessed.
-fn styler_name(type_id: &str) -> Option<&'static str> {
+pub(crate) fn styler_name(type_id: &str) -> Option<&'static str> {
     Some(match type_id {
         "flexcontainer" => "flex-container",
         "ptcsbreadcrumb" => "ptcs-breadcrumb",
@@ -635,6 +635,7 @@ fn styler_name(type_id: &str) -> Option<&'static str> {
         "ptcsdivider" => "ptcs-divider",
         "ptcsdropdown" => "ptcs-dropdown",
         "ptcsdynamicpanel" => "ptcs-dynamic-panel",
+        "ptcsfileupload" => "ptcs-file-upload",
         "ptcsgrid" => "ptcs-grid",
         "ptcsimage" => "ptcs-image",
         "ptcsicon" => "ptcs-icon",
@@ -645,6 +646,7 @@ fn styler_name(type_id: &str) -> Option<&'static str> {
         "ptcslist" => "ptcs-list",
         "ptcslistshuttle" => "ptcs-list-shuttle",
         "ptcsmenubar" => "ptcs-menubar",
+        "ptcsmenubutton" => "ptcs-menu-button",
         "ptcspropertydisplay" => "ptcs-property-display",
         "ptcsradio" => "ptcs-radio",
         "ptcsslider" => "ptcs-slider",
