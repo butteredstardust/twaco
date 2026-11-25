@@ -13,6 +13,16 @@ All notable changes to twaco are recorded here. The format follows
   Adoption and build share hand-edit comparison and name changed properties. Copy names override
   `page.name`; no-op builds say `nothing to write`; conflicts locate `text`, and spec export creates
   missing output folders.
+- New entity pushes refuse a missing server Project before importing. Read-back diagnostics
+  count template-provided additions separately from changes to authored content.
+- Mashup derive notes itemise actual losses, distinguish stale styles, and recognise carried
+  wiring despite Composer metadata. Copies warn about direct and PermissionGroup visibility,
+  including copies built from a spec (the old `page.name` names the source). Static contained-widget properties no longer warn
+  as orphan parameters.
+- Comment noun lint recognises participles, conjunctions and camelCase identifiers. Permission
+  comparisons ignore live-only built-in Group membership grants absent from exported XML,
+  preserving explicit drift and those defaults during other permission updates. Recovery
+  hints include complete entity commands.
 
 ## [0.1.77] - 2026-11-24
 

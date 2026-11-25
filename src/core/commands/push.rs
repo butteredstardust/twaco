@@ -535,6 +535,9 @@ mod tests {
     }
 
     impl push::Remote for Fake {
+        fn project_exists(&self, _: &str) -> Result<bool, ServerError> {
+            Ok(true)
+        }
         fn fetch(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
             let state = self.state.lock().unwrap();
             Ok(match &state.entities {
@@ -1125,7 +1128,12 @@ mod tests {
         assert_eq!(error.code(), ErrorCode::InvalidArguments);
         let error = PushCommandError::Push {
             label: "Things/Acme.T".to_string(),
-            why: push::PushError::Unverified(ServerError::InvalidUrl("bad URL".to_string())),
+            why: push::PushError::Unverified {
+                entity: Box::new(
+                    crate::core::entity::key::EntityKey::new("Things", "Acme.T").unwrap(),
+                ),
+                source: ServerError::InvalidUrl("bad URL".to_string()),
+            },
             backup: None,
         };
         assert_eq!(error.code(), ErrorCode::NotVerified);
@@ -1136,6 +1144,9 @@ mod tests {
             label: "Things/Acme.T".into(),
             backup: None,
             why: push::PushError::NotKept {
+                entity: Box::new(
+                    crate::core::entity::key::EntityKey::new("Things", "Acme.T").unwrap(),
+                ),
                 sent: "sent".into(),
                 read_back: Some("back".into()),
                 differences: vec!["Thing/ThingProperties/Acme.T: missing".into()],

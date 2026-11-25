@@ -307,7 +307,14 @@ impl Session {
                 if definitions.iter().any(|definition| definition.name == *name) {
                     true
                 } else {
-                    self.warnings.push(format!("orphan contained-mashup parameter value {name}; not a parameter of {mashup}"));
+                    let static_property = ["mashupcontainer", "ptcsmashupcontainer"].iter().any(|kind| {
+                        crate::core::widgets::catalog().by_type(kind).is_some_and(|widget| {
+                            widget.defaults.contains_key(name) || widget.property(name).is_some()
+                        })
+                    });
+                    if !static_property {
+                        self.warnings.push(format!("orphan contained-mashup parameter value {name}; not a parameter of {mashup}"));
+                    }
                     orphans.push((name.clone(), serde_json::from_str(text).unwrap_or_else(|_| serde_json::Value::String(text.clone()))));
                     false
                 }

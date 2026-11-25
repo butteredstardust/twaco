@@ -699,47 +699,44 @@ pub(crate) fn run_expected(
     }
 }
 
-// The membership services exist on every Group. Their live grants can be omitted by
-// the XML view status hashes. Establish that from this server, not from a principal name.
-fn explain_group_service_grants(
+// Status compares exported XML. Only live-only built-in membership allows, proven absent
+// by that same XML permission parser, are defaults; explicit XML grants remain drift.
+fn group_service_defaults(
     remote: &(dyn Remote + Sync),
     collection: &str,
     name: &str,
-    found: &[Difference],
-    notes: &mut Vec<String>,
-) {
-    let candidates: Vec<_> = found
+    owned: &Grants,
+    server: &Grants,
+) -> Grants {
+    if collection != "Groups"
+        || !server
+            .keys()
+            .any(|grant| membership_service(grant) && !owned.contains_key(grant))
+    {
+        return Grants::new();
+    }
+    let Ok(Some(xml)) = remote.permission_xml(collection, name) else {
+        return Grants::new();
+    };
+    let Ok(sets) = from_xml(&xml) else {
+        return Grants::new();
+    };
+    let xml_grants = sets.get(&KindKey::of(Kind::RunTime));
+    server
         .iter()
-        .filter(|difference| {
-            difference.change == Change::ServerOnly
-                && difference.grant.action == "ServiceInvoke"
-                && ["AddMember", "DeleteMember", "GetGroupMembers"]
-                    .contains(&difference.grant.resource.as_str())
+        .filter(|(grant, permitted)| {
+            **permitted
+                && membership_service(grant)
+                && !owned.contains_key(*grant)
+                && xml_grants.is_none_or(|grants| !grants.contains_key(*grant))
         })
-        .collect();
-    if candidates.is_empty() {
-        return;
-    }
-    match remote.permission_xml(collection, name) {
-        Ok(Some(xml)) => match from_xml(&xml) {
-            Ok(sets) => {
-                let xml_grants = sets.get(&KindKey::of(Kind::RunTime));
-                let omitted: std::collections::BTreeSet<_> = candidates.iter()
-                    .filter(|difference| xml_grants.is_none_or(|grants| !grants.contains_key(&difference.grant)))
-                    .map(|difference| difference.grant.resource.as_str()).collect();
-                if !omitted.is_empty() {
-                    notes.push(format!(
-                        "{collection}/{name}: the server supplies live run-time grants for built-in membership services ({}) that its XML view omits. entity status compares that XML and can report same; permissions diff also reads GetRunTimePermissionsAsJSON. These grants remain visible here; XML omission alone does not prove they are safe to remove",
-                        omitted.into_iter().collect::<Vec<_>>().join(", ")
-                    ));
-                }
-            }
-            Err(_) => notes.push(format!("{collection}/{name}: could not compare live membership service grants with the server XML permission blocks")),
-        },
-        Ok(None) | Err(_) => notes.push(format!(
-            "{collection}/{name}: built-in membership service grants come from GetRunTimePermissionsAsJSON; entity status compares XML. The XML view could not be checked for these grants"
-        )),
-    }
+        .map(|(grant, permitted)| (grant.clone(), *permitted))
+        .collect()
+}
+
+fn membership_service(grant: &Grant) -> bool {
+    grant.action == "ServiceInvoke"
+        && ["AddMember", "DeleteMember", "GetGroupMembers"].contains(&grant.resource.as_str())
 }
 
 fn one(
@@ -787,6 +784,7 @@ fn one(
     for (key, grants) in derived {
         expected.entry(*key).or_default().extend(grants.clone());
     }
+    let mut defaults = Sets::new();
     let mut removed: BTreeMap<KindKey, std::collections::BTreeSet<String>> = BTreeMap::new();
     for key in expected.keys() {
         let kind = key.kind();
@@ -826,10 +824,16 @@ fn one(
                 removed.insert(*key, groups);
             }
         }
-        let found = expected_differences(kind, &owned, &derived_grants, &server);
-        if collection == "Groups" && kind == Kind::RunTime && !found.is_empty() {
-            explain_group_service_grants(remote, &collection, &name, &found, &mut report.notes);
+        if kind == Kind::RunTime {
+            let provided =
+                group_service_defaults(remote, &collection, &name, &expected[key], &server);
+            if !provided.is_empty() {
+                report.notes.push(format!("{collection}/{name}: {} server-provided membership service grants omitted from comparison (absent from exported XML)", provided.len()));
+                server.retain(|grant, _| !provided.contains_key(grant));
+                defaults.insert(*key, provided);
+            }
         }
+        let found = expected_differences(kind, &owned, &derived_grants, &server);
         if !found.is_empty() {
             let mut owned_server = server.clone();
             owned_server.retain(|grant, _| {
@@ -864,7 +868,11 @@ fn one(
         }
     };
     for &kind in &report.sets.clone() {
-        let wanted = &sets[&KindKey::of(kind)];
+        let mut wanted = sets[&KindKey::of(kind)].clone();
+        if let Some(provided) = defaults.get(&KindKey::of(kind)) {
+            wanted.extend(provided.clone());
+        }
+        let wanted = &wanted;
         if let Err(e) = remote.set(&collection, &name, kind, &to_json(kind, wanted)) {
             return failed(
                 report,

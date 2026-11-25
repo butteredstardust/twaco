@@ -363,7 +363,10 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
     let mut notes = derived.notes;
     if let Some(content) = refined {
         // The compiled page is the truth about what the spec writes: say what it does not.
-        notes.retain(|n| !n.contains("bindings or events could not be written"));
+        notes.retain(|n| {
+            !n.contains("bindings or events could not be written")
+                && !n.starts_with("unsupported wiring left out:")
+        });
         notes.extend(align::lost_wiring(&value, &content));
         let left = align::remaining(&value, &content).len();
         if left > 0 {
@@ -438,7 +441,7 @@ pub fn without_written_css(mut result: Extraction) -> Extraction {
             if note.contains("is carried as page.css") {
                 *note = note.replace(
                     "is carried as page.css, written beside the spec by --out",
-                    "is not referenced by this spec; `mashup spec --out <file>` writes it beside the spec as page.css (its text is in `css`)",
+                    &format!("is not referenced by this spec; `twaco mashup spec {} --out <file>` writes it beside the spec as page.css (its text is in `css`)", result.mashup),
                 );
             }
         }

@@ -210,7 +210,7 @@ pub(crate) fn load_existing(
                 mashup::sync(&entity_before, &assets).map_err(AuthoringError::Mashup)?;
             if !changes.is_empty() {
                 return Err(AuthoringError::Refused(format!(
-                    "{mashup_name}: content.json and the entity file disagree; run `twaco sync` (keeps the sidecars) or `twaco extract` (keeps the entity file) first"
+                    "{mashup_name}: content.json and the entity file disagree; run `twaco sync Mashups/{mashup_name} --apply` (keeps the sidecars) or `twaco extract Mashups/{mashup_name}` (keeps the entity file) first"
                 )));
             }
             let content_path = directory.join("content.json");
@@ -440,6 +440,62 @@ pub(crate) fn apply_edit(
         .apply(lock)
         .map_err(AuthoringError::Write)?;
     Ok(())
+}
+
+/// Visibility is deliberately not copied, including access supplied by PermissionGroups.
+pub(crate) fn copy_visibility_notes(
+    solution: &Solution,
+    source: &str,
+    target: &str,
+    direct: bool,
+) -> Result<Vec<String>, AuthoringError> {
+    use crate::core::entity::carry::Kind;
+    use crate::core::permissions::{self, derived::Derived, KindKey};
+    let mut notes = Vec::new();
+    if direct {
+        if let Some(file) = workspace::entities(solution)
+            .iter()
+            .find(|e| e.info.collection == "Mashups" && e.info.name == source)
+        {
+            let xml = std::fs::read(&file.path)
+                .map_err(|e| AuthoringError::Unreadable(format!("{}: {e}", file.info.name)))?;
+            if permissions::from_xml(&xml)
+                .ok()
+                .and_then(|sets| sets.get(&KindKey::of(Kind::Visibility)).cloned())
+                .is_some_and(|grants| !grants.is_empty())
+            {
+                notes.push(format!("{source} has visibility permissions; the copy does not carry them; add each grant to the copy's VisibilityPermissions, then run twaco entity push Mashups/{target} --apply"));
+            }
+        }
+    }
+    let derived = Derived::load(solution).map_err(|e| AuthoringError::Unreadable(e.to_string()))?;
+    if let Some(grants) = derived
+        .targets
+        .get(&("Mashups".into(), source.into()))
+        .and_then(|sets| sets.get(&KindKey::of(Kind::Visibility)))
+    {
+        let groups: std::collections::BTreeSet<_> = grants
+            .iter()
+            .filter(|(_, allowed)| **allowed)
+            .map(|(grant, _)| grant.principal.as_str())
+            .collect();
+        for group in groups {
+            let already_member = derived
+                .targets
+                .get(&("Mashups".into(), target.into()))
+                .and_then(|sets| sets.get(&KindKey::of(Kind::Visibility)))
+                .is_some_and(|grants| {
+                    grants
+                        .iter()
+                        .any(|(grant, allowed)| *allowed && grant.principal == group)
+                });
+            if already_member {
+                continue;
+            }
+            notes.push(format!("{source} is visible through PermissionGroup {group}; the copy is not a member; add a Visibility EntityPermission for Mashup/{target} to {group}, then run twaco entity push PermissionGroups/{group} --apply"));
+        }
+    }
+    Ok(notes)
 }
 
 #[cfg(test)]

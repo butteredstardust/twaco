@@ -6,6 +6,11 @@ This copies the spec to `src/Acme.Alerts_MU/page.yaml`. Edit that file and run
 Both commands accept `--json`. MCP uses `mashup_new` with `spec` and `mashup_build` with
 `mashup`; `dry_run` defaults to true. These operations are entirely offline.
 
+`mashup new <Copy> --spec <file>` uses the command's name when the spec's `page.name` differs
+(the copied page.yaml gets the new name). The old `page.name` names the source: the copy warns
+about its direct visibility and the repository PermissionGroups that grant it, which the copy
+does not inherit.
+
 ```yaml
 version: 1
 rules: v1

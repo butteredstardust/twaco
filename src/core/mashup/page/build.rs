@@ -268,6 +268,9 @@ fn plan_from(
     } else {
         None
     };
+    // A copy keeps the source's page.name until the command renames it: that names the source
+    // whose visibility the copy does not inherit.
+    let copied_from = overridden.then(|| spec.page.value.name.value.clone());
     let yaml = renamed.as_deref().unwrap_or(yaml);
     if overridden {
         spec = schema::parse_at(yaml, solution, spec_path.parent().unwrap_or(&solution.root))
@@ -344,7 +347,7 @@ fn plan_from(
             (None, None) => extracted,
             _ => {
                 return Err(invalid(format!(
-                    "{name}: incomplete mashup sidecars; run twaco extract first"
+                    "{name}: incomplete mashup sidecars; run `twaco extract Mashups/{name}` first"
                 )))
             }
         };
@@ -353,7 +356,7 @@ fn plan_from(
             .1
             .is_empty()
         {
-            return Err(AuthoringError::Refused(format!("{name}: content.json/custom.css and entity disagree; run twaco sync or twaco extract first")));
+            return Err(AuthoringError::Refused(format!("{name}: content.json/custom.css and entity disagree; run `twaco sync Mashups/{name} --apply` or `twaco extract Mashups/{name}` first")));
         }
         mashup::edit::parse(&current_assets.content).map_err(AuthoringError::Edit)?;
         let current: Value = serde_json::from_str(&current_assets.content).map_err(invalid)?;
@@ -691,10 +694,13 @@ fn plan_from(
     );
     let mut created_cells = Vec::new();
     let mut cell_notices = generated.warnings.clone();
-    if overridden {
+    if let Some(source) = &copied_from {
         cell_notices.push(format!(
             "page.name was overridden with {name}; the copied page.yaml uses the command's name"
         ));
+        cell_notices.extend(crate::core::mashup::authoring::copy_visibility_notes(
+            solution, source, name, true,
+        )?);
     }
     if let Some(tokens) = &spec.tokens {
         if spec

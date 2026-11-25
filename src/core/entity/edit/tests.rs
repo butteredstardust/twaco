@@ -442,7 +442,10 @@ fn service_override_from_parent_refuses_an_unsynced_or_non_script_parent() {
     let synced = std::fs::read_to_string(&parent_script).unwrap();
     std::fs::write(&parent_script, synced.replace("me.Speed", "me.Other")).unwrap();
     let error = from_parent().unwrap_err().to_string();
-    assert!(error.contains("run twaco sync"), "{error}");
+    assert!(
+        error.contains("run twaco sync ThingTemplates/Acme.Orders.Machine_TT --apply"),
+        "{error}"
+    );
     std::fs::write(&parent_script, &synced).unwrap();
     // A sidecar folder taken away is a removal waiting for sync, not a script to copy.
     // Moved out of services/, so the folder left behind is empty: still managed.
@@ -451,7 +454,10 @@ fn service_override_from_parent_refuses_an_unsynced_or_non_script_parent() {
     std::fs::rename(&parent_folder, &kept).unwrap();
     assert!(parent_folder.parent().unwrap().is_dir());
     let error = from_parent().unwrap_err().to_string();
-    assert!(error.contains("run twaco sync"), "{error}");
+    assert!(
+        error.contains("run twaco sync ThingTemplates/Acme.Orders.Machine_TT --apply"),
+        "{error}"
+    );
     std::fs::rename(&kept, &parent_folder).unwrap();
 
     let template = solution

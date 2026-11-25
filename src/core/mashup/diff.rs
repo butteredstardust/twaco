@@ -223,7 +223,7 @@ fn read(solution: &Solution, name: &str) -> Result<(Value, Option<String>), Diff
                 .map_err(|error| DiffError::Unreadable(error.to_string()))?;
             if !changes.is_empty() {
                 return Err(DiffError::Unreadable(format!(
-                    "{name}: content.json and the entity file disagree; run `twaco sync` (keeps the sidecars) or `twaco extract` (keeps the entity file) first"
+                    "{name}: content.json and the entity file disagree; run `twaco sync Mashups/{name} --apply` (keeps the sidecars) or `twaco extract Mashups/{name}` (keeps the entity file) first"
                 )));
             }
             assets

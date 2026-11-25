@@ -582,20 +582,29 @@ fn group_membership_grants_explain_the_live_service_and_xml_status_views() {
         let report = run(&remote, std::slice::from_ref(&entity), false);
         let one = &report.entities[0];
         assert_eq!(one.status, Status::Differs);
-        assert_eq!(one.differences.len(), 4, "no live grant is hidden");
+        assert_eq!(one.differences.len(), 1);
+        assert_eq!(one.differences[0].grant.resource, "Acme.Custom");
         let note = &one.notes[0];
-        assert!(note.contains("XML view omits"));
-        assert!(note.contains("entity status compares that XML"));
-        assert!(note.contains("AddMember, DeleteMember, GetGroupMembers"));
-        assert!(!note.contains("Acme.Custom"));
+        assert!(note.contains("3 server-provided membership service grants omitted"));
     }
+    let defaults_only = PermissionViews {
+        xml: xml.as_bytes().to_vec(),
+        live: json!({"permissions": remote.live["permissions"].as_array().unwrap()[..3]}),
+        disabled_status: 503,
+    };
+    assert_eq!(
+        run(&defaults_only, std::slice::from_ref(&entity), false).entities[0].status,
+        Status::Same
+    );
     // A grant present in XML is ordinary drift, not an omitted built-in grant.
     let exported = r#"<Group><RunTimePermissions><Permissions resourceName="AddMember"><ServiceInvoke><Principal name="Acme.Admins" type="Group"/></ServiceInvoke></Permissions><Permissions resourceName="DeleteMember"><ServiceInvoke><Principal name="Acme.Admins" type="Group"/></ServiceInvoke></Permissions><Permissions resourceName="GetGroupMembers"><ServiceInvoke><Principal name="Acme.Admins" type="Group"/></ServiceInvoke></Permissions></RunTimePermissions></Group>"#;
     let remote = PermissionViews {
         xml: exported.as_bytes().to_vec(),
         ..remote
     };
-    assert!(run(&remote, &[entity], false).entities[0].notes.is_empty());
+    let report = run(&remote, &[entity], false);
+    assert!(report.entities[0].notes.is_empty());
+    assert_eq!(report.entities[0].differences.len(), 4);
 }
 
 #[test]
@@ -627,4 +636,80 @@ fn disabled_thing_is_skipped_in_diff_without_stopping_other_entities_or_weakenin
         run(&remote, &[entity], false).entities[0].status,
         Status::Failed
     );
+}
+
+#[test]
+fn group_defaults_preserve_xml_drift_managed_grants_and_permission_writes() {
+    struct GroupRemote {
+        xml: Vec<u8>,
+        live: Mutex<Value>,
+        writes: Mutex<usize>,
+    }
+    impl Remote for GroupRemote {
+        fn exists(&self, _: &str, _: &str) -> Result<bool, ServerError> {
+            Ok(true)
+        }
+        fn permission_xml(&self, _: &str, _: &str) -> Result<Option<Vec<u8>>, ServerError> {
+            Ok(Some(self.xml.clone()))
+        }
+        fn get(&self, _: &str, _: &str, _: Kind) -> Result<Value, ServerError> {
+            Ok(self.live.lock().unwrap().clone())
+        }
+        fn set(&self, _: &str, _: &str, _: Kind, value: &Value) -> Result<(), ServerError> {
+            *self.writes.lock().unwrap() += 1;
+            *self.live.lock().unwrap() = value.clone();
+            Ok(())
+        }
+        fn differences(&self, _: &str, _: &str, _: &str) -> Result<usize, ServerError> {
+            Ok(0)
+        }
+    }
+    let empty = r#"<Group name="Acme.Viewers"><RunTimePermissions/></Group>"#;
+    let managed = r#"<Group name="Acme.Viewers"><RunTimePermissions><Permissions resourceName="Acme.Custom"><ServiceInvoke><Principal name="Acme.Admins" type="Group"/></ServiceInvoke></Permissions></RunTimePermissions></Group>"#;
+    let (_dir, mut entity, _) = entity_file(managed);
+    entity.info.collection = "Groups".into();
+    entity.info.name = "Acme.Viewers".into();
+    let default_grant = grant("AddMember", "ServiceInvoke", "Acme.Admins");
+    let remote = GroupRemote {
+        xml: br#"<Group name="Acme.Viewers"><RunTimePermissions><Permissions resourceName="*"><ServiceInvoke/></Permissions></RunTimePermissions></Group>"#.to_vec(),
+        live: Mutex::new(to_json(
+            Kind::RunTime,
+            &Grants::from([(default_grant.clone(), true)]),
+        )),
+        writes: Mutex::new(0),
+    };
+    // Status's XML comparison and permissions diff share the exported-XML rule.
+    assert_eq!(
+        normalise::hash(empty.as_bytes()).unwrap(),
+        normalise::hash(remote.xml.as_slice()).unwrap()
+    );
+    let report = run(&remote, std::slice::from_ref(&entity), true);
+    assert_eq!(
+        report.entities[0].status,
+        Status::Pushed,
+        "{:?}",
+        report.entities[0]
+    );
+    let back = from_json(Kind::RunTime, &remote.live.lock().unwrap()).unwrap();
+    assert!(back.contains_key(&default_grant));
+    assert!(back.contains_key(&grant("Acme.Custom", "ServiceInvoke", "Acme.Admins")));
+    assert_eq!(*remote.writes.lock().unwrap(), 1);
+    // An explicitly managed deny must not be hidden even when the export omits it.
+    let wanted = Grants::from([(default_grant.clone(), false)]);
+    let live = Grants::from([(default_grant.clone(), true)]);
+    assert!(group_service_defaults(&remote, "Groups", "Acme.Viewers", &wanted, &live).is_empty());
+    assert!(
+        group_service_defaults(&remote, "Things", "Acme.Viewers", &Grants::new(), &live).is_empty()
+    );
+    assert!(group_service_defaults(
+        &remote,
+        "Groups",
+        "Acme.Viewers",
+        &Grants::new(),
+        &Grants::from([(default_grant, false)])
+    )
+    .is_empty());
+    let exported = to_json(Kind::RunTime, &live);
+    assert_ne!(normalise::hash(empty.as_bytes()).unwrap(), normalise::hash(br#"<Group name="Acme.Viewers"><RunTimePermissions><Permissions resourceName="AddMember"><ServiceInvoke><Principal name="Acme.Admins" type="Group"/></ServiceInvoke></Permissions></RunTimePermissions></Group>"#).unwrap());
+    assert_eq!(from_json(Kind::RunTime, &exported).unwrap(), live);
 }

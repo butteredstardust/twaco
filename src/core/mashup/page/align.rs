@@ -517,32 +517,52 @@ pub(super) fn remaining(current: &Value, generated: &Value) -> Vec<Difference> {
 /// The bindings and events of `current` that nothing in `generated` matches, as `source -> target`.
 pub(super) fn lost_wiring(current: &Value, generated: &Value) -> Vec<String> {
     let mut out = vec![];
-    for part in ["DataBindings", "Events"] {
-        let made = generated[part].as_array().map_or(&[][..], Vec::as_slice);
-        for item in current[part].as_array().into_iter().flatten() {
-            let bare = endpoints(item);
-            if made.iter().any(|item| endpoints(item) == bare) {
-                continue;
-            }
-            let text = |key: &str| item[key].as_str().unwrap_or("").to_string();
-            if part == "Events" {
+    for item in current["Events"].as_array().into_iter().flatten() {
+        if generated["Events"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|made| endpoints(made) == endpoints(item))
+        {
+            continue;
+        }
+        out.push(format!(
+            "event not written: {}.{} -> {}.{}",
+            item["EventTriggerId"].as_str().unwrap_or(""),
+            item["EventTriggerEvent"].as_str().unwrap_or(""),
+            item["EventHandlerId"].as_str().unwrap_or(""),
+            item["EventHandlerService"].as_str().unwrap_or("")
+        ));
+    }
+    // A binding may be split into several records or gain Composer metadata. Check each
+    // connection independently, using the same endpoint policy as id alignment.
+    for item in current["DataBindings"].as_array().into_iter().flatten() {
+        for map in item["PropertyMaps"].as_array().into_iter().flatten() {
+            let mut connection = item.clone();
+            connection["PropertyMaps"] = serde_json::json!([map]);
+            let carried = generated["DataBindings"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|made| {
+                    made["PropertyMaps"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|made_map| {
+                            let mut made = made.clone();
+                            made["PropertyMaps"] = serde_json::json!([made_map]);
+                            endpoints(&made) == endpoints(&connection)
+                        })
+                });
+            if !carried {
                 out.push(format!(
-                    "event not written: {}.{} -> {}.{}",
-                    text("EventTriggerId"),
-                    text("EventTriggerEvent"),
-                    text("EventHandlerId"),
-                    text("EventHandlerService")
+                    "binding not written: {}.{} -> {}.{}",
+                    item["SourceId"].as_str().unwrap_or(""),
+                    map["SourceProperty"].as_str().unwrap_or(""),
+                    item["TargetId"].as_str().unwrap_or(""),
+                    map["TargetProperty"].as_str().unwrap_or("")
                 ));
-            } else {
-                for map in item["PropertyMaps"].as_array().into_iter().flatten() {
-                    out.push(format!(
-                        "binding not written: {}.{} -> {}.{}",
-                        text("SourceId"),
-                        map["SourceProperty"].as_str().unwrap_or(""),
-                        text("TargetId"),
-                        map["TargetProperty"].as_str().unwrap_or("")
-                    ));
-                }
             }
         }
     }
@@ -556,6 +576,34 @@ mod tests {
 
     fn widget(id: &str, kind: &str, children: Vec<Value>) -> Value {
         json!({"Properties": {"Id": id, "Type": kind}, "Widgets": children})
+    }
+
+    #[test]
+    fn lost_wiring_checks_each_connection_without_composer_metadata() {
+        let current = json!({"DataBindings": [{"Id":"old", "SourceArea":"Data", "SourceId":"debug", "SourceSection":"Services", "TargetArea":"UI", "TargetId":"grid-dashboards", "TargetSection":"", "PropertyMaps":[
+            {"SourceProperty":"GetDashboardsRows", "TargetProperty":"Data", "SourcePropertyType":"infotable"},
+            {"SourceProperty":"OtherRows", "TargetProperty":"SelectedRows"}
+        ]}], "Events":[{"Id":"e1", "EventTriggerId":"button", "EventTriggerEvent":"Clicked", "EventHandlerId":"debug", "EventHandlerService":"GetDashboardsRows", "ComposerMetadata":true}]});
+        let mut generated = current.clone();
+        generated["DataBindings"][0]["Id"] = json!("new");
+        generated["DataBindings"][0]["SourceDetails"] = json!("");
+        generated["DataBindings"][0]["PropertyMaps"][0]["SourcePropertyType"] = json!("INFOTABLE");
+        generated["DataBindings"][0]["PropertyMaps"]
+            .as_array_mut()
+            .unwrap()
+            .pop();
+        generated["Events"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("ComposerMetadata");
+        assert_eq!(
+            lost_wiring(&current, &generated),
+            vec!["binding not written: debug.OtherRows -> grid-dashboards.SelectedRows"]
+        );
+        generated["DataBindings"] = json!([]);
+        assert_eq!(lost_wiring(&current, &generated).len(), 2);
+        generated["Events"] = json!([]);
+        assert_eq!(lost_wiring(&current, &generated).len(), 3);
     }
 
     #[test]

@@ -254,7 +254,13 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
                 .as_object()
                 .into_iter()
                 .flatten()
-                .map(|(part, _)| part.as_str())
+                .map(|(part, _)| {
+                    if part == "$" {
+                        "the widget itself"
+                    } else {
+                        part.as_str()
+                    }
+                })
                 .collect();
             let extra = style
                 .as_object()
@@ -262,18 +268,18 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
             if parts.is_empty() && !extra {
                 continue;
             }
-            let what = kinds.get(id).map_or("no such widget", String::as_str);
+            let Some(what) = kinds.get(id) else {
+                run.notes.push(format!(
+                    "stale style entry for removed widget {id} (harmless; dropped)"
+                ));
+                continue;
+            };
             run.notes.push(format!(
                 "style properties not carried: {what} {id}, parts {}",
                 parts.join(", ")
             ));
         }
     }
-    run.notes.push(if carry_styles {
-        "styles of widgets folded into elements are not carried".into()
-    } else {
-        "widget styles are carried under styles:".into()
-    });
     let text = render(&spec);
     Ok(Derived {
         spec: text,

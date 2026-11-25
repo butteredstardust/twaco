@@ -70,7 +70,7 @@ const STOPWORDS: &[&str] = &[
     "did", "can", "may", "must", "will", "would", "should",
     // Conjunctions, adverbs and common verbs break a suspected noun run.
     "yet", "plus", "rather", "fall", "falls", "fell", "open", "opens", "opened", "throw", "throws",
-    "threw",
+    "threw", "unless", "before", "after", "although", "until",
 ];
 
 #[derive(Debug, Clone)]
@@ -537,9 +537,11 @@ fn noun_cluster(words: &[&str], max_run: usize) -> Option<String> {
     for word in words {
         let plain = word.to_ascii_lowercase().trim_matches('.').to_string();
         if STOPWORDS.contains(&plain.as_str())
+            || plain.ends_with("ing")
+            || plain.ends_with("ed")
             || word.contains('_')
             || word.contains('.')
-            || word.chars().next().is_some_and(char::is_uppercase)
+            || word.chars().any(char::is_uppercase)
         {
             run.clear();
             continue;
@@ -584,6 +586,11 @@ mod tests {
             "card result plus synthetic",
             "seeded dashboard opens empty",
             "unlogged property throws rather",
+            "packaged connection before persisting",
+            "end unless cardOrder places",
+            "dashboard card loading result cache",
+            "dashboard card cached result cache",
+            "dashboard card cardOrder result cache",
         ] {
             assert!(
                 noun_cluster(&phrase.split_whitespace().collect::<Vec<_>>(), 3).is_none(),

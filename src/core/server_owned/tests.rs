@@ -211,6 +211,9 @@ struct Fake {
 }
 
 impl push::Remote for Fake {
+    fn project_exists(&self, _: &str) -> Result<bool, ServerError> {
+        Ok(true)
+    }
     fn fetch(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
         Ok(self.held.lock().unwrap().clone())
     }

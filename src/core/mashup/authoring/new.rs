@@ -579,10 +579,6 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
         .map(|text| parse_visibility(text))
         .collect::<Result<Vec<_>, _>>()?;
     let loaded = load_existing(solution, from)?;
-    let source_has_visibility = String::from_utf8_lossy(&loaded.entity_before)
-        .split_once("<VisibilityPermissions")
-        .and_then(|(_, after)| after.split_once("</VisibilityPermissions>"))
-        .is_some_and(|(block, _)| block.contains("<Principal"));
     let mut entity = copied_entity(
         &loaded.entity_before,
         &request.name,
@@ -697,11 +693,12 @@ fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, Autho
             .len(),
     };
     let mut notes = page_notes(solution, request);
-    if source_has_visibility && visibility.is_empty() {
-        notes.push(format!(
-            "{from} has visibility permissions; mashup new --from does not copy them, add each grant with --visibility"
-        ));
-    }
+    notes.extend(super::copy_visibility_notes(
+        solution,
+        from,
+        &request.name,
+        visibility.is_empty(),
+    )?);
     Ok(NewPlan {
         name: request.name.clone(),
         notes,
