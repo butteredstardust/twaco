@@ -196,6 +196,16 @@ fn compile_nested(
         page.is_master(),
     )
     .map_err(|e| Error::at(page.template.referenced, e))?;
+    if page
+        .kind
+        .as_ref()
+        .is_some_and(|k| k.value == schema::PageKind::Template)
+    {
+        session
+            .document
+            .root_mut()
+            .insert("mashupType".into(), json!("mashupTemplate"));
+    }
     spec.resolved_tokens
         .apply_page(&mut session.document)
         .map_err(|e| Error::at(page.name.referenced, e))?;
@@ -447,6 +457,29 @@ fn compile_nested(
                 source.entity_type.as_ref().map(|kind| kind.value.as_str()),
             )
             .map_err(|e| Error::at(service_spec.referenced, e))?;
+        if let Some(method) = &source.method {
+            set_api_method(&mut session, alias, method)?;
+        }
+        for (field, base) in &source.field_types {
+            let kind_free = base
+                .value
+                .split_once(':')
+                .map_or(base.value.as_str(), |(b, _)| b);
+            if field.is_empty() || !crate::core::entity::edit::BASE_TYPES.contains(&kind_free) {
+                return Err(Error::at(
+                    base.referenced,
+                    "field_types needs a field name and known base type",
+                ));
+            }
+            session
+                .document
+                .source_types
+                .insert((alias.clone(), field.clone()), base.value.clone());
+        }
+    }
+    for section in &page.empty_sources {
+        authoring::ensure_empty_section(&mut session.document, &section.value)
+            .map_err(|e| Error::at(section.referenced, e))?;
     }
     add_expressions(
         solution,
@@ -3854,4 +3887,30 @@ fn touches_parameters(content: &Value, id: &str) -> bool {
                         .any(|map| map[*key].as_str().is_some_and(|name| name != "Name"))
             })
         })
+}
+
+/// Stores `method` as the `APIMethod` of the call named `alias`, which `source_as` just made.
+fn set_api_method(
+    session: &mut Session,
+    alias: &str,
+    method: &serde_saphyr::Spanned<String>,
+) -> Result<(), Error> {
+    if !matches!(
+        method.value.as_str(),
+        "get" | "post" | "put" | "delete" | "patch"
+    ) {
+        return Err(Error::at(
+            method.referenced,
+            "method is get, post, put, delete or patch",
+        ));
+    }
+    for section in session.document.data_mut().values_mut() {
+        let Some(services) = section["Services"].as_array_mut() else {
+            continue;
+        };
+        if let Some(call) = services.iter_mut().find(|call| call["Name"] == alias) {
+            call["APIMethod"] = serde_json::Value::String(method.value.clone());
+        }
+    }
+    Ok(())
 }

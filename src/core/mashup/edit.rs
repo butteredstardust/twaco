@@ -138,6 +138,10 @@ pub(crate) struct MashupDocument {
     verbatim: bool,
     /// Imported contracts for raw endpoints, kept only in memory while compiling a page.
     pub(crate) binding_types: std::collections::BTreeMap<(String, String), String>,
+    /// Warnings raised while an end was resolved, taken by the session that asked.
+    pub(crate) pending_warnings: Vec<String>,
+    /// Field types of an unshaped service result, by (call alias, field), kept like `binding_types`.
+    pub(crate) source_types: std::collections::BTreeMap<(String, String), String>,
 }
 
 /// Parse and check a `content.json`.
@@ -187,6 +191,8 @@ impl MashupDocument {
             uuid_generator: random_uuid,
             verbatim: false,
             binding_types: Default::default(),
+            source_types: Default::default(),
+            pending_warnings: Vec::new(),
         };
         document.check()?;
         Ok(document)

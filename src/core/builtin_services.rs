@@ -33,6 +33,7 @@ fn groups(collection: &str) -> &'static [&'static str] {
         // A dynamic source on a template or shape calls the Things' services too.
         "ThingTemplates" => &["template", "thing", "root"],
         "ThingShapes" => &["shape", "thing", "root"],
+        "Networks" => &["network", "root"],
         _ => &[],
     }
 }
@@ -40,8 +41,20 @@ fn groups(collection: &str) -> &'static [&'static str] {
 /// The platform service `name` on an entity of `collection` (`Things`, `ThingTemplates` or
 /// `ThingShapes`), or `None` when the platform has no such service for it.
 pub(crate) fn find(collection: &str, name: &str) -> Option<Service> {
+    find_in(groups(collection), name)
+}
+
+/// The services a platform template adds to its Things (`Wiki`), or `None` for any other.
+pub(crate) fn find_for_template(template: &str, name: &str) -> Option<Service> {
+    match template {
+        "Wiki" => find_in(&["wiki"], name),
+        _ => None,
+    }
+}
+
+fn find_in(groups: &[&str], name: &str) -> Option<Service> {
     let table = table();
-    let raw = groups(collection)
+    let raw = groups
         .iter()
         .find_map(|group| table.get(*group).and_then(|group| group.get(name)))?;
     let text = |value: &Value| value.as_str().map(str::to_string);
@@ -100,6 +113,17 @@ pub(crate) fn is_platform_shape(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_runtime_services_take_what_the_runtime_reads() {
+        let get = find("Things", "GetProperties").unwrap();
+        let names: Vec<_> = get.parameters.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["useWebsockets", "showSubscriptionMsg"]);
+        assert!(find("Things", "SetProperties").is_some());
+        assert!(find("Networks", "GetNetworkConnections").is_some());
+        assert!(find_for_template("Wiki", "GetWikiPages").is_some());
+        assert!(find_for_template("Thing", "GetWikiPages").is_none());
+    }
 
     #[test]
     fn every_entity_kind_resolves_its_own_and_shared_services() {

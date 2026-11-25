@@ -129,7 +129,9 @@ pub(crate) fn load_model_from(discovered: &workspace::Discovery) -> (Model, Vec<
     let mut model = Model::default();
     let mut skipped = discovered.unreadable.clone();
     for file in &discovered.entities {
+        // A Network has services of its own (a mashup data source can run them), but no members.
         if file.info.collection != "DataShapes"
+            && file.info.collection != "Networks"
             && !ENTITY_COLLECTIONS.contains(&file.info.collection.as_str())
         {
             continue;

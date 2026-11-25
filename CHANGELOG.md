@@ -6,6 +6,19 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- **Page specs: copies of the offline kit pages lose less.** A call keeps a stored `APIMethod` other
+  than `post` (`method: get`); a section that names an entity and calls nothing is kept
+  (`empty_sources: [Things_Acme.Thing]`); a Network is a data source (`entity_type: network`, with
+  `GetNetworkConnections` built in) and a Wiki Thing knows `GetWikiPages`. `GetProperties` takes
+  `useWebsockets` and `showSubscriptionMsg`, and `SetProperties` is a known runtime service whose
+  parameters are the Thing's properties. The field types a binding reads from a built-in service's
+  unshaped rows are carried (`field_types: {Level: NUMBER}`, `NUMBER:field` when the stored kind
+  is not the usual one), and `GetProperties` fields are `Property` bindings. A bare expression
+  keeps its stored text, a mashup template derives as `kind: template`, a property the source
+  binds that Composer 10.2 does not list as a target is a warning on an as-built page, and
+  adopting a gadget no longer stops on its entity type. `mashup diff` reads a root parameter without
+  aspects, a mashup-parameter binding without a source type, `STRING` against a name type, and
+  legacy property names (`CollapseByDefault`) the way Composer does.
 - **Page specs: copies keep alignment and pane heights, state formatting is carried, `widget:`
   nodes take events.** A derived spec now states `align-items` and `flex-wrap` on rows and columns
   that differ from the build's `stretch` and `nowrap` (a copy of a `flex-start` header no longer

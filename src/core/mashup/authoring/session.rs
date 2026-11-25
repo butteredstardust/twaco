@@ -236,11 +236,13 @@ impl Session {
         let assets = mashup::extract(&self.entity).map_err(AuthoringError::Mashup)?;
         let verbatim = self.document.verbatim();
         let binding_types = self.document.binding_types.clone();
+        let source_types = self.document.source_types.clone();
         self.document = mashup::edit::parse(&assets.content).map_err(AuthoringError::Edit)?;
         self.document
             .set_uuid_generator(crate::core::mashup::page::ids::uuid);
         self.document.set_verbatim(verbatim);
         self.document.binding_types = binding_types;
+        self.document.source_types = source_types;
         self.css = assets.css;
         Ok(())
     }
@@ -450,7 +452,11 @@ impl Session {
         match super::bind_in(&mut self.document, Some(solution), &context, from, to) {
             // A source can state a binding twice; as found, it is one.
             Err(AuthoringError::Exists(_)) if self.document.verbatim() => Ok(()),
-            result => result.map(|binding| self.warnings.extend(binding.warnings)),
+            result => {
+                self.warnings
+                    .extend(std::mem::take(&mut self.document.pending_warnings));
+                result.map(|binding| self.warnings.extend(binding.warnings))
+            }
         }
     }
 

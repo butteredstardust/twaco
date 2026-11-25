@@ -43,6 +43,10 @@ pub(crate) struct Page {
     pub(crate) parameters: BTreeMap<String, Spanned<Parameter>>,
     #[serde(default)]
     pub(crate) data: BTreeMap<String, Spanned<Source>>,
+    /// Data sections that name an entity and run none of its services, by section name
+    /// (`Things_Acme.Thing`): a page built as found keeps them.
+    #[serde(default)]
+    pub(crate) empty_sources: Vec<Spanned<String>>,
     #[serde(default)]
     pub(crate) slots: BTreeMap<String, Spanned<Vec<Node>>>,
     #[serde(default)]
@@ -102,6 +106,8 @@ impl Parameter {
 pub(crate) enum PageKind {
     Page,
     Master,
+    /// A mashup template: an ordinary mashup whose content says `mashupTemplate`.
+    Template,
 }
 
 impl Page {
@@ -137,6 +143,12 @@ pub(crate) struct Source {
     #[serde(default)]
     pub(crate) fields: BTreeMap<String, Spanned<String>>,
     pub(crate) service: Option<Spanned<String>>,
+    /// The stored `APIMethod` of the call (`get`, `post`, ...); `post` is the default.
+    pub(crate) method: Option<Spanned<String>>,
+    /// Base types of the fields of an unshaped result (a built-in service's rows) that bindings
+    /// read, as stored.
+    #[serde(default)]
+    pub(crate) field_types: BTreeMap<String, Spanned<String>>,
     /// A ThingShape or ThingTemplate service runs on the Thing this `{bind: ...}` names at runtime.
     pub(crate) entity: Option<Spanned<Value>>,
     pub(crate) expression: Option<Spanned<String>>,
@@ -964,10 +976,12 @@ fn parse_nested(
     for source in spec.page.value.data.values() {
         let s = &source.value;
         if let Some(kind) = &s.entity_type {
-            if s.service.is_none() || !matches!(kind.value.as_str(), "template" | "shape") {
+            if s.service.is_none()
+                || !matches!(kind.value.as_str(), "template" | "shape" | "network")
+            {
                 return Err(Error::at(
                     kind.referenced,
-                    "entity_type needs a service and must be template or shape",
+                    "entity_type needs a service and must be template, shape or network",
                 ));
             }
         }

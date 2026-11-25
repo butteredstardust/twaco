@@ -30,7 +30,7 @@ mod remove;
 pub(crate) mod session;
 pub(crate) mod set;
 mod source;
-pub(crate) use source::ensure_session_source;
+pub(crate) use source::{ensure_empty_section, ensure_session_source};
 pub(crate) mod state_format;
 
 pub(super) fn template_page_container(

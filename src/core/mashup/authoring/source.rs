@@ -39,6 +39,51 @@ pub(crate) fn ensure_session_source(
     Ok(())
 }
 
+/// A data section that names an entity and calls none of its services, as a page built as found
+/// keeps it. `key` is the section's name, `<EntityType>_<entity>`.
+pub(crate) fn ensure_empty_section(
+    document: &mut crate::core::mashup::edit::MashupDocument,
+    key: &str,
+) -> Result<(), AuthoringError> {
+    let Some((kind, entity)) = key.split_once('_') else {
+        return Err(AuthoringError::Invalid(format!(
+            "{key} is not a data section name: <EntityType>_<entity>"
+        )));
+    };
+    if !matches!(
+        kind,
+        "Things"
+            | "ThingTemplates"
+            | "ThingShapes"
+            | "DynamicThingTemplates"
+            | "DynamicThingShapes"
+            | "Networks"
+    ) || entity.is_empty()
+    {
+        return Err(AuthoringError::Invalid(format!(
+            "{key} is not a data section of a Thing, ThingTemplate, ThingShape or Network"
+        )));
+    }
+    if document.value()["Data"].get(key).is_some() {
+        return Ok(());
+    }
+    let mut section = Map::new();
+    insert(&mut section, "DataName", Value::String(key.into()));
+    insert(&mut section, "EntityName", Value::String(entity.into()));
+    insert(&mut section, "EntityType", Value::String(kind.into()));
+    insert(
+        &mut section,
+        "Id",
+        Value::String(document.uuid(&format!("source:{key}"))),
+    );
+    insert(&mut section, "RefreshInterval", Value::from(0));
+    insert(&mut section, "Services", Value::Array(Vec::new()));
+    document
+        .data_mut()
+        .insert(key.into(), Value::Object(section));
+    Ok(())
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceKind {
     Things,
@@ -46,6 +91,7 @@ pub enum SourceKind {
     Shape,
     DynamicTemplate,
     DynamicShape,
+    Network,
 }
 
 impl SourceKind {
@@ -60,6 +106,10 @@ impl SourceKind {
             ("ThingTemplates", false) => Ok(Self::Template),
             ("ThingTemplates", true) => Ok(Self::DynamicTemplate),
             ("ThingShapes", _) => Ok(Self::DynamicShape),
+            ("Networks", false) => Ok(Self::Network),
+            ("Networks", true) => Err(AuthoringError::Refused(format!(
+                "{entity} is a Network: its source is static; leave out --dynamic"
+            ))),
             (other, _) => Err(AuthoringError::Refused(format!(
                 "{entity} is in {other}: a data source runs a Thing's, ThingTemplate's or ThingShape's service"
             ))),
@@ -72,6 +122,7 @@ impl SourceKind {
             Self::Shape => "ThingShapes",
             Self::DynamicTemplate => "DynamicThingTemplates",
             Self::DynamicShape => "DynamicThingShapes",
+            Self::Network => "Networks",
         }
     }
     pub(crate) fn dynamic(&self) -> bool {
@@ -228,6 +279,9 @@ pub(super) fn plan_source_add_loaded_as(
         }
         Some("template") if entity.collection == "ThingTemplates" && !request.dynamic => {
             SourceKind::Template
+        }
+        Some("network") if entity.collection == "Networks" && !request.dynamic => {
+            SourceKind::Network
         }
         None => SourceKind::of(&request.entity, &entity.collection, request.dynamic)?,
         Some(kind) => {
@@ -534,6 +588,7 @@ pub(crate) fn list_sources(
             "ThingShapes" => "shape",
             "DynamicThingTemplates" => "dynamic-template",
             "DynamicThingShapes" => "dynamic-shape",
+            "Networks" => "network",
             _ => continue,
         };
         let entity = section_name

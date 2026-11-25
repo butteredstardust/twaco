@@ -118,6 +118,9 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     };
     let mut page = Map::new();
     page.insert("name".into(), json!(name));
+    if content["mashupType"] == "mashupTemplate" {
+        page.insert("kind".into(), json!("template"));
+    }
     if content["mashupType"] == "targetmashup" {
         page.insert("kind".into(), json!("master"));
         let fresh = crate::core::mashup::templates::master_root();
@@ -231,6 +234,9 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     let bindings = run.remaining_bindings();
     if !data.is_empty() {
         page.insert("data".into(), Value::Object(data));
+    }
+    if !run.empty_sections.is_empty() {
+        page.insert("empty_sources".into(), json!(run.empty_sections));
     }
     page.insert("slots".into(), json!({"center": slot}));
     if !events.is_empty() {
@@ -535,6 +541,10 @@ struct Call {
     service: String,
     params: Map<String, Value>,
     refresh: u64,
+    /// The stored `APIMethod` when it is not the default `post`.
+    api_method: Option<String>,
+    /// The service's own name on the entity (`GetProperties`).
+    target: String,
     /// A dynamic source: the shape or template it runs on a Thing of, chosen at runtime.
     dynamic: bool,
 }
@@ -546,6 +556,11 @@ struct Link {
     consumed: bool,
     /// Reads the rows a widget selected rather than the whole result.
     selected: bool,
+    /// The stored base type and kind (`field`, `property`) of the source field, and the stored
+    /// base type of the target.
+    source_base: String,
+    source_kind: String,
+    target_base: String,
 }
 
 struct Run<'a> {
@@ -556,6 +571,8 @@ struct Run<'a> {
     exact: bool,
     content: &'a Value,
     calls: Vec<Call>,
+    /// Sections that name an entity and call none of its services.
+    empty_sections: Vec<String>,
     expressions: Map<String, Value>,
     navigations: HashMap<String, Value>,
     expression_names: HashMap<String, String>,
@@ -580,6 +597,7 @@ impl<'a> Run<'a> {
             exact: false,
             content,
             calls: vec![],
+            empty_sections: vec![],
             expressions: Map::new(),
             navigations: HashMap::new(),
             expression_names: HashMap::new(),
@@ -614,7 +632,10 @@ impl<'a> Run<'a> {
             };
             let collection = section.split_once('_').map(|(kind, _)| kind).unwrap_or("");
             let static_kind = entry["EntityType"] == "Things"
-                || matches!(collection, "Things" | "ThingTemplates" | "ThingShapes");
+                || matches!(
+                    collection,
+                    "Things" | "ThingTemplates" | "ThingShapes" | "Networks"
+                );
             if !(static_kind || dynamic) || entity.is_empty() {
                 if !entry["Services"].as_array().is_none_or(Vec::is_empty)
                     && !matches!(
@@ -625,6 +646,9 @@ impl<'a> Run<'a> {
                     unsupported.insert(section.clone());
                 }
                 continue;
+            }
+            if entry["Services"].as_array().is_some_and(Vec::is_empty) {
+                run.empty_sections.push(section.clone());
             }
             for service in entry["Services"].as_array().into_iter().flatten() {
                 let (Some(name), Some(target)) =
@@ -653,6 +677,11 @@ impl<'a> Run<'a> {
                         .cloned()
                         .unwrap_or_default(),
                     refresh: service["RefreshInterval"].as_u64().unwrap_or(0),
+                    target: target.into(),
+                    api_method: service["APIMethod"]
+                        .as_str()
+                        .filter(|m| !m.is_empty() && *m != "post")
+                        .map(String::from),
                     dynamic,
                 });
             }
@@ -688,6 +717,9 @@ impl<'a> Run<'a> {
                     ),
                     consumed: false,
                     selected: binding["SourceDetails"] == "SelectedRows",
+                    source_base: prop("SourcePropertyBaseType"),
+                    source_kind: prop("SourcePropertyType").to_ascii_lowercase(),
+                    target_base: prop("TargetPropertyBaseType"),
                 });
                 let last = run.links.last_mut().expect("link");
                 let field = prop("SourceProperty");
@@ -781,6 +813,61 @@ impl<'a> Run<'a> {
     }
 
     /// The text of what a link reads from, with widget ids left as `@@id@@` for `resolve`.
+    /// The field types a call's bindings store, for a service whose result has no DataShape of
+    /// its own (a built-in's rows, `GetProperties`): the spec cannot look them up.
+    fn field_types(&self, call: &Call) -> Map<String, Value> {
+        let collection = match call.section.split_once('_').map(|(kind, _)| kind) {
+            Some("Things") => "Things",
+            Some("ThingTemplates" | "DynamicThingTemplates") => "ThingTemplates",
+            Some("ThingShapes" | "DynamicThingShapes") => "ThingShapes",
+            _ => return Map::new(),
+        };
+        let mut types = Map::new();
+        // `SetProperties` takes the Thing's own properties as parameters, which no table lists.
+        if call.target == "SetProperties" {
+            for link in &self.links {
+                if link.target.0 == "Data"
+                    && link.target.1 == call.name
+                    && link.target.2 == call.section
+                    && !link.target.3.is_empty()
+                    && !link.target_base.is_empty()
+                {
+                    types.insert(link.target.3.clone(), json!(link.target_base));
+                }
+            }
+            return types;
+        }
+        let unshaped = call.target == "GetProperties"
+            || crate::core::builtin_services::find(collection, &call.target).is_some_and(|s| {
+                s.result.base_type == "INFOTABLE" && s.result.data_shape.is_none()
+            });
+        if !unshaped {
+            return types;
+        }
+        // A property of a Thing is what `GetProperties` hands back; any other row is a field.
+        let usual = if call.target == "GetProperties" {
+            "property"
+        } else {
+            "field"
+        };
+        let prefix = format!("{}\u{1}", call.section);
+        for link in &self.links {
+            if link.source.0 == "Data" && link.source.1 == call.name {
+                if let Some(field) = link.source.2.strip_prefix(&prefix) {
+                    if !field.is_empty() && !link.source_base.is_empty() {
+                        let stored = if link.source_kind.is_empty() || link.source_kind == usual {
+                            link.source_base.clone()
+                        } else {
+                            format!("{}:{}", link.source_base, link.source_kind)
+                        };
+                        types.insert(field.into(), json!(stored));
+                    }
+                }
+            }
+        }
+        types
+    }
+
     fn source(&self, link: &Link) -> Option<String> {
         let (area, id, section) = &link.source;
         let (section, field) = section.split_once('\u{1}')?;
@@ -1707,6 +1794,13 @@ impl<'a> Run<'a> {
                 }
                 props.insert(key.clone(), value.clone());
             }
+            // A build writes a bare expression as `result = (...);`; the stored text stays.
+            if let Some(stored) = prop(widget, "Expression")
+                .as_str()
+                .filter(|script| !(script.contains(';') || script.contains('\n')))
+            {
+                props.insert("Expression".into(), json!(stored));
+            }
             if !props.is_empty() {
                 entry.insert("props".into(), Value::Object(props));
             }
@@ -2442,10 +2536,18 @@ impl<'a> Run<'a> {
                 .and_then(|(kind, _)| match kind {
                     "ThingTemplates" => Some("template"),
                     "ThingShapes" => Some("shape"),
+                    "Networks" => Some("network"),
                     _ => None,
                 })
             {
                 entry.insert("entity_type".into(), json!(kind));
+            }
+            let types = self.field_types(call);
+            if !types.is_empty() {
+                entry.insert("field_types".into(), Value::Object(types));
+            }
+            if let Some(method) = &call.api_method {
+                entry.insert("method".into(), json!(method));
             }
             if loaded.contains(&call.alias) {
                 entry.insert("on".into(), json!("load"));

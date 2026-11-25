@@ -339,6 +339,9 @@ fn normalise_pair(left: &Value, right: &Value) -> (Value, Value) {
     rewrite_widget_ids(&mut left, &left_ids);
     rewrite_widget_ids(&mut right, &right_ids);
     for value in [&mut left, &mut right] {
+        // Composer renames a widget's legacy properties, and the bindings that name them, when it
+        // opens the mashup; the copy was derived from that reading.
+        crate::core::widgets::migrate_content(value);
         strip_identity(value);
         if value.get("mashupType").is_none() {
             value["mashupType"] = Value::String("mashup".into());
@@ -739,6 +742,25 @@ fn rewrite_field(value: &mut Value, field: &str, ids: &BTreeMap<String, String>)
 /// them, and Composer and twaco allocate them freely. Calls are put in name order, which
 /// ThingWorx does not depend on.
 fn strip_identity(value: &mut Value) {
+    // Older Composer versions store a root parameter without aspects; a stated direction IN and
+    // not mandatory is the same parameter.
+    for defs in value
+        .pointer_mut("/UI/Properties/_currentParameterDefs")
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        let default = defs["Aspects"].as_object().is_some_and(|a| {
+            a.len() == 2
+                && a.get("bindingDirection").and_then(Value::as_str) == Some("IN")
+                && a.get("isMandatory") == Some(&Value::Bool(false))
+        });
+        if default {
+            if let Some(defs) = defs.as_object_mut() {
+                defs.remove("Aspects");
+            }
+        }
+    }
     if let Some(data) = value.get_mut("Data").and_then(Value::as_object_mut) {
         for section in data.values_mut() {
             let Some(section) = section.as_object_mut() else {
@@ -781,6 +803,14 @@ fn strip_identity(value: &mut Value) {
             .flatten()
         {
             if let Some(item) = item.as_object_mut() {
+                let item_area = item
+                    .get("SourceArea")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let item_target_area = item
+                    .get("TargetArea")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
                 item.remove("Id");
                 // Composer spellings of one binding: an empty member written or left out, a
                 // SourceName repeating SourceId, and `property` or `Property`.
@@ -797,6 +827,24 @@ fn strip_identity(value: &mut Value) {
                             *text = text.to_ascii_lowercase();
                         }
                     }
+                    // Older Composer versions leave the source type out of a binding from a
+                    // mashup parameter or a widget: it is a property.
+                    if matches!(item_area.as_deref(), Some("Mashup" | "UI"))
+                        && !map.contains_key("SourcePropertyType")
+                    {
+                        map.insert(
+                            "SourcePropertyType".into(),
+                            Value::String("property".into()),
+                        );
+                    }
+                    if matches!(item_target_area.as_deref(), Some("Mashup" | "UI"))
+                        && !map.contains_key("TargetPropertyType")
+                    {
+                        map.insert(
+                            "TargetPropertyType".into(),
+                            Value::String("property".into()),
+                        );
+                    }
                     // The runtime resolves the endpoint's property contract. Composer versions
                     // describe the same numeric binding with any of these compatible types.
                     for kind in ["SourcePropertyBaseType", "TargetPropertyBaseType"] {
@@ -806,6 +854,15 @@ fn strip_identity(value: &mut Value) {
                             .is_some_and(|t| matches!(t, "NUMBER" | "INTEGER" | "LONG"))
                         {
                             map.insert(kind.into(), Value::String("NUMBER".into()));
+                        }
+                        // A name type is a string to the runtime, and a binding into a widget
+                        // that takes either is stored with whichever Composer knew.
+                        if map
+                            .get(kind)
+                            .and_then(Value::as_str)
+                            .is_some_and(|t| t.ends_with("NAME"))
+                        {
+                            map.insert(kind.into(), Value::String("STRING".into()));
                         }
                     }
                 }

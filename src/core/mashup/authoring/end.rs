@@ -218,7 +218,14 @@ pub(super) fn resolve_end(
             } else {
                 contract.target
             };
-            if !valid {
+            if !valid && document.verbatim() {
+                // The platform accepted the page as found, so the build keeps the wiring.
+                document.pending_warnings.push(format!(
+                    "ui:{}.{property} is not a {} in the 10.2 Composer definition; kept as the page states it",
+                    found.id,
+                    if source { "binding source" } else { "binding target" }
+                ));
+            } else if !valid {
                 return Err(AuthoringError::Refused(format!(
                     "ui:{}.{property} is not a {} property",
                     found.id,
@@ -318,7 +325,39 @@ pub(super) fn resolve_end(
                             name,
                         )?;
                         warning = unchecked;
-                        (base, "Field".into())
+                        // An unshaped result (a built-in service's rows) has no field types of
+                        // its own: a page built as found states them with `field_types`.
+                        let stated = if base.is_empty() {
+                            document
+                                .source_types
+                                .get(&(
+                                    alias.clone().unwrap_or_else(|| service.clone()),
+                                    name.to_string(),
+                                ))
+                                .cloned()
+                        } else {
+                            None
+                        };
+                        // `BASE` or `BASE:kind`, the kind being `field` or `property`.
+                        let (base, stated_kind) = match stated.as_deref() {
+                            Some(text) => match text.split_once(':') {
+                                Some((base, kind)) => (base.to_string(), Some(kind.to_string())),
+                                None => (text.to_string(), None),
+                            },
+                            None => (base, None),
+                        };
+                        // `GetProperties` hands back Thing properties, not fields of a result.
+                        let kind = match stated_kind.as_deref() {
+                            Some("property") => "Property",
+                            Some(_) => "Field",
+                            None if service == "GetProperties"
+                                && found.result.data_shape.is_none() =>
+                            {
+                                "Property"
+                            }
+                            None => "Field",
+                        };
+                        (base, kind.into())
                     }
                 };
                 if found.result.base_type == "INFOTABLE"
@@ -347,16 +386,33 @@ pub(super) fn resolve_end(
                         "data:{entity_service} needs a parameter target"
                     ))
                 })?;
-                let parameter = found
-                    .parameters
-                    .iter()
-                    .find(|p| p.name == name)
-                    .ok_or_else(|| {
-                        AuthoringError::Unknown(format!(
-                            "{}.{} has no parameter {}",
-                            entity.name, service, name
-                        ))
-                    })?;
+                // `SetProperties` is the mashup runtime's: its parameters are the Thing's own
+                // properties, typed by what the page states.
+                let pseudo = (service == "SetProperties"
+                    && !found.parameters.iter().any(|p| p.name == name))
+                .then(|| {
+                    document.source_types.get(&(
+                        alias.clone().unwrap_or_else(|| service.clone()),
+                        name.clone(),
+                    ))
+                })
+                .flatten();
+                let base = match pseudo {
+                    Some(base) => base.clone(),
+                    None => found
+                        .parameters
+                        .iter()
+                        .find(|p| p.name == name)
+                        .ok_or_else(|| {
+                            AuthoringError::Unknown(format!(
+                                "{}.{} has no parameter {}",
+                                entity.name, service, name
+                            ))
+                        })?
+                        .value
+                        .base_type
+                        .clone(),
+                };
                 Ok(End::Data {
                     entity: entity.name.clone(),
                     collection: entity.collection.clone(),
@@ -365,7 +421,7 @@ pub(super) fn resolve_end(
                     selected_rows,
                     entity_name: false,
                     member: Some(name),
-                    base: parameter.value.base_type.clone(),
+                    base,
                     property_type: "Parameter".into(),
                     warning: None,
                 })
@@ -715,7 +771,7 @@ pub(super) fn resolve_service<'a>(
     for entity in &model.entities {
         if !matches!(
             entity.collection.as_str(),
-            "Things" | "ThingTemplates" | "ThingShapes"
+            "Things" | "ThingTemplates" | "ThingShapes" | "Networks"
         ) {
             continue;
         }

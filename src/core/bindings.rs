@@ -841,6 +841,7 @@ fn collection(kind: &str) -> Option<&'static str> {
         "Things" | "Thing" => Some("Things"),
         "ThingTemplates" | "ThingTemplate" | "DynamicThingTemplates" => Some("ThingTemplates"),
         "ThingShapes" | "ThingShape" | "DynamicThingShapes" => Some("ThingShapes"),
+        "Networks" => Some("Networks"),
         _ => None,
     }
 }

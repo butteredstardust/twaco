@@ -518,6 +518,15 @@ fn plan_from(
         .collect();
     let mut problems = Vec::new();
     mashup::validate::check_content(&mashup::to_sidecar(&content), &mut problems);
+    // A page built as found keeps a binding the source made into a property Composer 10.2 does
+    // not list as a target: the platform accepted it, so it is advice here, not a refusal.
+    if spec.page.value.layout.is_some() {
+        for problem in &mut problems {
+            if problem.rule == "direction" {
+                problem.severity = mashup::validate::Severity::Advisory;
+            }
+        }
+    }
     if conflicts.is_empty()
         && problems
             .iter()
@@ -555,7 +564,10 @@ fn plan_from(
                 .map(|(kind, _)| kind.to_string())
         };
         let (was, now) = (kind(before), kind(&generated.entity));
-        if was != now {
+        // A gadget is an ordinary mashup with a size; a spec states no gadget kind, and a build
+        // leaves the entity's type alone.
+        let gadget_as_mashup = was.as_deref() == Some("gadget") && now.as_deref() == Some("mashup");
+        if was != now && !gadget_as_mashup {
             return Err(AuthoringError::Invalid(format!(
                 "{name} is a {} mashup and page.kind asks for {}; changing the kind of an existing \
                  mashup is not supported: create a new mashup with this spec instead",

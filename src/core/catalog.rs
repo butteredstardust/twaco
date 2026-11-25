@@ -561,6 +561,17 @@ pub(crate) fn lookup_service(
             ..ServiceLookup::new(Some(service), unseen)
         };
     }
+    // A Thing of a platform template that adds services of its own (a Wiki).
+    if let Some(service) = entity
+        .template
+        .as_deref()
+        .and_then(|template| builtin_services::find_for_template(template, wanted))
+    {
+        return ServiceLookup {
+            approximate: !unseen.is_empty(),
+            ..ServiceLookup::new(Some(service), unseen)
+        };
+    }
     // A shape or template has no instance of its own: a dynamic source on it runs on whichever
     // Thing implements it, so a service only those Things define is still the shape's to call.
     if let Some(service) = implementer_service(entity, entities, wanted) {
