@@ -832,6 +832,10 @@ impl<'a> Run<'a> {
         }
         let mut out = Map::new();
         for (key, value) in widget["Properties"].as_object().into_iter().flatten() {
+            if self.exact && type_id == "navigationfunction" && key == "_currentParameterDefs" {
+                out.insert(key.clone(), value.clone());
+                continue;
+            }
             if self.exact && key == "DisplayName" && !generated_name(widget, value) {
                 out.insert(key.clone(), value.clone());
                 continue;
@@ -852,10 +856,18 @@ impl<'a> Run<'a> {
             {
                 continue;
             }
+            if widgets::catalog()
+                .by_type(type_id)
+                .is_some_and(|w| !crate::core::mashup::authoring::property_editable(w, key))
+            {
+                continue;
+            }
             if base.get(key).is_some_and(|d| same(d, value)) {
                 continue;
             }
-            if key == "MashupParameters" && !(self.exact && type_id == "mashupcontainer") {
+            if key == "MashupParameters"
+                && !(self.exact && matches!(type_id, "mashupcontainer" | "navigationfunction"))
+            {
                 // Managed by the contained mashup; `embed` writes it.
                 continue;
             }
@@ -1163,7 +1175,15 @@ impl<'a> Run<'a> {
         if !props.is_empty() {
             body.insert("props".into(), Value::Object(props));
         }
-        if !widgets_of(widget).is_empty() {
+        if self.exact && !widgets_of(widget).is_empty() {
+            body.insert(
+                "children".into(),
+                widgets_of(widget)
+                    .iter()
+                    .map(|child| self.node(child, "column"))
+                    .collect(),
+            );
+        } else if !widgets_of(widget).is_empty() {
             self.notes.push(format!(
                 "the children of {} {} were left out",
                 type_id,
@@ -1483,7 +1503,8 @@ impl<'a> Run<'a> {
             })
             .collect();
         let target = text(widget, "TargetMashup").filter(|s| !s.is_empty());
-        if target.is_none()
+        if self.exact
+            || target.is_none()
             || events.len() != 1
             || (self.exact
                 && !id
@@ -2351,6 +2372,7 @@ impl<'a> Run<'a> {
                 }
             }
             let mut params = call.params.clone();
+            let mut fixed = Map::new();
             for i in 0..self.links.len() {
                 let link = &self.links[i];
                 if link.target.0 == "Data"
@@ -2363,6 +2385,9 @@ impl<'a> Run<'a> {
                         .any(|l| l.consumed && l.target == link.target)
                 {
                     if let Some(source) = self.source(link) {
+                        if let Some(value) = params.get(&link.target.3) {
+                            fixed.insert(link.target.3.clone(), value.clone());
+                        }
                         params.insert(link.target.3.clone(), json!({"bind": source}));
                         self.links[i].consumed = true;
                     }
@@ -2370,6 +2395,9 @@ impl<'a> Run<'a> {
             }
             if !params.is_empty() {
                 entry.insert("params".into(), Value::Object(params));
+            }
+            if !fixed.is_empty() {
+                entry.insert("fixed".into(), Value::Object(fixed));
             }
             data.insert(call.alias.clone(), Value::Object(entry));
         }
@@ -2398,8 +2426,15 @@ impl<'a> Run<'a> {
                 continue;
             };
             let (area, id, section, property) = &link.target;
+            let root = self.content["UI"]["Properties"]["Id"]
+                .as_str()
+                .unwrap_or("");
             let to = match area.as_str() {
                 "UI" if self.ids.contains_key(id) => format!("@@{id}@@.{property}"),
+                // The mashup root is no node; `page.<property>` names its properties.
+                "UI" if id == root && root == "mashup-root" => {
+                    format!("page.{property}")
+                }
                 "Data" => {
                     let Some(call) = self
                         .calls

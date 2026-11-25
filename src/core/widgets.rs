@@ -144,7 +144,27 @@ pub(crate) fn dynamic_property(
     name: &str,
     data_bound: bool,
 ) -> Option<PropertyContract> {
-    let base = if type_id == "ptcscollection" {
+    // Composer exposes 100 sources when the series count is automatic (unset).
+    let chart_source = catalog().by_type(type_id).is_some_and(|w| {
+        type_id.starts_with("ptcschart") && w.defaults.contains_key("MultipleDataSources")
+    }) && props["MultipleDataSources"] == true
+        && name.strip_prefix("DataSource").is_some_and(|suffix| {
+            let count = props["NumberOfSeries"]
+                .as_u64()
+                .or_else(|| props["NumberOfSeries"].as_str()?.parse().ok())
+                .unwrap_or(if props["NumberOfSeries"].is_null() {
+                    100
+                } else {
+                    0
+                });
+            suffix
+                .parse::<u64>()
+                .ok()
+                .is_some_and(|n| n.to_string() == suffix && (1..=count.min(100)).contains(&n))
+        });
+    let base = if chart_source {
+        "INFOTABLE".into()
+    } else if type_id == "ptcscollection" {
         let globals = json_object(&props["MashupGlobalPropertyBinding"])?;
         globals.get(name)?.as_str()?.to_string()
     } else if type_id == "ptcsmenubutton" {
@@ -162,7 +182,7 @@ pub(crate) fn dynamic_property(
         base_type: Some(base),
         source: type_id == "ptcscollection",
         target: true,
-        editable: true,
+        editable: !chart_source,
         options: vec![],
     })
 }
@@ -214,6 +234,11 @@ pub(crate) fn configuration_warnings(content: &Value) -> Vec<String> {
     fn walk(widget: &Value, content: &Value, out: &mut Vec<String>) {
         let props = &widget["Properties"];
         let id = props["Id"].as_str().unwrap_or_default();
+        if props["Type"].as_str().is_some_and(|kind| {
+            !matches!(kind, "mashup" | "targetmashup") && catalog().by_type(kind).is_none()
+        }) {
+            out.push(format!("{id}: widget contract is not in the embedded catalogue; events and bindings cannot be checked and are carried as-is"));
+        }
         if props["Type"] == "ptcsmenubutton"
             && props["ItemConfigurationMode"] == "widgetProperties"
             && property_bound(content, id, "Data")

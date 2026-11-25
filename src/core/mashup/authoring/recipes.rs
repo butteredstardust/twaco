@@ -2131,9 +2131,35 @@ pub(super) fn plan_recipe_loaded(
                     "a mashup cannot open itself".into(),
                 ));
             }
-            let child = load_existing(solution, target)?;
-            let child_document = parse_loaded(&child)?;
-            let definitions = contained_parameters(&child, &child_document)?;
+            let definitions = match load_existing(solution, target) {
+                Ok(child) => contained_parameters(&child, &parse_loaded(&child)?)?,
+                Err(AuthoringError::Unknown(_)) => {
+                    work.notes.push(format!("{target}: target mashup is outside the solution; its parameter contract cannot be checked offline"));
+                    let mut definitions = Vec::new();
+                    for (name, address) in pass {
+                        let end = super::resolve_end(
+                            &mut work.document,
+                            Some(solution),
+                            &work.context,
+                            parse_address(address)
+                                .map_err(|e| AuthoringError::Invalid(e.to_string()))?,
+                            true,
+                            &mut vec![],
+                        )?;
+                        definitions.push(ParameterDefinition {
+                            name: name.clone(),
+                            base_type: super::base(&end).into(),
+                            direction: "IN".into(),
+                            description: String::new(),
+                            default: None,
+                            data_shape: None,
+                            visible: true,
+                        });
+                    }
+                    definitions
+                }
+                Err(error) => return Err(error),
+            };
             let cache: Vec<Value> = definitions
                 .iter()
                 .map(|def| cache_entry(def, def.default.clone()))

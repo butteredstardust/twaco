@@ -35,7 +35,8 @@ pub(crate) mod state_format;
 
 pub use add::{add_contained_plan_json, add_plan_json, AddContainedRequest, AddRequest};
 pub(crate) use add::{
-    function_property, plan_add, plan_add_contained, property_value, AddContainedPlan, AddPlan,
+    function_property, plan_add, plan_add_contained, property_editable, property_value,
+    AddContainedPlan, AddPlan,
 };
 pub use bind::BindRequest;
 use bind::{bind_in, data_call, existing_data_call};
@@ -252,6 +253,7 @@ pub(crate) fn parse_loaded(loaded: &ExistingMashup) -> Result<MashupDocument, Au
         })?;
     mashup::layout::clear_page_fillers(&mut document);
     if loaded.deterministic {
+        document.set_verbatim(document.value()["twacoPageRules"] != "v1");
         document.set_uuid_generator(crate::core::mashup::page::ids::uuid);
     }
     Ok(document)

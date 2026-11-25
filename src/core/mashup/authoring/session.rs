@@ -380,6 +380,7 @@ impl Session {
             self.loaded(),
             self.tokens.as_ref(),
         )?;
+        self.warnings.extend(plan.notes);
         self.accept(plan.edit)
     }
 

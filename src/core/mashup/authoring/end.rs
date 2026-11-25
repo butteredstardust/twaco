@@ -581,6 +581,12 @@ fn resolve_navigation_end(
     source: bool,
     refreshed: &mut Vec<String>,
 ) -> Result<Option<End>, AuthoringError> {
+    // An adopted page carries its cached contract and order; commands still refresh from the child.
+    if document.verbatim()
+        && function_property(document.at(&found.path), "navigationfunction", property).is_some()
+    {
+        return Ok(None);
+    }
     let target = document.at(&found.path)["Properties"]["TargetMashup"]
         .as_str()
         .unwrap_or_default()

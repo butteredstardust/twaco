@@ -177,6 +177,18 @@ fn compile_nested(
         session.document.root_mut().remove("twacoPageRules");
         session.document.set_verbatim(true);
     }
+    // A claimed root takes its id before nodes are placed, so a node can keep the id the template's
+    // center had.
+    if let Some(id) = page.root.as_ref().and_then(|r| r.value.id.as_ref()) {
+        let path = session
+            .document
+            .find("center")
+            .map_err(|e| Error::at(id.referenced, e))?
+            .path;
+        session
+            .document
+            .set_property(&path, "Id", json!(id.value.clone()));
+    }
     let mut allocator = Ids::new(session.document.widgets().into_iter().map(|w| w.id));
     fn preserve_ids(node: &Node, allocator: &mut Ids) {
         if let Some(id) = &node.body().widget_id {
@@ -298,6 +310,7 @@ fn compile_nested(
             .params
             .iter()
             .filter(|(_, v)| binding(&v.value).is_none())
+            .chain(source.fixed.iter())
             .map(|(k, v)| format!("{k}={}", scalar(&v.value)))
             .collect();
         // A dynamic source's entity is bound with the call when it comes from a parameter or a
@@ -559,6 +572,21 @@ fn compile_nested(
         .extend(crate::core::widgets::configuration_warnings(
             session.document.value(),
         ));
+    for widget in session.document.widgets() {
+        if widget.type_id == "navigationfunction" {
+            if let Some(target) = session.document.at(&widget.path)["Properties"]["TargetMashup"]
+                .as_str()
+                .filter(|name| !name.is_empty())
+            {
+                if matches!(
+                    authoring::load_existing(solution, target),
+                    Err(authoring::AuthoringError::Unknown(_))
+                ) {
+                    session.warnings.push(format!("{target}: target mashup is outside the solution; its parameter contract cannot be checked offline"));
+                }
+            }
+        }
+    }
     session.warnings.sort();
     session.warnings.dedup();
     Ok(Artifacts {
@@ -740,8 +768,8 @@ fn raw_unknown<'a>(page: &Page, node: &'a Node) -> Option<&'a str> {
     }
     let widget = node.widget().ok()?;
     crate::core::widgets::catalog()
-        .resolve(widget)
-        .is_err()
+        .by_type(widget)
+        .is_none()
         .then_some(widget)
 }
 
@@ -2316,6 +2344,32 @@ fn navigate_event(
             .as_str(),
         navigate.referenced,
     )?;
+    if matches!(
+        authoring::load_existing(solution, &nav.mashup.value),
+        Err(authoring::AuthoringError::Unknown(_))
+    ) {
+        let path = session
+            .document
+            .find_exact(&id)
+            .map_err(|e| Error::at(navigate.referenced, e))?
+            .path;
+        for (name, value) in &nav.params {
+            if binding(&value.value).is_some() {
+                continue;
+            }
+            let base = match &value.value {
+                Value::Bool(_) => "BOOLEAN",
+                Value::Number(_) => "NUMBER",
+                Value::Object(_) | Value::Array(_) => "JSON",
+                _ => "STRING",
+            };
+            let entry = json!({"ParameterName": name, "BaseType": base, "ParmDef": {"aspects": {"bindingDirection": "IN"}}});
+            session.document.at_mut(&path)["Properties"]["MashupParameters"]
+                .as_array_mut()
+                .expect("navigation cache")
+                .push(entry);
+        }
+    }
     let properties = nav
         .params
         .iter()
@@ -2574,6 +2628,17 @@ pub(super) fn address(
     }
     if page.data.contains_key(text) {
         return Ok(call(page, text));
+    }
+    // `page.<property>`: a property of the mashup root widget, unless a node or data source is
+    // itself named `page`.
+    if let Some(property) = text.strip_prefix("page.") {
+        if !property.is_empty()
+            && !property.contains('.')
+            && !ids.contains_key("page")
+            && !page.data.contains_key("page")
+        {
+            return Ok(format!("ui:mashup-root.{property}"));
+        }
     }
     if text.contains(".selected.") {
         return ids

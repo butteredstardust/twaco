@@ -6,6 +6,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Page-spec round trips accept horizontal image positions and case variations in catalogue
+  options, omit read-only props, bind numbered chart sources, and retain legacy container
+  children and navigation parameter cache order/defaults. Extension wiring is carried with an
+  unchecked-contract warning, including recipe triggers; external navigation targets warn
+  instead of refusing the page. A data call's `fixed:` keeps the static value of a parameter that
+  a binding feeds, and a master's claimed root id is applied before nodes are placed, so a row
+  can keep the template center's id.
+
 - Fresh mashups built from derived page specs keep parameter defaults, root styles and layout
   flags, custom widget ids, empty bound-label text, native session/user-extension data, mashup
   events and services, and navigation return/geometry bindings. Semantic diff follows reordered

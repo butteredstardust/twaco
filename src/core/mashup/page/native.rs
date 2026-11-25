@@ -299,7 +299,11 @@ pub(super) fn expand(node: &mut Node, tokens: &Tokens) -> Result<(), Error> {
                     put(b, "Scaling", json!(scaling.value));
                 }
                 if let Some(position) = b.position.take() {
-                    choice(&position, &["top", "center", "bottom"], "position")?;
+                    choice(
+                        &position,
+                        &["top", "center", "bottom", "left", "right"],
+                        "position",
+                    )?;
                     put(b, "Position", json!(position.value));
                 }
             } else {

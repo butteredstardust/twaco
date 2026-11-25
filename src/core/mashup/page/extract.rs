@@ -199,6 +199,17 @@ fn node_mut<'a>(value: &'a mut Value, id: &str) -> Option<&'a mut serde_json::Ma
     }
 }
 
+fn widget_type_at<'a>(widget: &'a Value, id: &str) -> Option<&'a str> {
+    if widget["Properties"]["Id"] == id {
+        return widget["Properties"]["Type"].as_str();
+    }
+    widget["Widgets"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find_map(|child| widget_type_at(child, id))
+}
+
 /// Build the derived spec offline and state, as props, what the mashup has that the build does not
 /// reproduce, so adopting the spec changes nothing. Returns the content the spec last built.
 fn refine(
@@ -246,6 +257,13 @@ fn refine(
                 continue;
             };
             let (widget, key) = (parts[at - 1], parts[at + 1].to_string());
+            let type_id = widget_type_at(&current["UI"], widget);
+            if type_id
+                .and_then(|t| crate::core::widgets::catalog().by_type(t))
+                .is_some_and(|w| !authoring::property_editable(w, &key))
+            {
+                continue;
+            }
             let node = widgets.get(widget).copied();
             let is_root =
                 widget == root || derived.value["page"]["root"]["id"].as_str() == Some(widget);

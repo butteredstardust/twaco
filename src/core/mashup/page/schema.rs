@@ -144,6 +144,9 @@ pub(crate) struct Source {
     pub(crate) refresh: Option<Spanned<u32>>,
     #[serde(default)]
     pub(crate) params: BTreeMap<String, Spanned<Value>>,
+    /// Static values a call also stores for parameters that a binding feeds.
+    #[serde(default)]
+    pub(crate) fixed: BTreeMap<String, Spanned<Value>>,
     /// Properties of an expression's widget that the spec's own fields do not cover.
     #[serde(default)]
     pub(crate) props: BTreeMap<String, Spanned<Value>>,

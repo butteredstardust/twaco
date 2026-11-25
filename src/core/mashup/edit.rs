@@ -2015,7 +2015,7 @@ impl MashupDocument {
 
     fn place_append(&mut self, widget: &Widget, target: &str) -> Result<Placed, EditError> {
         let target = self.find(target)?;
-        if target.type_id != "flexcontainer" {
+        if !matches!(target.type_id.as_str(), "flexcontainer" | "container") {
             return Err(EditError::Refused(format!(
                 "{} is a {}, not a responsive container",
                 target.id, target.type_id
