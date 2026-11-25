@@ -777,7 +777,7 @@ fn brief81_expression_bound_to_the_root_widget() {
         .unwrap()
         .push(serde_json::json!({
             "Id": "b-root", "SourceArea": "UI", "SourceId": "expression2-5", "SourceSection": "",
-            "SourceDetails": "", "TargetArea": "UI", "TargetId": root, "TargetSection": "",
+            "SourceDetails": "", "TargetArea": "Mashup", "TargetId": root, "TargetSection": "",
             "PropertyMaps": [{"SourceProperty": "Output", "SourcePropertyBaseType": "STRING",
                 "SourcePropertyType": "property", "TargetProperty": "CustomClass",
                 "TargetPropertyBaseType": "STRING", "TargetPropertyType": "property"}]

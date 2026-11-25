@@ -1134,6 +1134,7 @@ impl<'a> Run<'a> {
             "ptcslink" | "ptcsimage" | "ptcsicon" | "ptcsdivider" | "ptcscheckbox"
             | "ptcsradio" | "ptcstogglebutton" | "ptcstextarea" | "ptcsvaluedisplay"
             | "ptcspagination" | "ptcskpidial" | "ptcsrte" | "statusmessage" => self.native(widget),
+            "shape" if self.shape_expressible(widget) => self.native(widget),
             "mashupcontainer" if text(widget, "Name").is_some_and(|s| !s.is_empty()) => {
                 self.embed(widget)
             }
@@ -1308,7 +1309,7 @@ impl<'a> Run<'a> {
     fn other(&mut self, widget: &Value) -> Value {
         let type_id = kind(widget).to_string();
         let reason = match type_id.as_str() {
-            "shape" => "decorative shapes remain raw",
+            "shape" => "a shape needs a known outline and plain style names and numbers; other shapes remain raw",
             "googlemap" | "OpenStreetMap" | "openstreetmap" => "map extension contracts remain raw",
             "ptcscollection" => "collection needs a static cell, nonempty row map and a supported data feed; dynamic entity and mashup selection remain raw",
             "mashupcontainer" => "embed needs a static mashup; dynamic Name bindings remain raw",
@@ -1414,6 +1415,28 @@ impl<'a> Run<'a> {
         self.finish("button", widget, body, props)
     }
 
+    /// A shape states its look as fields only when each is a plain value the element writes back:
+    /// a known outline, style names, numbers.
+    fn shape_expressible(&self, widget: &Value) -> bool {
+        let known =
+            |key: &str, ok: &dyn Fn(&Value) -> bool| widget["Properties"].get(key).is_none_or(ok);
+        known("ShapeType", &|v| {
+            v.as_str()
+                .is_some_and(|s| ["circle", "rectangle", "roundrect", "ellipse"].contains(&s))
+        }) && known("ShapeStyle", &|v| v.as_str().is_some_and(|s| !s.is_empty()))
+            && known("UnfilledBackgroundStyle", &|v| {
+                v.as_str().is_some_and(|s| !s.is_empty())
+            })
+            && known("RectangleCornerRadius", &Value::is_number)
+            && known("EnableDynamicFill", &Value::is_boolean)
+            && known("DynamicRangeMinimum", &Value::is_number)
+            && known("DynamicRangeMaximum", &Value::is_number)
+            && known("DynamicFillOrientation", &|v| {
+                v.as_str()
+                    .is_some_and(|s| s == "horizontal" || s == "vertical")
+            })
+    }
+
     fn native(&mut self, widget: &Value) -> Value {
         let (element, fields): (&str, &[(&str, &str)]) = match kind(widget) {
             "statusmessage" => (
@@ -1455,6 +1478,19 @@ impl<'a> Run<'a> {
                 ],
             ),
             "ptcsdivider" => ("divider", &[]),
+            "shape" => (
+                "shape",
+                &[
+                    ("ShapeType", "form"),
+                    ("ShapeStyle", "fill"),
+                    ("UnfilledBackgroundStyle", "unfilled"),
+                    ("RectangleCornerRadius", "radius"),
+                    ("EnableDynamicFill", "dynamic"),
+                    ("DynamicRangeMinimum", "min"),
+                    ("DynamicRangeMaximum", "max"),
+                    ("DynamicFillOrientation", "orientation"),
+                ],
+            ),
             "ptcscheckbox" => ("checkbox", &[("Label", "text"), ("State", "value")]),
             "ptcsradio" => (
                 "radio",
@@ -1773,6 +1809,13 @@ impl<'a> Run<'a> {
                 .map(|w| w.defaults.clone())
                 .unwrap_or_default();
             let mut props = Map::new();
+            // A function has no place on the page: a source that stores no position keeps none,
+            // where a build would write 0.
+            for key in ["Left", "Top"] {
+                if widget["Properties"].get(key).is_some_and(Value::is_null) {
+                    props.insert(key.into(), Value::Null);
+                }
+            }
             for (key, value) in widget["Properties"].as_object().into_iter().flatten() {
                 let named = key == "DisplayName" && !generated_name(widget, value);
                 if (noise(key) && !named)

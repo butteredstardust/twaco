@@ -4987,3 +4987,6 @@ fn menu_css_widths_round_trip_through_fresh_and_as_built_pages() {
         }
     }
 }
+
+#[path = "kit_pages_tests.rs"]
+mod kit_pages;

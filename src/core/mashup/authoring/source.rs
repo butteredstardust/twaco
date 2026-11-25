@@ -251,7 +251,7 @@ pub(super) fn plan_source_add_loaded(
     request: &SourceAddRequest,
     loaded: super::ExistingMashup,
 ) -> Result<SourceAddPlan, AuthoringError> {
-    plan_source_add_loaded_as(solution, request, loaded, None)
+    plan_source_add_loaded_as(solution, request, loaded, None, &[])
 }
 
 pub(super) fn plan_source_add_loaded_as(
@@ -259,9 +259,13 @@ pub(super) fn plan_source_add_loaded_as(
     request: &SourceAddRequest,
     loaded: super::ExistingMashup,
     entity_type: Option<&str>,
+    unknown_services: &[super::session::UnknownService],
 ) -> Result<SourceAddPlan, AuthoringError> {
     let mut document = parse_loaded(&loaded)?;
-    let (model, _) = types::load_model(solution);
+    let (mut model, _) = types::load_model(solution);
+    for (entity, service, parameters) in unknown_services {
+        model.add_stub_service(entity, service, parameters);
+    }
     let platform = types::cached_platform(solution);
     let entity = model
         .entities

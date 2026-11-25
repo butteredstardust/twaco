@@ -94,6 +94,49 @@ pub(crate) struct Model {
     pub(crate) data_shapes: Vec<DataShape>,
 }
 
+impl Model {
+    /// A service a page keeps as found although its entity no longer declares it: the parameters
+    /// it was called with, typed as stored, and an unshaped result.
+    pub(crate) fn add_stub_service(
+        &mut self,
+        entity: &str,
+        service: &str,
+        parameters: &[(String, String)],
+    ) {
+        let Some(entity) = self.entities.iter_mut().find(|e| e.name == entity) else {
+            return;
+        };
+        if entity
+            .members
+            .iter()
+            .any(|m| matches!(m, Member::Service(s) if s.name == service))
+        {
+            return;
+        }
+        entity.members.push(Member::Service(Service {
+            name: service.into(),
+            description: String::new(),
+            parameters: parameters
+                .iter()
+                .map(|(name, base)| Parameter {
+                    name: name.clone(),
+                    description: String::new(),
+                    value: TypedValue {
+                        base_type: base.clone(),
+                        data_shape: None,
+                    },
+                    required: false,
+                    default: None,
+                })
+                .collect(),
+            result: TypedValue {
+                base_type: "INFOTABLE".into(),
+                data_shape: None,
+            },
+        }));
+    }
+}
+
 pub(crate) fn load_model(solution: &Solution) -> (Model, Vec<String>) {
     let (mut model, mut skipped) = load_model_from(&workspace::discover(solution));
     let (extensions, shapes, extension_skipped) = super::super::extension_source::load(solution);

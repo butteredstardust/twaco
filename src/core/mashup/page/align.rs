@@ -475,6 +475,9 @@ fn numeric_types_alike(maps: &Value) -> Value {
         {
             map["SourcePropertyType"] = Value::String(kind);
         }
+        if map["TargetPropertyType"].is_null() {
+            map["TargetPropertyType"] = Value::String("property".into());
+        }
         if let Some(kind) = map["TargetPropertyType"]
             .as_str()
             .map(str::to_ascii_lowercase)

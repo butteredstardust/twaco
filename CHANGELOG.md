@@ -6,6 +6,17 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- **Page specs: the last offline kit pages copy executably, and `shape:` is an element.** A gadget
+  derives as `kind: gadget` with `gadget_size` and builds a gadget entity with its widgets in the
+  mashup root; a call to a service its entity dropped derives with `unknown_service` (parameter
+  base types) and is kept as found on an as-built page, with a note; a binding that stored another
+  parameter type than the service declares carries `param_types`. A function that stores no
+  position (`Left`/`Top` null) keeps none, a binding into the root widget is stored in the
+  `Mashup` area, and adoption reads a missing `TargetPropertyType` as `property`. The `shape:`
+  element covers the outline, fill and unfilled styles, corner radius and dynamic fill range;
+  `mashup spec` derives a raw shape as the element when each of those is a plain value (state
+  formatting and position stay in `props`).
+
 - **Page specs: copies of the offline kit pages lose less.** A call keeps a stored `APIMethod` other
   than `post` (`method: get`); a section that names an entity and calls nothing is kept
   (`empty_sources: [Things_Acme.Thing]`); a Network is a data source (`entity_type: network`, with

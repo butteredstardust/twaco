@@ -16,6 +16,9 @@ pub(crate) enum CellSource {
     },
 }
 
+/// `(entity, service, parameter base types)` of a call kept as found.
+pub(crate) type UnknownService = (String, String, Vec<(String, String)>);
+
 pub(crate) struct Session {
     pub(crate) warnings: Vec<String>,
     pub(crate) tokens: Option<mashup::tokens::Tokens>,
@@ -24,6 +27,9 @@ pub(crate) struct Session {
     pub(crate) document: MashupDocument,
     pub(crate) entity: Vec<u8>,
     pub(crate) css: String,
+    /// Calls kept as found: `(entity, service, parameter base types)`, for a service the entity no
+    /// longer declares.
+    pub(crate) unknown_services: Vec<UnknownService>,
     name: String,
 }
 
@@ -39,6 +45,7 @@ impl Session {
             tokens: None,
             token_source: None,
             name: name.into(),
+            unknown_services: vec![],
             entity,
             document,
             css,
@@ -77,6 +84,47 @@ impl Session {
         theme: &str,
     ) -> Result<Self, AuthoringError> {
         Self::new_kind(name, project, template, theme, false)
+    }
+
+    /// A fixed dashboard gadget: its widgets sit directly in the mashup root, as in a gadget
+    /// made by `mashup new --gadget`. `columns` and `rows` are the entity's grid size.
+    pub(crate) fn new_gadget(
+        name: &str,
+        project: &str,
+        theme: &str,
+        columns: u32,
+        rows: u32,
+    ) -> Result<Self, AuthoringError> {
+        crate::core::entity::key::EntityKey::new("Mashups", name)
+            .map_err(|e| AuthoringError::Invalid(e.to_string()))?;
+        let mut document = mashup::edit::parse(include_str!("../templates/gadget.content.json"))
+            .map_err(AuthoringError::Edit)?;
+        let properties = document.root_properties_mut();
+        for (key, value) in [
+            ("Columns", columns),
+            ("Rows", rows),
+            ("Width", columns * 240 + columns.saturating_sub(1) * 10),
+            ("Height", rows * 240 + rows.saturating_sub(1) * 10),
+        ] {
+            properties.insert(key.into(), serde_json::json!(value));
+        }
+        properties.insert("StyleTheme".into(), serde_json::json!(theme));
+        document.set_uuid_generator(crate::core::mashup::page::ids::uuid);
+        let entity = mashup::templates::gadget_entity_xml(name, project, &[], columns, rows)
+            .map_err(|e| AuthoringError::Invalid(e.to_string()))?
+            .into_bytes();
+        let mut session = Self {
+            warnings: vec![],
+            tokens: None,
+            token_source: None,
+            document,
+            entity,
+            css: String::new(),
+            name: name.into(),
+            unknown_services: vec![],
+        };
+        session.sync()?;
+        Ok(session)
     }
 
     pub(crate) fn new_kind(
@@ -143,6 +191,7 @@ impl Session {
             entity,
             css: String::new(),
             name: name.into(),
+            unknown_services: vec![],
         };
         session.sync()?;
         Ok(session)
@@ -408,6 +457,7 @@ impl Session {
             request,
             self.loaded(),
             entity_type,
+            &self.unknown_services,
         )?;
         self.accept(plan.edit)
     }

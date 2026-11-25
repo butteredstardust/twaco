@@ -717,6 +717,7 @@ v1 rule table; legacy rules are unchanged.
 | `image` | `source` (Media entity name, URL, or binding), `scaling` (`fit-x`, `fit-y`, `fit`, `contain`, `cover`, `auto`, `25%`, `50%`, `75%`), `position` (`top`, `center`, `bottom`), `alt` | `mashup add ... ptcsimage --prop SourceURL=/Thingworx/MediaEntities/Acme.Logo_MD --prop Scaling=contain --prop AlternateText=Logo` |
 | `icon` | `icon` (CDS name or shorthand), `source`, `alt`, `icon_size` (`small`, `medium`, `large`, `xlarge`, `custom`), `size: sm/md/lg/xl`, token `color` | `mashup add ... ptcsicon --prop SVGIcon=cds:icon_info --prop Size=large`; `mashup set ... --style color=ink` |
 | `divider` | `orientation` (`horizontal` or `vertical`), token `color` | `mashup add ... ptcsdivider --prop VerticalDivider=true`; `mashup set ... --style line:background=line` |
+| `shape` | `form` (`circle`, `rectangle`, `roundrect`, `ellipse`), `fill` and `unfilled` (style names), `radius`, `dynamic` (fill in proportion to a bound value), `min`, `max`, `orientation`; position, size and state formatting stay in `props` | `mashup add ... shape --prop ShapeType=circle --prop ShapeStyle=Acme_Green --prop EnableDynamicFill=true --prop DynamicRangeMaximum=100` |
 | `checkbox`, `toggle` | `label`/`text`, bindable boolean `value` | `mashup add ... ptcscheckbox` / `ptcstogglebutton --prop Label=Enabled --prop State=true` |
 | `radio` | `label`/`text`, bindable boolean `value`, bindable `group`; or static `options: [Open, Closed]` | `mashup add ... ptcsradio --prop Label=Open --prop Radiogroup=AcmeStatus`; bind `State` |
 | `textarea` | `label`/`text`, `hint`, bindable `value`, `max_length` | `mashup add ... ptcstextarea --prop Label=Notes --prop HintText=Enter --prop MaxNumberOfCharacters=500`; bind `Text` |
@@ -1120,6 +1121,25 @@ Deriving and adopting a master keeps widget and wiring IDs and changes no existi
 sidecar bytes, just as for pages. A fresh build of the derived spec keeps the represented
 widgets and wiring and carries the master-root properties. This support is tested offline;
 no new Runtime validation is claimed.
+
+### Gadgets, services the entity dropped, and stored binding types
+
+A page whose entity is a dashboard gadget derives as `kind: gadget` with `gadget_size: 4x4` (the
+entity's columns and rows). The build writes the gadget entity and puts the `center` slot's nodes
+directly in the mashup root, as a gadget has no template container; the root's `Columns`, `Rows`,
+`Width` and `Height` are the usual `props`. A page whose first container stands for the root
+(`page.root`) stays an ordinary mashup.
+
+A data call whose service its entity no longer declares (a stale call in a copied mashup) derives
+with `unknown_service: {mashupName: STRING}`, the parameters the mashup stores with their base
+types, and a note. The build keeps the call and its parameter bindings as found. It needs
+`layout: as-built`; an authored page names a service its entity declares and is refused otherwise.
+
+A binding into a service parameter stores the parameter's declared type. When the mashup stored
+another (the declared type changed later), the call carries `param_types: {videoFilter: STRING}`;
+derive writes it only where the stored type differs from the declared one, and the build then
+stores that type. A binding into the root widget (a root property such as `StyleTheme`) is stored
+in the `Mashup` area, as Composer does.
 
 ## Adopting an existing mashup
 

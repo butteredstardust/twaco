@@ -20,6 +20,8 @@ pub(crate) struct Spec {
 pub(crate) struct Page {
     pub(crate) styles: Option<Spanned<Value>>,
     pub(crate) kind: Option<Spanned<PageKind>>,
+    /// `<columns>x<rows>` of a gadget, from the entity: 1 to 4 each.
+    pub(crate) gadget_size: Option<Spanned<String>>,
     #[serde(default)]
     pub(crate) props: BTreeMap<String, Spanned<Value>>,
     pub(crate) name: Spanned<String>,
@@ -108,9 +110,34 @@ pub(crate) enum PageKind {
     Master,
     /// A mashup template: an ordinary mashup whose content says `mashupTemplate`.
     Template,
+    /// A fixed dashboard gadget (`aspect.mashupType="gadget"`); `gadget_size` is its grid.
+    Gadget,
 }
 
 impl Page {
+    pub(crate) fn is_gadget(&self) -> bool {
+        self.kind
+            .as_ref()
+            .is_some_and(|k| k.value == PageKind::Gadget)
+    }
+
+    /// The gadget's columns and rows, one by one when `gadget_size` is not stated.
+    pub(crate) fn gadget_grid(&self) -> Result<(u32, u32), Error> {
+        let Some(size) = &self.gadget_size else {
+            return Ok((1, 1));
+        };
+        size.value
+            .split_once('x')
+            .and_then(|(c, r)| Some((c.parse::<u32>().ok()?, r.parse::<u32>().ok()?)))
+            .filter(|(c, r)| (1..=12).contains(c) && (1..=12).contains(r))
+            .ok_or_else(|| {
+                Error::at(
+                    size.referenced,
+                    "gadget_size must be <columns>x<rows>, such as 2x2",
+                )
+            })
+    }
+
     pub(crate) fn is_master(&self) -> bool {
         self.kind
             .as_ref()
@@ -149,6 +176,14 @@ pub(crate) struct Source {
     /// read, as stored.
     #[serde(default)]
     pub(crate) field_types: BTreeMap<String, Spanned<String>>,
+    /// Base types a binding into a parameter stores when they differ from the type the service
+    /// declares (a type changed after the binding was made); the build otherwise computes it.
+    #[serde(default)]
+    pub(crate) param_types: BTreeMap<String, Spanned<String>>,
+    /// A call to a service its entity no longer declares, kept as found on a page built as-built:
+    /// the parameters it stores, with their base types.
+    #[serde(default)]
+    pub(crate) unknown_service: BTreeMap<String, Spanned<String>>,
     /// A ThingShape or ThingTemplate service runs on the Thing this `{bind: ...}` names at runtime.
     pub(crate) entity: Option<Spanned<Value>>,
     pub(crate) expression: Option<Spanned<String>>,
@@ -225,6 +260,7 @@ pub(crate) enum Node {
     Image(Body),
     Icon(Body),
     Divider(Body),
+    Shape(Body),
     Checkbox(Body),
     Radio(Body),
     Toggle(Body),
@@ -250,6 +286,7 @@ impl Node {
             | Self::Image(b)
             | Self::Icon(b)
             | Self::Divider(b)
+            | Self::Shape(b)
             | Self::Checkbox(b)
             | Self::Radio(b)
             | Self::Toggle(b)
@@ -302,6 +339,7 @@ impl Node {
             | Self::Image(b)
             | Self::Icon(b)
             | Self::Divider(b)
+            | Self::Shape(b)
             | Self::Checkbox(b)
             | Self::Radio(b)
             | Self::Toggle(b)
@@ -354,6 +392,7 @@ impl Node {
             | Self::Image(b)
             | Self::Icon(b)
             | Self::Divider(b)
+            | Self::Shape(b)
             | Self::Checkbox(b)
             | Self::Radio(b)
             | Self::Toggle(b)
@@ -421,6 +460,7 @@ impl Node {
             Self::Image(_) => "ptcsimage",
             Self::Icon(_) => "ptcsicon",
             Self::Divider(_) => "ptcsdivider",
+            Self::Shape(_) => "shape",
             Self::Checkbox(_) => "ptcscheckbox",
             Self::Radio(_) => "ptcsradio",
             Self::Toggle(_) => "ptcstogglebutton",
@@ -502,6 +542,15 @@ pub(crate) struct Body {
     pub(crate) position: Option<Spanned<String>>,
     pub(crate) alt: Option<Spanned<Value>>,
     pub(crate) orientation: Option<Spanned<String>>,
+    /// A shape's outline: circle, rectangle, roundrect or ellipse.
+    pub(crate) form: Option<Spanned<String>>,
+    /// A shape's fill style and the style of its unfilled part.
+    pub(crate) fill: Option<Spanned<String>>,
+    pub(crate) unfilled: Option<Spanned<String>>,
+    /// The corner radius of a rounded rectangle.
+    pub(crate) radius: Option<Spanned<f64>>,
+    /// Whether a shape fills in proportion to a bound value between `min` and `max`.
+    pub(crate) dynamic: Option<Spanned<bool>>,
     pub(crate) icon_size: Option<Spanned<String>>,
     pub(crate) group: Option<Spanned<Value>>,
     pub(crate) date_only: Option<bool>,

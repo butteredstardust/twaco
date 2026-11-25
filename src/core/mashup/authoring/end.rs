@@ -397,7 +397,12 @@ pub(super) fn resolve_end(
                     ))
                 })
                 .flatten();
-                let base = match pseudo {
+                // A page keeps the type a binding stored when the service's changed since.
+                let stored = document.source_types.get(&(
+                    alias.clone().unwrap_or_else(|| service.clone()),
+                    format!("param:{name}"),
+                ));
+                let base = match pseudo.or(stored) {
                     Some(base) => base.clone(),
                     None => found
                         .parameters
@@ -890,6 +895,9 @@ pub(super) fn property(end: &End) -> &str {
 
 pub(super) fn area(end: &End) -> &'static str {
     match end {
+        // Composer stores every binding at the root widget, a mashup parameter or a root property
+        // alike, in the Mashup area.
+        End::Ui { id, .. } if id == mashup::edit::ROOT_ID => "Mashup",
         End::Ui { .. } => "UI",
         End::Mashup { .. } => "Mashup",
         End::Data { collection, .. } if collection == "Session" => "Session",
@@ -994,4 +1002,20 @@ pub(super) fn unchecked_dynamic_container(document: &MashupDocument, end: &End) 
             .find_exact(id)
             .is_ok_and(|found| found.type_id == "mashupcontainer")
         && widgets::property_bound(document.value(), id, "Name")
+}
+
+#[cfg(test)]
+mod area_tests {
+    use super::*;
+
+    #[test]
+    fn a_binding_at_the_root_widget_is_in_the_mashup_area() {
+        let end = |id: &str| End::Ui {
+            id: id.into(),
+            property: "StyleTheme".into(),
+            base: "STYLETHEMENAME".into(),
+        };
+        assert_eq!(area(&end(mashup::edit::ROOT_ID)), "Mashup");
+        assert_eq!(area(&end("label-1")), "UI");
+    }
 }

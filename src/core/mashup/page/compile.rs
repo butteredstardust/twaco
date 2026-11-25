@@ -188,13 +188,18 @@ fn compile_nested(
             },
         ));
     }
-    let mut session = Session::new_kind(
-        &page.name.value,
-        project,
-        &page.template.value,
-        theme,
-        page.is_master(),
-    )
+    let mut session = if page.is_gadget() {
+        let (columns, rows) = page.gadget_grid()?;
+        Session::new_gadget(&page.name.value, project, theme, columns, rows)
+    } else {
+        Session::new_kind(
+            &page.name.value,
+            project,
+            &page.template.value,
+            theme,
+            page.is_master(),
+        )
+    }
     .map_err(|e| Error::at(page.template.referenced, e))?;
     if page
         .kind
@@ -317,7 +322,11 @@ fn compile_nested(
             Err(_) => {
                 session
                     .document
-                    .find("center")
+                    .find(if page.is_gadget() {
+                        "mashup-root"
+                    } else {
+                        "center"
+                    })
                     .map_err(|e| Error::at(title.referenced, e))?
                     .id
             }
@@ -351,9 +360,14 @@ fn compile_nested(
         )?;
     }
     for (slot, nodes) in &page.slots {
+        // A gadget has no template container: its center is the mashup root.
         let parent = session
             .document
-            .find(slot)
+            .find(if page.is_gadget() && slot == "center" {
+                "mashup-root"
+            } else {
+                slot
+            })
             .map_err(|e| Error::at(nodes.referenced, e))?
             .id;
         let mut previous = None;
@@ -372,8 +386,37 @@ fn compile_nested(
             }
         }
     }
-    let (model, _) = types::load_model(solution);
+    let (mut model, _) = types::load_model(solution);
     let platform = types::cached_platform(solution);
+    for source in page.data.values() {
+        let (Some(service), false) = (
+            &source.value.service,
+            source.value.unknown_service.is_empty(),
+        ) else {
+            continue;
+        };
+        if page.layout.is_none() {
+            return Err(Error::at(
+                service.referenced,
+                "unknown_service keeps a call as found and needs layout: as-built; an authored page names a service its entity declares",
+            ));
+        }
+        let (entity, name) = service.value.rsplit_once('.').unwrap_or_default();
+        let parameters: Vec<(String, String)> = source
+            .value
+            .unknown_service
+            .iter()
+            .map(|(k, v)| (k.clone(), v.value.clone()))
+            .collect();
+        model.add_stub_service(entity, name, &parameters);
+        session
+            .unknown_services
+            .push((entity.into(), name.into(), parameters));
+        session.warnings.push(format!(
+            "{} is not a service {entity} declares; the call is kept as found",
+            service.value
+        ));
+    }
     for (alias, source) in entity_first(page) {
         let source = &source.value;
         if let Some(kind) = &source.session {
@@ -459,6 +502,18 @@ fn compile_nested(
             .map_err(|e| Error::at(service_spec.referenced, e))?;
         if let Some(method) = &source.method {
             set_api_method(&mut session, alias, method)?;
+        }
+        for (parameter, base) in &source.param_types {
+            if !crate::core::entity::edit::BASE_TYPES.contains(&base.value.as_str()) {
+                return Err(Error::at(
+                    base.referenced,
+                    "param_types needs a known base type",
+                ));
+            }
+            session.document.source_types.insert(
+                (alias.clone(), format!("param:{parameter}")),
+                base.value.clone(),
+            );
         }
         for (field, base) in &source.field_types {
             let kind_free = base

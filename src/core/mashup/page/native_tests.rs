@@ -363,7 +363,7 @@ fn kit_variant_properties_and_deliberate_raw_reasons() {
     assert_eq!(shape(&built.content), shape(&rebuilt.content));
 
     let content = serde_json::json!({"UI": {"Properties": {}, "Widgets": [
-        {"Properties": {"Id": "shape-1", "Type": "shape"}},
+        {"Properties": {"Id": "shape-1", "Type": "shape", "ShapeType": "line"}},
         {"Properties": {"Id": "googlemap-2", "Type": "googlemap"}},
         {"Properties": {"Id": "ptcsdynamicpanel-3", "Type": "ptcsdynamicpanel"}},
         {"Properties": {"Id": "ptcsmenubar-4", "Type": "ptcsmenubar"}},
