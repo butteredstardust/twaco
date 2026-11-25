@@ -2842,7 +2842,6 @@ fn batch_2a_elements_report_located_errors() {
             "list: {id: l, data: rows, display: Name, selection: both}",
             "single or multiple",
         ),
-        ("list: {id: l, data: rows, display: Missing}", "Missing"),
         (
             "list: {id: l, data: nope.selected, display: Name}",
             "names a list",
@@ -4908,6 +4907,9 @@ fn grid_columns_author_textarea_and_boolean_whitespace_with_type_validation() {
 
 #[path = "milestone_tests.rs"]
 mod milestone;
+
+#[path = "truthful_tests.rs"]
+mod truthful;
 
 #[test]
 fn menu_css_widths_round_trip_through_fresh_and_as_built_pages() {

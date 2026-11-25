@@ -6005,7 +6005,8 @@ fn platform_services_resolve_through_the_cache_and_a_missing_cache_says_how_to_f
     .unwrap_err()
     .to_string();
     assert!(
-        error.contains("twaco types --platform") && error.contains("template chain"),
+        error.contains("twaco types --platform")
+            && error.contains("twaco cannot see ThingTemplates/GenericThing, ThingTemplates/Timer"),
         "{error}"
     );
     write(

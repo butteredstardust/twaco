@@ -204,7 +204,7 @@ fn analyse_in(
         for section in sections.values() {
             for service in &section.services {
                 let lookup = model.service(section, &service.target);
-                if let Some(found) = lookup.service.as_ref() {
+                if let Some(found) = lookup.service.as_ref().filter(|_| !lookup.approximate) {
                     report.examined += 1;
                     for parameter in &service.static_parameters {
                         let site = Site {
@@ -325,7 +325,9 @@ fn analyse_in(
                             else {
                                 continue;
                             };
-                            if let Some(found) = lookup.service.as_ref() {
+                            if let Some(found) =
+                                lookup.service.as_ref().filter(|_| !lookup.approximate)
+                            {
                                 check_parameter(
                                     &mut report,
                                     &Site {
@@ -903,10 +905,7 @@ impl<'a> Resolver<'a> {
             .map(|entity| {
                 catalog::lookup_service(entity, &self.model.entities, self.platform, service)
             })
-            .unwrap_or(catalog::ServiceLookup {
-                service: None,
-                complete: false,
-            });
+            .unwrap_or_else(catalog::ServiceLookup::unknown);
         self.looked_up.borrow_mut().insert(key, found.clone());
         found
     }

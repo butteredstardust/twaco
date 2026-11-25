@@ -1,5 +1,6 @@
 //! Offline service catalog derived from the entity model used by TypeScript generation.
 
+use super::builtin_services;
 use super::codes::{Coded, ErrorCode};
 use super::config::Solution;
 use super::index::inherit::{implements_shape, inheritance_chain, Inherits};
@@ -460,13 +461,26 @@ fn callable_services(
         .collect()
 }
 
-/// What to say when a service lookup could not see every template and shape on the chain: a
-/// platform service (a Timer's EnableTimer, a Thing's GetProperties) is found only through the cache.
-pub(crate) const INCOMPLETE_CHAIN_HINT: &str = "its template chain is not all in the solution or the platform cache; run `twaco types --platform` to fetch the platform's templates and shapes, then try again";
+/// What to say when a service lookup could not see every template and shape on the chain: name
+/// the ones it could not see, so the fix is the right one (a platform template needs the cache, an
+/// extension's template needs the extension in the repository).
+pub(crate) fn incomplete_chain_hint(unseen: &[String]) -> String {
+    let mut names: Vec<&str> = unseen.iter().map(String::as_str).collect();
+    names.sort_unstable();
+    names.dedup();
+    if names.is_empty() {
+        return "the platform cache is missing; run `twaco types --platform` to fetch the platform's templates and shapes, then try again".into();
+    }
+    format!(
+        "twaco cannot see {} (not in the solution or the platform cache); run `twaco types --platform` if they are platform entities, or add the extension that defines them to the repository, then try again",
+        names.join(", ")
+    )
+}
 
 /// Resolve one service through the same local inheritance order as the catalog. `complete` says
 /// that every referenced template and shape (including GenericThing) was available locally or in
-/// the optional platform cache, so a missing service is safe to diagnose.
+/// the optional platform cache, so a missing service is safe to diagnose. The services every Thing,
+/// ThingTemplate and ThingShape has resolve even when the chain is not fully visible.
 pub(crate) fn lookup_service(
     entity: &Entity,
     entities: &[Entity],
@@ -478,7 +492,7 @@ pub(crate) fn lookup_service(
             .iter()
             .find(|candidate| candidate.collection == collection && candidate.name == name)
     };
-    let mut complete = true;
+    let mut unseen = Vec::<String>::new();
     let mut visited_templates = BTreeSet::new();
     let mut visited_shapes = BTreeSet::new();
     let mut current = Some(entity);
@@ -487,10 +501,7 @@ pub(crate) fn lookup_service(
             Member::Service(service) if service.name == wanted => Some(service.clone()),
             _ => None,
         }) {
-            return ServiceLookup {
-                service: Some(service),
-                complete,
-            };
+            return ServiceLookup::new(Some(service), unseen);
         }
         for shape_name in &item.shapes {
             if !visited_shapes.insert(shape_name.as_str()) {
@@ -501,20 +512,14 @@ pub(crate) fn lookup_service(
                     Member::Service(service) if service.name == wanted => Some(service.clone()),
                     _ => None,
                 }) {
-                    return ServiceLookup {
-                        service: Some(service),
-                        complete,
-                    };
+                    return ServiceLookup::new(Some(service), unseen);
                 }
             } else if let Some(meta) = platform.and_then(|p| p.shapes.get(shape_name)) {
                 if let Some(service) = meta.services.get(wanted) {
-                    return ServiceLookup {
-                        service: Some(platform_service(wanted, service)),
-                        complete,
-                    };
+                    return ServiceLookup::new(Some(platform_service(wanted, service)), unseen);
                 }
             } else {
-                complete = false;
+                unseen.push(format!("ThingShapes/{shape_name}"));
             }
         }
         let Some(template_name) = item.template.as_deref() else {
@@ -527,35 +532,82 @@ pub(crate) fn lookup_service(
             current = Some(template);
         } else if let Some(meta) = platform.and_then(|p| p.templates.get(template_name)) {
             if let Some(service) = meta.services.get(wanted) {
-                return ServiceLookup {
-                    service: Some(platform_service(wanted, service)),
-                    complete,
-                };
+                return ServiceLookup::new(Some(platform_service(wanted, service)), unseen);
             }
             current = None;
         } else {
-            complete = false;
+            unseen.push(format!("ThingTemplates/{template_name}"));
             current = None;
         }
     }
     // Every Thing has GenericThing's services, but only below everything else on its chain: a
     // template or shape twaco cannot see may declare the same service differently.
-    match platform
-        .filter(|_| complete)
-        .and_then(|p| p.templates.get("GenericThing"))
-    {
-        Some(meta) => ServiceLookup {
-            service: meta
-                .services
-                .get(wanted)
-                .map(|service| platform_service(wanted, service)),
-            complete,
-        },
-        None => ServiceLookup {
-            service: None,
-            complete: false,
-        },
+    let generic = platform.and_then(|p| p.templates.get("GenericThing"));
+    if generic.is_none() {
+        unseen.push("ThingTemplates/GenericThing".into());
     }
+    if unseen.is_empty() {
+        if let Some(service) = generic.and_then(|meta| meta.services.get(wanted)) {
+            return ServiceLookup::new(Some(platform_service(wanted, service)), unseen);
+        }
+    }
+    // The platform's own services, read from its classes, stand in for what the cache lacks (the
+    // template-level GetImplementingThingsWithData is not in a Thing's metadata at all).
+    if let Some(service) = builtin_services::find(&entity.collection, wanted) {
+        // A template or shape twaco cannot see may declare this service with other parameters.
+        let approximate = !unseen.is_empty();
+        return ServiceLookup {
+            approximate,
+            ..ServiceLookup::new(Some(service), unseen)
+        };
+    }
+    // A shape or template has no instance of its own: a dynamic source on it runs on whichever
+    // Thing implements it, so a service only those Things define is still the shape's to call.
+    if let Some(service) = implementer_service(entity, entities, wanted) {
+        return ServiceLookup::new(Some(service), unseen);
+    }
+    ServiceLookup::new(None, unseen)
+}
+
+/// The service `wanted`, as the first Thing or template (by name) that implements `entity` and
+/// defines it itself declares it: for a ThingShape, the entities listing it; for a ThingTemplate,
+/// the Things whose template chain reaches it.
+fn implementer_service(entity: &Entity, entities: &[Entity], wanted: &str) -> Option<Service> {
+    if !matches!(entity.collection.as_str(), "ThingShapes" | "ThingTemplates") {
+        return None;
+    }
+    let implements = |candidate: &Entity| {
+        if entity.collection == "ThingShapes" {
+            return candidate.shapes.contains(&entity.name);
+        }
+        let mut visited = BTreeSet::new();
+        let mut template = candidate.template.as_deref();
+        while let Some(name) = template.filter(|name| visited.insert(*name)) {
+            if name == entity.name {
+                return true;
+            }
+            template = entities
+                .iter()
+                .find(|other| other.collection == "ThingTemplates" && other.name == name)
+                .and_then(|other| other.template.as_deref());
+        }
+        false
+    };
+    let mut candidates: Vec<&Entity> = entities
+        .iter()
+        .filter(|candidate| {
+            matches!(candidate.collection.as_str(), "Things" | "ThingTemplates")
+                && !std::ptr::eq(*candidate, entity)
+                && implements(candidate)
+        })
+        .collect();
+    candidates.sort_by(|a, b| (&a.collection, &a.name).cmp(&(&b.collection, &b.name)));
+    candidates.into_iter().find_map(|candidate| {
+        candidate.members.iter().find_map(|member| match member {
+            Member::Service(service) if service.name == wanted => Some(service.clone()),
+            _ => None,
+        })
+    })
 }
 
 /// What an ancestor holds for a service: its own implementation, and of which kind.
@@ -716,6 +768,32 @@ pub(crate) fn inherited_service(
 pub(crate) struct ServiceLookup {
     pub(crate) service: Option<Service>,
     pub(crate) complete: bool,
+    /// The templates and shapes on the chain that were in neither the solution nor the cache.
+    pub(crate) unseen: Vec<String>,
+    /// The service is the platform's own, found while part of the chain was not visible: its
+    /// name is safe to use, its parameters are not known to be the ones that apply.
+    pub(crate) approximate: bool,
+}
+
+impl ServiceLookup {
+    fn new(service: Option<Service>, unseen: Vec<String>) -> Self {
+        Self {
+            service,
+            complete: unseen.is_empty(),
+            unseen,
+            approximate: false,
+        }
+    }
+
+    /// For an entity the solution does not define: nothing is known about its chain.
+    pub(crate) fn unknown() -> Self {
+        Self {
+            service: None,
+            complete: false,
+            unseen: Vec::new(),
+            approximate: false,
+        }
+    }
 }
 
 pub(crate) fn platform_service(

@@ -8,7 +8,7 @@ use super::{
 use crate::core::config::Solution;
 use crate::core::mashup::address::{parse_address, Address};
 use crate::core::mashup::edit::MashupDocument;
-use crate::core::{catalog, mashup, types, widgets};
+use crate::core::{bindings, catalog, mashup, types, widgets};
 use serde_json::Value;
 
 #[derive(Clone)]
@@ -130,10 +130,14 @@ pub(super) fn resolve_end(
                         if source { "source" } else { "target" }
                     )));
                 }
+                let base = match contract.base_type {
+                    Some(base) => base,
+                    None => event_field_base(document, context, &found.id, &property),
+                };
                 return Ok(End::Ui {
                     id: found.id,
                     property,
-                    base: contract.base_type.unwrap_or_default(),
+                    base,
                 });
             }
             if catalog.function {
@@ -446,6 +450,9 @@ fn result_field(
             .map(|base| (base.into(), None))
             .ok_or_else(missing);
     }
+    if crate::core::builtin_services::is_platform_shape(shape_name) {
+        return Ok((String::new(), Some(format!("{service} returns the platform's {shape_name}; field {name} cannot be type-checked offline"))));
+    }
     let declared = solution
         .and_then(|solution| crate::core::requirements::load(solution).ok())
         .is_some_and(|contract| {
@@ -524,37 +531,61 @@ fn resolve_container_end(
             });
         }
     }
-    let child = document.at(&found.path)["Properties"]["Name"]
+    // A mashup chosen at run time (its Name is bound) has no contract to check offline: the
+    // parameter is taken as written and the page build says so.
+    let dynamic = crate::core::widgets::property_bound(document.value(), &found.id, "Name");
+    let unchecked = |found: mashup::edit::WidgetRef| {
+        Ok(End::Ui {
+            id: found.id,
+            property: property.clone(),
+            base: String::new(),
+        })
+    };
+    let Some(child) = document.at(&found.path)["Properties"]["Name"]
         .as_str()
         .filter(|name| !name.is_empty())
-        .ok_or_else(|| {
-            AuthoringError::Refused(format!(
-                "contained mashup `{}` has no child mashup",
-                found.id
-            ))
-        })?
-        .to_string();
+        .map(str::to_string)
+    else {
+        if dynamic {
+            return unchecked(found);
+        }
+        return Err(AuthoringError::Refused(format!(
+            "contained mashup `{}` has no child mashup",
+            found.id
+        )));
+    };
     let solution = solution.ok_or_else(|| {
         AuthoringError::Refused(format!(
             "contained mashup `{}` cannot be resolved without the repository",
             found.id
         ))
     })?;
-    let loaded = load_existing(solution, &child).map_err(|error| match error {
-        AuthoringError::Unknown(_) => AuthoringError::Refused(format!(
-            "contained mashup `{}` shows {child}, which is not in the repository",
-            found.id
-        )),
-        other => other,
-    })?;
+    let loaded = match load_existing(solution, &child) {
+        Ok(loaded) => loaded,
+        Err(_) if dynamic => return unchecked(found),
+        Err(AuthoringError::Unknown(_)) => {
+            return Err(AuthoringError::Refused(format!(
+                "contained mashup `{}` shows {child}, which is not in the repository",
+                found.id
+            )))
+        }
+        Err(other) => return Err(other),
+    };
     let child_document = parse_loaded(&loaded)?;
     let definitions = contained_parameters(&loaded, &child_document)?;
-    let definition = definitions.iter().find(|definition| definition.name == property && definition.visible)
-        .ok_or_else(|| AuthoringError::Unknown(format!(
+    let Some(definition) = definitions
+        .iter()
+        .find(|definition| definition.name == property && definition.visible)
+    else {
+        if dynamic {
+            return unchecked(found);
+        }
+        return Err(AuthoringError::Unknown(format!(
             "contained mashup `{}` has no bindable parameter {property}; bindable parameters are {}",
             found.id,
             definitions.iter().filter(|definition| definition.visible).map(|definition| definition.name.as_str()).collect::<Vec<_>>().join(", ")
-        )))?;
+        )));
+    };
     if source && definition.direction == "IN" {
         return Err(AuthoringError::Refused(format!(
             "{property} is an input of {child}"
@@ -578,6 +609,35 @@ fn resolve_container_end(
         property,
         base: definition.base_type.clone(),
     })
+}
+
+/// The base type of a collection's `Event:<field>` source: that field of the service result its
+/// Data is bound to, when the repository knows the result's DataShape; empty otherwise.
+fn event_field_base(
+    document: &MashupDocument,
+    context: &AuthoringContext<'_>,
+    widget: &str,
+    property: &str,
+) -> String {
+    let Some(field) = property.strip_prefix("Event:") else {
+        return String::new();
+    };
+    let sections = bindings::data_sections(document.value());
+    let resolver = bindings::Resolver::new(context.model, context.platform);
+    bindings::whole_data_bindings(document.value())
+        .into_iter()
+        .filter(|binding| binding.widget == widget)
+        .find_map(|binding| {
+            let (section, call) = bindings::service_at(&sections, &binding.section, &binding.call)?;
+            let service = resolver.service(section, &call.target).service?;
+            let shape = resolver.checkable_shape(service.result.data_shape.as_deref()?)?;
+            shape
+                .fields
+                .iter()
+                .find(|candidate| candidate.name == field)
+                .map(|candidate| candidate.base_type.clone())
+        })
+        .unwrap_or_default()
 }
 
 /// A navigation function's property that is a parameter of the mashup it opens, when that mashup
@@ -651,6 +711,7 @@ pub(super) fn resolve_service<'a>(
 ) -> Result<(&'a types::Entity, String), AuthoringError> {
     let mut matches = Vec::new();
     let mut unseen_chain = false;
+    let mut unseen = Vec::new();
     for entity in &model.entities {
         if !matches!(
             entity.collection.as_str(),
@@ -669,6 +730,7 @@ pub(super) fn resolve_service<'a>(
                 matches.push((entity, service.to_string()));
             } else if !lookup.complete {
                 unseen_chain = true;
+                unseen.extend(lookup.unseen);
             }
         }
     }
@@ -676,8 +738,8 @@ pub(super) fn resolve_service<'a>(
     matches.dedup_by(|a, b| a.0.name == b.0.name && a.1 == b.1);
     match matches.as_slice() {
         [] if unseen_chain => Err(AuthoringError::Unknown(format!(
-            "no entity and service twaco can see match data:{raw}; {ALIAS_HINT}; if the service is inherited, {}",
-            catalog::INCOMPLETE_CHAIN_HINT
+            "no entity and service twaco can see match data:{raw}; {ALIAS_HINT}; if the service is inherited: {}",
+            catalog::incomplete_chain_hint(&unseen)
         ))),
         [] => Err(AuthoringError::Unknown(format!(
             "no entity and service in the solution match data:{raw}; {ALIAS_HINT}"
@@ -863,4 +925,17 @@ fn declared_parameter(
         ""
     };
     (!state.is_empty() && (stored || formatter)).then(|| base.to_string())
+}
+
+/// An end on a contained mashup chosen at run time whose parameter's type is unknown: it takes
+/// the other end's, as a widget the catalogue does not know does.
+pub(super) fn unchecked_dynamic_container(document: &MashupDocument, end: &End) -> bool {
+    let End::Ui { id, base, .. } = end else {
+        return false;
+    };
+    base.is_empty()
+        && document
+            .find_exact(id)
+            .is_ok_and(|found| found.type_id == "mashupcontainer")
+        && widgets::property_bound(document.value(), id, "Name")
 }

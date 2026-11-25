@@ -155,6 +155,91 @@ pub fn catalog() -> &'static Catalog {
     &PARSED
 }
 
+static MIGRATIONS: LazyLock<Value> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("widgets/migrations.json"))
+        .expect("widgets/migrations.json is valid JSON")
+});
+
+/// The name Composer renames the legacy property `name` of a `type_id` widget to when it opens
+/// the mashup (`CollapseByDefault` becomes `Collapsed`), read from its migrators.
+pub(crate) fn migrated_property(type_id: &str, name: &str) -> Option<&'static str> {
+    MIGRATIONS["renames"][type_id][name].as_str()
+}
+
+/// Whether the old and new names hold different kinds of value (a legacy `TargetWindow` is `new`,
+/// `replace` or `popup`; `TargetWindowType` is another list), so the value cannot move across.
+pub(crate) fn migration_changes_values(type_id: &str, name: &str) -> bool {
+    MIGRATIONS["values_differ"][type_id]
+        .as_array()
+        .is_some_and(|names| names.iter().any(|n| n == name))
+}
+
+/// Rename the legacy property names Composer migrates, in a mashup's content, as Composer does
+/// on open: a widget property whose new name is not set, and the bindings that name it. A legacy
+/// name whose new name is already set, or whose values differ, stays as it is (its value is never
+/// dropped). One note per rename.
+pub(crate) fn migrate_content(content: &mut Value) -> Vec<String> {
+    fn walk(
+        widget: &mut Value,
+        renamed: &mut BTreeMap<(String, String), String>,
+        notes: &mut Vec<String>,
+    ) {
+        let type_id = widget["Properties"]["Type"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let id = widget["Properties"]["Id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        if let Some(props) = widget["Properties"].as_object_mut() {
+            let olds: Vec<String> = props
+                .keys()
+                .filter(|name| migrated_property(&type_id, name).is_some())
+                .cloned()
+                .collect();
+            for old in olds {
+                let new = migrated_property(&type_id, &old).expect("listed above");
+                if props.contains_key(new) || migration_changes_values(&type_id, &old) {
+                    continue;
+                }
+                if let Some(value) = props.remove(&old) {
+                    props.insert(new.to_string(), value);
+                    renamed.insert((id.clone(), old.clone()), new.to_string());
+                    notes.push(format!("{id}: renamed property {old} to {new}, as Composer does when it opens the mashup"));
+                }
+            }
+        }
+        for child in widget["Widgets"].as_array_mut().into_iter().flatten() {
+            walk(child, renamed, notes);
+        }
+    }
+    let mut renamed = BTreeMap::new();
+    let mut notes = Vec::new();
+    walk(&mut content["UI"], &mut renamed, &mut notes);
+    if !renamed.is_empty() {
+        for binding in content["DataBindings"].as_array_mut().into_iter().flatten() {
+            let ends = [
+                ("SourceArea", "SourceId", "SourceProperty"),
+                ("TargetArea", "TargetId", "TargetProperty"),
+            ];
+            for (area, id, key) in ends {
+                if binding[area] != "UI" {
+                    continue;
+                }
+                let widget = binding[id].as_str().unwrap_or_default().to_string();
+                for map in binding["PropertyMaps"].as_array_mut().into_iter().flatten() {
+                    let old = map[key].as_str().unwrap_or_default().to_string();
+                    if let Some(new) = renamed.get(&(widget.clone(), old)) {
+                        map[key] = Value::String(new.clone());
+                    }
+                }
+            }
+        }
+    }
+    notes
+}
+
 /// Configuration-created properties use the same contract in commands, specs and validation.
 pub(crate) fn dynamic_property(
     type_id: &str,
@@ -183,6 +268,21 @@ pub(crate) fn dynamic_property(
     let base = if chart_source {
         "INFOTABLE".into()
     } else if type_id == "ptcscollection" {
+        // Composer gives a collection one `Event:<field>` source per field of its Data table (the
+        // value of that field in the last cell event), whatever the cell mashup is.
+        if name
+            .strip_prefix("Event:")
+            .is_some_and(|field| !field.is_empty())
+        {
+            return Some(PropertyContract {
+                base_type: None,
+                css_size: false,
+                source: true,
+                target: false,
+                editable: false,
+                options: Vec::new(),
+            });
+        }
         let globals = json_object(&props["MashupGlobalPropertyBinding"])?;
         globals.get(name)?.as_str()?.to_string()
     } else if type_id == "ptcsmenubutton" {
@@ -447,6 +547,11 @@ impl Widget {
     /// The refusal for a property `subject` (a widget id or type) does not have, naming close
     /// real ones or where to list them.
     pub(crate) fn no_property(&self, subject: &str, name: &str) -> String {
+        if let Some(new) = migrated_property(&self.type_id, name) {
+            return format!(
+                "{subject} has no property {name}; Composer renames it to {new} when it opens a mashup, so use {new}"
+            );
+        }
         let close = self.close_properties(name);
         if close.is_empty() {
             format!(

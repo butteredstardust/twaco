@@ -62,6 +62,16 @@ to select a Thing at runtime for a dynamic template or shape source. Derive carr
 sections and their bindings in both exact and layout-rule specs. Unsupported data sections
 produce warnings identifying each lost binding endpoint.
 
+Platform services need no cache to resolve. Every Thing, ThingTemplate and ThingShape has the
+services the platform declares on its own classes (`GetProperties`, `GetPropertyValues`,
+`GetImplementingThingsWithData`, `QueryImplementingThingsWithData`, ...), with their real
+parameters and result types; a template or shape data source also calls the Things' services,
+as a dynamic source does. A service the solution or the platform cache defines always wins.
+Rows that are the template's properties (`GetImplementingThingsWithData`, `GetProperties`) have
+no DataShape, so a field of them is not type-checked. A dynamic source on a ThingShape or
+ThingTemplate resolves a service that only a Thing implementing it declares. When a service is
+still not found, the error names the templates and shapes twaco could not see.
+
 Data triggers are `on: load`, `on: <node>.<event>` or `on: every Ns` (positive integer seconds).
 An omitted trigger permits an explicit event to invoke the call. Fixed `params` use the service's
 parameter types. Derive retains static call parameters too, including those in a dynamic
@@ -891,6 +901,23 @@ data alias and required result fields with their ThingWorx base types (`ANY` acc
 known field type). Both spec builds and command recipes check the same offline service
 contracts. Build application also refuses component files added, removed or changed after
 planning.
+
+**Legacy property names Composer migrates.** The 10.2 Composer renames old property names when it
+opens a mashup (`CollapseByDefault` becomes `Collapsed` on a dynamic panel, `Href` becomes `LinkURL`
+on a link, `ToolTipField` becomes `TooltipField`, `MashupName` becomes `TargetMashup` on a
+navigation function). The plain renames are listed in `src/core/widgets/migrations.json`, read from
+the Composer's Builder bundle. Derive renames a stale name whose new name is not set, and the
+bindings that name it, with a note per rename; a stale name whose new name is already set (or
+whose values differ in kind, like a navigation function's `TargetWindow`) keeps its value as
+written. `mashup check` reports a binding to an old name as the advisory `migrated-property`, not
+`unknown-property`. Writing an old name by hand is still refused, with the new name in the error.
+
+**Run-time and unchecked contracts.** A collection's `Event:<field>` is a source (one per field of
+its Data table, the field's value in the last cell event): bind from `ptcscollection-7.Event:Name`.
+A contained `mashupcontainer` whose `Name` is bound has no contract to check offline: a binding to
+a parameter the child lacks is taken as written and the build warns instead of refusing. A field a
+widget names that the service's DataShape lacks (a service that builds rows with another field)
+warns in the build; `check` reports it as `unknown-field-property`.
 
 ## Deriving a spec
 

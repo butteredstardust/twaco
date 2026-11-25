@@ -6,6 +6,17 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Services every Thing, ThingTemplate and ThingShape has (`GetProperties`, `GetPropertyValues`,
+  `GetImplementingThingsWithData`, `QueryImplementingThingsWithData`...) resolve for data sources
+  without `types --platform`, with the parameters and result types the 10.2 platform declares;
+  a dynamic source on a ThingShape or ThingTemplate resolves a service only an implementing Thing
+  declares. The "not visible" error now names the templates and shapes twaco could not see.
+- Page derive renames the legacy property names the Composer migrates on open (`CollapseByDefault`
+  to `Collapsed`, `Href` to `LinkURL`...) with a note, keeps a stale name whose new name is set,
+  and `mashup check` reports a binding to an old name as the advisory `migrated-property`.
+- A collection's `Event:<field>` source, a contained mashup chosen at run time, and a result
+  field the service's DataShape lacks no longer stop a page build: they warn instead.
+
 - `init` now selects the new `platform-v1` lint preset: adopted scripts keep their formatting,
   code order and comments, while parse failures and script traps still block. Existing preset
   behaviour and the `checks-v1` default without `[lint]` are unchanged.

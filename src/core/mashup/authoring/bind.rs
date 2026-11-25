@@ -128,6 +128,8 @@ pub(super) fn bind_in(
     let (mut from_base, mut to_base) = (base(&from), base(&to));
     // A widget the catalogue does not know has no type of its own: it takes the other end's.
     if document.verbatim()
+        || super::end::unchecked_dynamic_container(document, &from)
+        || super::end::unchecked_dynamic_container(document, &to)
         || matches!(&from, End::Data { collection, .. } if matches!(collection.as_str(), "Session" | "UserExtensions"))
         || matches!(
             &from,

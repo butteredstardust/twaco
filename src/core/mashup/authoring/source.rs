@@ -246,6 +246,7 @@ pub(super) fn plan_source_add_loaded_as(
     let lookup =
         catalog::lookup_service(entity, &model.entities, platform.as_ref(), &request.service);
     let complete = lookup.complete;
+    let lookup_unseen = lookup.unseen;
     let service = lookup.service.ok_or_else(|| {
         AuthoringError::Unknown(if complete {
             format!(
@@ -257,7 +258,7 @@ pub(super) fn plan_source_add_loaded_as(
                 "{}.{} is not a service twaco can see: {}",
                 request.entity,
                 request.service,
-                catalog::INCOMPLETE_CHAIN_HINT
+                catalog::incomplete_chain_hint(&lookup_unseen)
             )
         })
     })?;

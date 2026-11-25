@@ -11,6 +11,7 @@ pub(crate) mod baseline;
 pub(crate) mod basetype;
 pub(crate) mod bindings;
 pub mod block;
+pub(crate) mod builtin_services;
 pub mod bundle;
 pub mod catalog;
 pub mod cds_icons;

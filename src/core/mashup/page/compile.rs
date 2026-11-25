@@ -686,6 +686,16 @@ fn compile_nested(
             }
         }
     }
+    for widget in session.document.widgets() {
+        // A mashup chosen at run time has no parameter contract to check; say which pages carry
+        // bindings that were taken as written.
+        if widget.type_id == "mashupcontainer"
+            && crate::core::widgets::property_bound(session.document.value(), &widget.id, "Name")
+            && touches_parameters(session.document.value(), &widget.id)
+        {
+            session.warnings.push(format!("{}: its mashup is set at run time, so the parameters bound on it cannot be checked offline", widget.id));
+        }
+    }
     session.warnings.sort();
     session.warnings.dedup();
     Ok(Artifacts {
@@ -3733,4 +3743,35 @@ fn wire_nodes(
         wire_values(solution, session, model, platform, page, ids, node)?;
     }
     Ok(())
+}
+
+/// Whether a binding reads or writes a property of the widget other than its `Name`.
+fn touches_parameters(content: &Value, id: &str) -> bool {
+    content["DataBindings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|binding| {
+            let ends = [
+                (
+                    &binding["SourceArea"],
+                    &binding["SourceId"],
+                    "SourceProperty",
+                ),
+                (
+                    &binding["TargetArea"],
+                    &binding["TargetId"],
+                    "TargetProperty",
+                ),
+            ];
+            ends.iter().any(|(area, widget, key)| {
+                *area == "UI"
+                    && *widget == id
+                    && binding["PropertyMaps"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|map| map[*key].as_str().is_some_and(|name| name != "Name"))
+            })
+        })
 }

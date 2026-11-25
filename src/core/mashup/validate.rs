@@ -312,6 +312,7 @@ fn severity(rule: &str) -> Severity {
         "selected-rows-without-selection"
         | "chart-axis-type"
         | "unknown-cell-parameter"
+        | "migrated-property"
         | "mixed-label-alignment"
         | "responsive-leaf-size"
         | "wrapped-row-clipping"
@@ -857,12 +858,20 @@ fn check_ui_end(
         return;
     }
     match widget.property(property) {
-        None => problems.push(problem(
-            "unknown-property",
-            format!(
-                "binding {binding} names {id}.{property}, which {id} ({type_id}) does not have"
+        None => problems.push(match widgets::migrated_property(type_id, property) {
+            Some(new) => problem(
+                "migrated-property",
+                format!(
+                    "binding {binding} names {id}.{property}; Composer renames {property} to {new} when it opens the mashup"
+                ),
             ),
-        )),
+            None => problem(
+                "unknown-property",
+                format!(
+                    "binding {binding} names {id}.{property}, which {id} ({type_id}) does not have"
+                ),
+            ),
+        }),
         Some(contract)
             if !(if source {
                 contract.source
@@ -1564,6 +1573,30 @@ mod tests {
             ["structure"],
             "duplicate ids are refused by parse"
         );
+    }
+
+    #[test]
+    fn a_binding_to_a_legacy_name_composer_migrates_is_an_advisory_not_unknown() {
+        let panel = json!([{"Properties": {"Id": "ptcsdynamicpanel-59", "Type": "ptcsdynamicpanel", "DisplayName": "p"}, "Widgets": []}]);
+        let bind = |property: &str| {
+            json!([{"Id": "b1", "PropertyMaps": [{"SourceProperty": "", "TargetProperty": property}],
+                "SourceArea": "Data", "SourceSection": "Things_Acme.M", "SourceId": "Get",
+                "TargetArea": "UI", "TargetSection": "", "TargetId": "ptcsdynamicpanel-59"}])
+        };
+        assert_eq!(
+            rules(&content(
+                panel.clone(),
+                bind("CollapseByDefault"),
+                json!([]),
+                4
+            )),
+            ["migrated-property"]
+        );
+        assert_eq!(
+            rules(&content(panel, bind("Collapsd"), json!([]), 4)),
+            ["unknown-property"]
+        );
+        assert_eq!(severity("migrated-property"), Severity::Advisory);
     }
 
     #[test]

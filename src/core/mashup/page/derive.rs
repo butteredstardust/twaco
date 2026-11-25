@@ -44,8 +44,9 @@ pub(crate) fn derive_exact(name: &str, content: &str) -> Result<Derived, Error> 
 }
 
 fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Result<Derived, Error> {
-    let content: Value =
+    let mut content: Value =
         serde_json::from_str(content).map_err(|e| Error::at(Location::UNKNOWN, e))?;
+    let migrated = widgets::migrate_content(&mut content);
     let exact = exact && content["twacoPageRules"] != "v1";
     let root = content
         .get("UI")
@@ -61,6 +62,7 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     }
     let mut run = Run::new(&content);
     run.notes.extend(widgets::configuration_warnings(&content));
+    run.notes.extend(migrated);
     run.carry_styles = carry_styles;
     run.exact = exact;
     let parameters = run.parameters(&root["Properties"]);
@@ -895,6 +897,8 @@ impl<'a> Run<'a> {
             }
             if !known_property(widget, key, data_bound)
                 && !self.exact
+                // A stale legacy name migrate_content left in place keeps its value.
+                && widgets::migrated_property(type_id, key).is_none()
                 && widgets::catalog()
                     .by_type(type_id)
                     .is_some_and(|w| w.has_contract())

@@ -513,6 +513,16 @@ pub(super) fn plan_add_loaded(
                     document.set_property(&placed_path, name, value);
                     continue;
                 }
+                // A stale legacy name a mashup still carries (Composer renames it when it opens
+                // the mashup): kept as written, never dropped.
+                if widgets::migrated_property(&widget.type_id, name).is_some()
+                    && widgets::migration_changes_values(&widget.type_id, name)
+                {
+                    let value =
+                        serde_json::from_str(text).unwrap_or_else(|_| Value::String(text.clone()));
+                    document.set_property(&placed_path, name, value);
+                    continue;
+                }
                 return Err(AuthoringError::Invalid(
                     widget.no_property(&widget.type_id, name),
                 ));
