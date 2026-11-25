@@ -258,3 +258,28 @@ fn remove_unbind_and_off_are_safe_over_a_wired_mashup() {
     ]);
     assert_eq!(grid["bindings_removed"], 1);
 }
+
+#[test]
+fn a_copy_prints_the_permission_group_notice_in_text() {
+    // The notice was only in --json; the text output of `mashup new --from` dropped its notes.
+    let scratch = Scratch::new();
+    scratch.ok(&["mashup", "new", "Acme.Reference_MU", "--apply"]);
+    let groups = scratch.root().join("PermissionGroups");
+    std::fs::create_dir_all(&groups).unwrap();
+    std::fs::write(
+        groups.join("Acme.Access.xml"),
+        r#"<Entities><PermissionGroups><PermissionGroup name="Acme.Access" projectName="Acme"><EntityPermissions><EntityPermission entityType="Mashup" entityName="Acme.Reference_MU" permissionCategory="Visibility" permissionName="Visibility" isPermitted="true" onInstances="false"/></EntityPermissions></PermissionGroup></PermissionGroups></Entities>"#,
+    )
+    .unwrap();
+    let text = scratch.ok(&[
+        "mashup",
+        "new",
+        "Acme.Copy_MU",
+        "--from",
+        "Acme.Reference_MU",
+    ]);
+    assert!(
+        text.contains("  note: Acme.Reference_MU is visible through PermissionGroup Acme.Access"),
+        "{text}"
+    );
+}

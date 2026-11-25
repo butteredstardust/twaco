@@ -835,6 +835,10 @@ pub(crate) fn mashup_new_cmd(solution: &Solution, args: &MashupNew) -> u8 {
         for line in mashup::authoring::copy_summary_lines(solution, plan, outcome.applied) {
             println!("{line}");
         }
+        // Visibility and PermissionGroup notices are notes: a copy must show them too.
+        for note in &plan.notes {
+            println!("  note: {note}");
+        }
         if !outcome.applied {
             println!("run again with --apply to write it");
         }
