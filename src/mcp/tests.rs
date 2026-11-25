@@ -1322,7 +1322,17 @@ fn refused_push_result_has_a_server_conflict_code() {
         },
     );
     assert_eq!(result["code"], "server_conflict");
-    assert_eq!(result["refusal"], refusal.to_string());
+    // The refusal names the entity in its recovery commands.
+    let text = result["refusal"].as_str().unwrap();
+    assert!(
+        text.starts_with("the server changed since the last sync"),
+        "{text}"
+    );
+    assert!(text.contains("twaco entity diff Things/P.T"), "{text}");
+    assert!(
+        text.contains("twaco entity pull Things/P.T --apply"),
+        "{text}"
+    );
 }
 
 #[test]

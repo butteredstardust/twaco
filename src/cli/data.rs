@@ -353,7 +353,8 @@ fn call_operands(operands: &[String]) -> Option<(String, String, &[String])> {
 fn is_json_text(text: &str) -> bool {
     text.trim_start_matches('\u{feff}')
         .trim_start()
-        .starts_with(['{', '['])
+        // A pair starts with its name, so a quoted string is JSON (and refused as not an object).
+        .starts_with(['{', '[', '"'])
 }
 
 /// What follows the service: one JSON object, or `name=value` pairs (with `--param`'s).

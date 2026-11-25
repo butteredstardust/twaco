@@ -742,6 +742,9 @@ fn plan_from(
     );
     let mut created_cells = Vec::new();
     let mut cell_notices = generated.warnings.clone();
+    if let Ok(content) = serde_json::from_str::<Value>(&generated.content) {
+        cell_notices.extend(binding_cycles(&content));
+    }
     if let Some(source) = &copied_from {
         cell_notices.push(format!(
             "page.name was overridden with {name}; the copied page.yaml uses the command's name"
@@ -1037,4 +1040,161 @@ fn stored_spec(
         &serde_json::to_string(&value).map_err(invalid)?,
     );
     Ok(stored.into_bytes())
+}
+
+/// One note per group of bindings that feed back into themselves through a service call, such
+/// as `param -> dropdown -> service parameter -> result -> param`. The platform allows it (each
+/// value change runs the loop once more until the value settles), so it is a note, never a refusal.
+pub(crate) fn binding_cycles(content: &Value) -> Vec<String> {
+    use std::collections::{BTreeMap, BTreeSet};
+    fn node(area: &str, id: &str, section: &str, property: &str) -> String {
+        match area {
+            "Mashup" => format!("param.{property}"),
+            "Data" => format!("data:{section}.{id}"),
+            "Session" | "UserExtensions" => format!("{area}.{property}"),
+            _ => id.to_string(),
+        }
+    }
+    let text = |v: &Value, k: &str| v[k].as_str().unwrap_or("").to_string();
+    let mut edges: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for binding in content["DataBindings"].as_array().into_iter().flatten() {
+        for map in binding["PropertyMaps"].as_array().into_iter().flatten() {
+            let from = node(
+                &text(binding, "SourceArea"),
+                &text(binding, "SourceId"),
+                &text(binding, "SourceSection"),
+                &text(map, "SourceProperty"),
+            );
+            let to = node(
+                &text(binding, "TargetArea"),
+                &text(binding, "TargetId"),
+                &text(binding, "TargetSection"),
+                &text(map, "TargetProperty"),
+            );
+            if from != to {
+                edges.entry(from).or_default().insert(to);
+            }
+        }
+    }
+    // Tarjan's strongly connected components; a component of two or more nodes is a loop.
+    struct Walk<'a> {
+        edges: &'a BTreeMap<String, BTreeSet<String>>,
+        index: BTreeMap<String, usize>,
+        low: BTreeMap<String, usize>,
+        stack: Vec<String>,
+        on: BTreeSet<String>,
+        next: usize,
+        out: Vec<Vec<String>>,
+    }
+    impl Walk<'_> {
+        fn visit(&mut self, v: &str) {
+            self.index.insert(v.into(), self.next);
+            self.low.insert(v.into(), self.next);
+            self.next += 1;
+            self.stack.push(v.into());
+            self.on.insert(v.into());
+            for w in self.edges.get(v).into_iter().flatten() {
+                if !self.index.contains_key(w) {
+                    self.visit(w);
+                    let low = self.low[v].min(self.low[w]);
+                    self.low.insert(v.into(), low);
+                } else if self.on.contains(w) {
+                    let low = self.low[v].min(self.index[w]);
+                    self.low.insert(v.into(), low);
+                }
+            }
+            if self.low[v] == self.index[v] {
+                let mut group = vec![];
+                while let Some(w) = self.stack.pop() {
+                    self.on.remove(&w);
+                    let done = w == v;
+                    group.push(w);
+                    if done {
+                        break;
+                    }
+                }
+                if group.len() > 1 {
+                    group.sort();
+                    self.out.push(group);
+                }
+            }
+        }
+    }
+    let mut walk = Walk {
+        edges: &edges,
+        index: BTreeMap::new(),
+        low: BTreeMap::new(),
+        stack: vec![],
+        on: BTreeSet::new(),
+        next: 0,
+        out: vec![],
+    };
+    let starts: Vec<String> = edges.keys().cloned().collect();
+    for start in starts {
+        if !walk.index.contains_key(&start) {
+            walk.visit(&start);
+        }
+    }
+    walk.out
+        .into_iter()
+        .filter_map(|group| {
+            let services: Vec<&str> = group
+                .iter()
+                .filter_map(|n| n.strip_prefix("data:"))
+                .map(|n| n.rsplit('.').next().unwrap_or(n))
+                .collect();
+            (!services.is_empty()).then(|| {
+                format!(
+                    "binding cycle through {}: {} (each change runs the loop again until the value settles)",
+                    services.join(", "),
+                    group
+                        .iter()
+                        .map(|n| n.strip_prefix("data:").unwrap_or(n))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod cycle_tests {
+    use super::binding_cycles;
+    use serde_json::json;
+
+    fn binding(from: (&str, &str, &str, &str), to: (&str, &str, &str, &str)) -> serde_json::Value {
+        json!({"SourceArea": from.0, "SourceId": from.1, "SourceSection": from.2,
+            "TargetArea": to.0, "TargetId": to.1, "TargetSection": to.2,
+            "PropertyMaps": [{"SourceProperty": from.3, "TargetProperty": to.3}]})
+    }
+
+    #[test]
+    fn a_loop_through_a_service_is_one_note_and_a_chain_is_none() {
+        let s = "Things_Acme.Dates";
+        let looped = json!({"DataBindings": [
+            binding(("Mashup", "mashup-root", "", "period"), ("UI", "ptcsdropdown-3", "", "SelectedText")),
+            binding(("UI", "ptcsdropdown-3", "", "SelectedText"), ("Data", "Resolve", s, "period")),
+            binding(("Data", "Resolve", s, "Period"), ("Mashup", "mashup-root", "", "period")),
+        ]});
+        let notes = binding_cycles(&looped);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].starts_with("binding cycle through Resolve: "),
+            "{notes:?}"
+        );
+        assert!(notes[0].contains("param.period") && notes[0].contains("ptcsdropdown-3"));
+
+        let chain = json!({"DataBindings": [
+            binding(("Mashup", "mashup-root", "", "period"), ("Data", "Resolve", s, "period")),
+            binding(("Data", "Resolve", s, "Period"), ("UI", "ptcslabel-4", "", "LabelText")),
+        ]});
+        assert!(binding_cycles(&chain).is_empty());
+        // A loop among widgets alone (no service) is no note.
+        let widgets = json!({"DataBindings": [
+            binding(("UI", "a-1", "", "Out"), ("UI", "b-2", "", "In")),
+            binding(("UI", "b-2", "", "Out"), ("UI", "a-1", "", "In")),
+        ]});
+        assert!(binding_cycles(&widgets).is_empty());
+    }
 }

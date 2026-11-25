@@ -723,5 +723,6 @@ fn repeated_params_send_strings_without_a_signature_and_refuse_json_mixing() {
     assert_eq!(parameters, serde_json::json!({"a":"1", "b":"x=y"}));
     let output = run(&root, &["call", "T.S", "{}", "--param", "a=1"]);
     assert_eq!(output.status.code(), Some(2));
-    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot be mixed"));
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .contains("use either key=value pairs or one JSON object"));
 }
