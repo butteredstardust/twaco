@@ -15095,3 +15095,23 @@ fn adding_a_legacy_word_names_the_modern_widget_it_placed() {
         plan.notes
     );
 }
+
+#[test]
+fn copies_warn_about_design_time_access_a_permission_group_gives_the_source() {
+    let (dir, solution) = one_project();
+    let source = plan_new(&solution, &request("Acme.Reference_MU")).unwrap();
+    apply_new(&solution, &source, &lock(&solution)).unwrap();
+    write(
+        dir.path(),
+        "acme/PermissionGroups/Acme.Editors.xml",
+        r#"<Entities><PermissionGroups><PermissionGroup name="Acme.Editors" projectName="Acme"><EntityPermissions><EntityPermission entityType="Mashup" entityName="Acme.Reference_MU" permissionCategory="DesignTime" permissionName="Update" isPermitted="true" onInstances="false"/></EntityPermissions></PermissionGroup></PermissionGroups></Entities>"#,
+    );
+    let notes =
+        copy_visibility_notes(&solution, "Acme.Reference_MU", "Acme.Copy_MU", true).unwrap();
+    assert!(
+        notes
+            .iter()
+            .any(|n| n.contains("DesignTime access through PermissionGroup Acme.Editors")),
+        "{notes:?}"
+    );
+}

@@ -794,6 +794,24 @@ fn new_spec_failure_rolls_back_all_created_artifacts_and_the_copy() {
 }
 
 #[test]
+fn a_plan_lists_only_widgets_whose_own_properties_change() {
+    let (_dir, solution) = solution();
+    create_page(&solution);
+    let paths = page_files(&solution);
+    std::fs::write(&paths[4], SPEC.replace("text: Refresh", "text: Reload")).unwrap();
+    let plan = super::build::plan(&solution, "Acme.Alerts_MU", None, None).unwrap();
+    assert!(!plan.conflicts(), "{}", plan.report);
+    let changed: Vec<_> = plan.report["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|n| n["status"] == "changed")
+        .map(|n| n["node"].as_str().unwrap())
+        .collect();
+    assert_eq!(changed, vec!["refresh"], "{}", plan.report);
+}
+
+#[test]
 fn removed_nodes_are_reported_and_removed_atomically() {
     let (_dir, solution) = solution();
     create_page(&solution);

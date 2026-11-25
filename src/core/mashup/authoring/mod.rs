@@ -507,6 +507,33 @@ pub(crate) fn copy_visibility_notes(
             notes.push(format!("{source} is visible through PermissionGroup {group}; the copy is not a member; add a Visibility EntityPermission for Mashup/{target} to {group}, then run twaco entity push PermissionGroups/{group} --apply"));
         }
     }
+    // Access a group grants on the source in other categories is not carried either.
+    for (kind, label) in [(Kind::DesignTime, "DesignTime"), (Kind::RunTime, "RunTime")] {
+        let key = KindKey::of(kind);
+        let groups: std::collections::BTreeSet<_> = derived
+            .targets
+            .get(&("Mashups".into(), source.into()))
+            .and_then(|sets| sets.get(&key))
+            .into_iter()
+            .flatten()
+            .filter(|(_, allowed)| **allowed)
+            .map(|(grant, _)| grant.principal.as_str())
+            .collect();
+        for group in groups {
+            let already_member = derived
+                .targets
+                .get(&("Mashups".into(), target.into()))
+                .and_then(|sets| sets.get(&key))
+                .is_some_and(|grants| {
+                    grants
+                        .iter()
+                        .any(|(grant, allowed)| *allowed && grant.principal == group)
+                });
+            if !already_member {
+                notes.push(format!("{source} is granted {label} access through PermissionGroup {group}; the copy is not a member; add a {label} EntityPermission for Mashup/{target} to {group}, then run twaco entity push PermissionGroups/{group} --apply"));
+            }
+        }
+    }
     Ok(notes)
 }
 

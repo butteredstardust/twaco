@@ -6,6 +6,19 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- `mashup spec` no longer calls a page "edited by hand" after a build that kept no hand edit and
+  wrote nothing: that build refreshes the digest the spec check compares against.
+- A contained mashup's own properties (`ResponsiveLayout`, the editor's and twaco's managed ones)
+  are no longer reported as orphan contained-mashup parameter values in `cell_notices`.
+- A page spec's `root:` carries the root container's stored styles (`styles:` or `style:`), so a
+  fresh copy keeps them and derive no longer says "style properties not carried" for it; a
+  `{bind: ...}` on a root prop is written as a binding like on any widget.
+- `mashup spec` names stored parameter definitions of contained mashups and navigations that a
+  build refreshes from the target mashup ("refreshed the stored parameter definitions of X from
+  Y: added A, B"). A copy also warns when a PermissionGroup gives the source design-time or
+  run-time access the copy lacks.
+- A build plan lists as `changed` only widgets whose own properties or child order change, not
+  their ancestors.
 - Services every Thing, ThingTemplate and ThingShape has (`GetProperties`, `GetPropertyValues`,
   `GetImplementingThingsWithData`, `QueryImplementingThingsWithData`...) resolve for data sources
   without `types --platform`, with the parameters and result types the 10.2 platform declares;

@@ -145,6 +145,61 @@ fn with_css(mut found: Extraction, directory: &std::path::Path) -> Extraction {
     found
 }
 
+/// Contained mashups and navigations store a copy of their target's parameter definitions. A
+/// source whose copies are stale gets the target's current ones from a build; say so, so the
+/// difference is explained.
+fn refreshed_definitions(source: &Value, built: &Value) -> Vec<String> {
+    fn collect<'a>(widget: &'a Value, out: &mut BTreeMap<&'a str, (&'a str, Vec<&'a str>)>) {
+        let properties = &widget["Properties"];
+        if let (Some(id), Some(entries)) = (
+            properties["Id"].as_str(),
+            properties["MashupParameters"].as_array(),
+        ) {
+            let target = properties["Name"]
+                .as_str()
+                .or_else(|| properties["Mashup"].as_str())
+                .unwrap_or("its mashup");
+            let mut names: Vec<_> = entries
+                .iter()
+                .filter_map(|e| e["ParameterName"].as_str())
+                .collect();
+            names.sort_unstable();
+            out.insert(id, (target, names));
+        }
+        for child in widget["Widgets"].as_array().into_iter().flatten() {
+            collect(child, out);
+        }
+    }
+    let (mut had, mut wrote) = (BTreeMap::new(), BTreeMap::new());
+    collect(&source["UI"], &mut had);
+    collect(&built["UI"], &mut wrote);
+    let mut notes = vec![];
+    for (id, (target, now)) in wrote {
+        let Some((_, before)) = had.get(id) else {
+            continue;
+        };
+        let added: Vec<_> = now.iter().filter(|n| !before.contains(n)).collect();
+        let removed: Vec<_> = before.iter().filter(|n| !now.contains(n)).collect();
+        if added.is_empty() && removed.is_empty() {
+            continue;
+        }
+        let list = |names: Vec<&&str>| names.iter().map(|n| **n).collect::<Vec<_>>().join(", ");
+        let mut note = format!("refreshed the stored parameter definitions of {id} from {target}");
+        if !added.is_empty() {
+            note.push_str(&format!(": added {}", list(added)));
+        }
+        if !removed.is_empty() {
+            note.push_str(&format!(
+                "{} removed {}",
+                if note.ends_with(target) { ":" } else { ";" },
+                list(removed)
+            ));
+        }
+        notes.push(note);
+    }
+    notes
+}
+
 fn count_widgets(content: &Value) -> usize {
     fn walk(widget: &Value) -> usize {
         widget["Widgets"]
@@ -386,6 +441,7 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
                 && !n.starts_with("unsupported wiring left out:")
         });
         notes.extend(align::lost_wiring(&value, &content));
+        notes.extend(refreshed_definitions(&value, &content));
         let left = align::remaining(&value, &content).len();
         if left > 0 {
             notes.push(format!(
@@ -520,4 +576,35 @@ pub(crate) fn derive_content(name: &str, content: &str) -> Result<Extraction, su
         notes: derived.notes,
         css: None,
     })
+}
+
+#[cfg(test)]
+mod refreshed_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn page(entries: Value) -> Value {
+        json!({"UI": {"Properties": {"Id": "root"}, "Widgets": [
+            {"Properties": {"Id": "box", "Name": "Acme.Child_MU", "MashupParameters": entries}}
+        ]}})
+    }
+
+    #[test]
+    fn stale_stored_definitions_are_named_with_what_a_build_adds() {
+        let stale = page(json!([{"ParameterName": "Old"}]));
+        let current =
+            page(json!([{"ParameterName": "Old"}, {"ParameterName": "A"}, {"ParameterName": "B"}]));
+        assert_eq!(
+            refreshed_definitions(&stale, &current),
+            vec![
+                "refreshed the stored parameter definitions of box from Acme.Child_MU: added A, B"
+            ]
+        );
+        assert!(refreshed_definitions(&current, &current).is_empty());
+        let notes = refreshed_definitions(&current, &page(json!([{"ParameterName": "A"}])));
+        assert_eq!(
+            notes,
+            vec!["refreshed the stored parameter definitions of box from Acme.Child_MU: removed B, Old"]
+        );
+    }
 }

@@ -86,6 +86,7 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     let root_name = template_root
         .map(|w| prop(w, "Id").clone())
         .filter(|id| id.as_str() != fresh.get("Id").and_then(Value::as_str));
+    let mut root_styles = None;
     let (slot, page_root): (Vec<Value>, Option<Map<String, Value>>) = match template_root {
         Some(first) => {
             let direction = if prop(first, "flex-direction") == "column" {
@@ -94,6 +95,7 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
                 "row"
             };
             let page_root = run.root_props(first, &fresh);
+            root_styles = run.carried_styles(first);
             let mut slot: Vec<Value> = widgets_of(first)
                 .iter()
                 .map(|w| run.node(w, direction))
@@ -206,13 +208,19 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
                 .insert(props["Id"].as_str().unwrap_or("mashup-root").into());
         }
     }
-    if root_name.is_some() || page_root.as_ref().is_some_and(|p| !p.is_empty()) {
+    if root_name.is_some()
+        || root_styles.is_some()
+        || page_root.as_ref().is_some_and(|p| !p.is_empty())
+    {
         let mut spec_root = Map::new();
         if let Some(id) = root_name {
             spec_root.insert("id".into(), id);
         }
         if let Some(page_root) = page_root.filter(|p| !p.is_empty()) {
             spec_root.insert("props".into(), json!(page_root));
+        }
+        if let Some((key, value)) = root_styles {
+            spec_root.insert(key.into(), value);
         }
         page.insert("root".into(), Value::Object(spec_root));
     }
@@ -1140,8 +1148,23 @@ impl<'a> Run<'a> {
                 }
             }
         }
+        if let Some((key, value)) = self.carried_styles(widget) {
+            if let Some(body) = node
+                .as_object_mut()
+                .and_then(|m| m.values_mut().next())
+                .and_then(Value::as_object_mut)
+            {
+                body.insert(key.into(), value);
+            }
+        }
+        node
+    }
+
+    /// The stored styles of a widget as the spec field that carries them: `style` (token specs) or
+    /// `styles` (stored parts, as built). Marks the widget as styled.
+    fn carried_styles(&mut self, widget: &Value) -> Option<(&'static str, Value)> {
+        let id = prop(widget, "Id").as_str().unwrap_or("");
         if self.carry_styles {
-            let id = prop(widget, "Id").as_str().unwrap_or("");
             let parts = &self.content["UI"]["Properties"]["StyleProperties"]["data"][id]["parts"];
             let mut styles = vec![];
             let mut skipped = false;
@@ -1166,37 +1189,24 @@ impl<'a> Run<'a> {
                     "style properties partly not carried: widget {id}, non-text values"
                 ));
             }
-            if !styles.is_empty() {
-                if let Some(body) = node
-                    .as_object_mut()
-                    .and_then(|m| m.values_mut().next())
-                    .and_then(Value::as_object_mut)
-                {
-                    body.insert("style".into(), json!(styles));
-                    self.styled.insert(id.to_string());
-                }
+            if styles.is_empty() {
+                return None;
             }
-        } else {
-            // What `style:` cannot say stays verbatim, so the look survives a build.
-            let id = prop(widget, "Id").as_str().unwrap_or("");
-            let entry = &self.content["UI"]["Properties"]["StyleProperties"]["data"][id];
-            let parts = &entry["parts"];
-            // `widget` is the styler label Composer records; a build writes it back.
-            let others = entry
-                .as_object()
-                .is_some_and(|e| e.keys().any(|k| k != "parts" && k != "widget"));
-            if parts.as_object().is_some_and(|p| !p.is_empty()) && !others {
-                if let Some(body) = node
-                    .as_object_mut()
-                    .and_then(|m| m.values_mut().next())
-                    .and_then(Value::as_object_mut)
-                {
-                    body.insert("styles".into(), parts.clone());
-                    self.styled.insert(id.to_string());
-                }
-            }
+            self.styled.insert(id.to_string());
+            return Some(("style", json!(styles)));
         }
-        node
+        // What `style:` cannot say stays verbatim, so the look survives a build.
+        let entry = &self.content["UI"]["Properties"]["StyleProperties"]["data"][id];
+        let parts = &entry["parts"];
+        // `widget` is the styler label Composer records; a build writes it back.
+        let others = entry
+            .as_object()
+            .is_some_and(|e| e.keys().any(|k| k != "parts" && k != "widget"));
+        if parts.as_object().is_some_and(|p| !p.is_empty()) && !others {
+            self.styled.insert(id.to_string());
+            return Some(("styles", parts.clone()));
+        }
+        None
     }
 
     fn finish(

@@ -647,7 +647,7 @@ fn compile_nested(
         }
     }
     super::elements::finish_layout(&mut session, page, &ids)?;
-    apply_root(&mut session, page, &ids)?;
+    apply_root(solution, &mut session, page, &ids)?;
     let applied = apply_pins(
         &mut session,
         &mut ids,
@@ -713,6 +713,7 @@ fn compile_nested(
 /// The page's master and the template root container's own properties, stated as the spec has
 /// them. These come last so nothing the build placed overrides them.
 fn apply_root(
+    solution: &Solution,
     session: &mut Session,
     page: &Page,
     ids: &BTreeMap<String, String>,
@@ -791,8 +792,59 @@ fn apply_root(
                 format!("root props cannot set {key}"),
             ));
         }
+        // A binding is wired with the others, not stored as a value.
+        if binding(&value.value).is_some() {
+            continue;
+        }
         // An absent property is null here: remove it rather than store null.
         super::elements::set_or_remove(&mut session.document, &path, key, &value.value);
+    }
+    let id = session.document.at(&path)["Properties"]["Id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    if let Some(styles) = &root.value.styles {
+        if !styles.value.is_object() {
+            return Err(Error::at(
+                styles.referenced,
+                "root styles must be a map of part to state to property",
+            ));
+        }
+        // The same entry a widget's `styles:` writes, so the root container keeps its look.
+        let mut entry = json!({"parts": styles.value});
+        if let Some(styler) = crate::core::mashup::authoring::set::styler_name("flexcontainer") {
+            entry["widget"] = json!(styler);
+        }
+        let data = session
+            .document
+            .root_properties_mut()
+            .entry("StyleProperties")
+            .or_insert_with(|| json!({}));
+        if !data.is_object() {
+            *data = json!({});
+        }
+        let data = data.as_object_mut().expect("object");
+        data.entry("meta")
+            .or_insert_with(|| json!({"type": "WidgetStyler", "version": "1.0"}));
+        data.entry("data")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .ok_or_else(|| Error::at(styles.referenced, "StyleProperties.data is not a map"))?
+            .insert(id.clone(), entry);
+    }
+    if !root.value.style.is_empty() {
+        session
+            .set(
+                solution,
+                &authoring::SetRequest {
+                    mashup: page.name.value.clone(),
+                    widget: id,
+                    properties: vec![],
+                    style_from: None,
+                    styles: root.value.style.iter().map(|s| s.value.clone()).collect(),
+                },
+            )
+            .map_err(|e| Error::at(root.referenced, e))?;
     }
     Ok(())
 }
@@ -3741,6 +3793,34 @@ fn wire_nodes(
     wire_selections(solution, session, model, platform, page, allocator, ids)?;
     for node in page.slots.values().flat_map(|s| &s.value) {
         wire_values(solution, session, model, platform, page, ids, node)?;
+    }
+    // The root container is no node, so its bound props are wired here.
+    if let Some(root) = &page.root {
+        if root
+            .value
+            .props
+            .values()
+            .any(|v| binding(&v.value).is_some())
+        {
+            let id = session
+                .document
+                .find("center")
+                .map_err(|e| Error::at(root.referenced, e))
+                .map(|found| {
+                    session.document.at(&found.path)["Properties"]["Id"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string()
+                })?;
+            for (prop, value) in &root.value.props {
+                if let Some(from) = binding(&value.value) {
+                    let from = address(page, ids, from, value.referenced)?;
+                    session
+                        .bind(solution, model, platform, &from, &format!("ui:{id}.{prop}"))
+                        .map_err(|e| Error::at(value.referenced, e))?;
+                }
+            }
+        }
     }
     Ok(())
 }

@@ -640,12 +640,25 @@ fn plan_from(
                     _ => None,
                 }
             }
+            // A widget changed when its own properties or the order of its children did, not
+            // when a descendant changed.
+            fn own(widget: Option<&Value>) -> Option<Value> {
+                widget.map(|w| {
+                    let mut own = w.clone();
+                    if let Some(kids) = w["Widgets"].as_array() {
+                        own["Widgets"] = Value::Array(
+                            kids.iter().map(|k| k["Properties"]["Id"].clone()).collect(),
+                        );
+                    }
+                    own
+                })
+            }
             let previous = old.as_ref().and_then(|b| widget(&b.content, id));
             let status = if old.is_none() && existing.is_some() {
                 "unchanged"
             } else if previous.is_none() {
                 "created"
-            } else if previous == widget(&baseline.content, id) {
+            } else if own(previous) == own(widget(&baseline.content, id)) {
                 "unchanged"
             } else {
                 "changed"
@@ -662,8 +675,13 @@ fn plan_from(
     }
     // Digest the content as it lands in content.json: the next build reads it back from there.
     // A build that only keeps hand edits writes nothing, so it carries the old digest forward.
+    // When no hand edit is kept the page is what the spec builds, so the digest is refreshed even
+    // if nothing is written: spec and the next build must not see stale differences.
+    let hand_edits_kept = report.kept.iter().any(|p| p.starts_with("content"));
     let written = match &old {
-        Some(old) if content_before.as_deref() == Some(content_after.as_slice()) => {
+        Some(old)
+            if content_before.as_deref() == Some(content_after.as_slice()) && hand_edits_kept =>
+        {
             old.written.clone()
         }
         _ => text(&content_after)

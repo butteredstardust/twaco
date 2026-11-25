@@ -119,6 +119,11 @@ pub(crate) struct Root {
     pub(crate) id: Option<Spanned<String>>,
     #[serde(default)]
     pub(crate) props: BTreeMap<String, Spanned<Value>>,
+    /// Stored style parts of the root container, as a widget's `styles:`.
+    pub(crate) styles: Option<Spanned<Value>>,
+    /// Style tokens of the root container, as a widget's `style:`.
+    #[serde(default)]
+    pub(crate) style: Vec<Spanned<String>>,
 }
 
 #[derive(Debug, Deserialize)]

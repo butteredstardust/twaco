@@ -408,3 +408,95 @@ fn spec_errors_become_json_objects_with_file_line_and_column() {
         "the error points at the property's line, {line}: {error}"
     );
 }
+
+#[test]
+fn spec_after_a_clean_adoption_build_does_not_claim_hand_edits() {
+    let (_dir, solution) = element_solution();
+    let name = handmade(&solution, HAND_SPEC, "Acme.Hand_MU");
+    let derived = extraction::extract(&solution, &name).unwrap();
+    write_spec(&solution, &name, &derived.spec);
+    apply(&solution, &name);
+    let found = extraction::extract(&solution, &name).unwrap();
+    assert!(found.exact, "{:?}", found.notes);
+    assert!(found.notes.iter().all(|n| !n.contains("edited by hand")));
+    // A spec edit the mashup already carries (made by hand there): the build writes nothing, and
+    // the page is still its spec's.
+    let dir = solution.src_root().join(&name);
+    let loaded = authoring::load_existing(&solution, &name).unwrap();
+    assert!(loaded.assets.content.contains("\"Refresh\""));
+    let content = loaded.assets.content.replace("\"Refresh\"", "\"Reload\"");
+    let assets = Assets {
+        content,
+        css: loaded.assets.css.clone(),
+    };
+    let entity_path = solution.root.join(format!("acme/Mashups/{name}.xml"));
+    let entity = mashup::sync(&std::fs::read(&entity_path).unwrap(), &assets)
+        .unwrap()
+        .0;
+    std::fs::write(&entity_path, entity).unwrap();
+    std::fs::write(dir.join("mashup/content.json"), &assets.content).unwrap();
+    let spec = std::fs::read_to_string(dir.join("page.yaml")).unwrap();
+    assert!(spec.contains("Refresh"), "{spec}");
+    write_spec(
+        &solution,
+        &name,
+        &spec.replace("text: Refresh", "text: Reload"),
+    );
+    let plan = super::super::build::plan(&solution, &name, None, None).unwrap();
+    assert!(!plan.conflicts(), "{}", plan.report);
+    let report = apply(&solution, &name);
+    assert_eq!(report["hand_edits_kept"], serde_json::json!([]), "{report}");
+    let found = extraction::extract(&solution, &name).unwrap();
+    assert!(found.exact, "{:?}", found.notes);
+
+    // A baseline whose comparison and digest are stale while the page equals what the spec
+    // builds: the build that writes nothing refreshes them.
+    let baseline_path = dir.join(".page-baseline.json");
+    let mut baseline =
+        super::super::baseline::Baseline::read(&std::fs::read(&baseline_path).unwrap()).unwrap();
+    let mut stale = baseline.content.clone();
+    stale["UI"]["Properties"]["Margin"] = "77".into();
+    baseline.comparison = Some(stale);
+    baseline.written = "stale".into();
+    std::fs::write(&baseline_path, baseline.bytes()).unwrap();
+    assert!(!extraction::extract(&solution, &name).unwrap().exact);
+    let report = apply(&solution, &name);
+    assert_eq!(report["hand_edits_kept"], serde_json::json!([]), "{report}");
+    let found = extraction::extract(&solution, &name).unwrap();
+    assert!(found.exact, "{:?}", found.notes);
+    let again = super::super::build::plan(&solution, &name, None, None).unwrap();
+    assert_eq!(
+        again.report["files"],
+        serde_json::json!([]),
+        "{}",
+        again.report
+    );
+}
+
+#[test]
+fn spec_after_adopting_a_page_with_a_stylesheet_is_still_exact() {
+    let (_dir, solution) = element_solution();
+    let name = handmade(&solution, HAND_SPEC, "Acme.Hand_MU");
+    let entity_path = solution.root.join(format!("acme/Mashups/{name}.xml"));
+    let loaded = authoring::load_existing(&solution, &name).unwrap();
+    let assets = Assets {
+        content: loaded.assets.content,
+        css: ".acme { color: red; }\n".into(),
+    };
+    let entity = mashup::sync(&std::fs::read(&entity_path).unwrap(), &assets)
+        .unwrap()
+        .0;
+    std::fs::write(&entity_path, entity).unwrap();
+    let derived = extraction::extract(&solution, &name).unwrap();
+    write_spec(&solution, &name, &derived.spec);
+    std::fs::write(
+        solution.src_root().join(&name).join("page.css"),
+        derived.css.clone().expect("css carried"),
+    )
+    .unwrap();
+    apply(&solution, &name);
+    let again = apply(&solution, &name);
+    assert_eq!(again["files_state"], "nothing to write", "{again}");
+    let found = extraction::extract(&solution, &name).unwrap();
+    assert!(found.exact, "{:?}", found.notes);
+}

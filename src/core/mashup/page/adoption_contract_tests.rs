@@ -370,6 +370,7 @@ fn orphan_contained_parameter_values_warn_and_keep_the_entity_bytes() {
     fn orphan(widget: &mut Value) {
         if widget["Properties"]["Type"] == "mashupcontainer" {
             widget["Properties"]["Region"] = json!("Europe");
+            widget["Properties"]["ResponsiveLayout"] = json!(true);
         }
         for child in widget["Widgets"].as_array_mut().into_iter().flatten() {
             orphan(child);
@@ -383,6 +384,13 @@ fn orphan_contained_parameter_values_warn_and_keep_the_entity_bytes() {
             .as_str()
             .unwrap()
             .contains("orphan contained-mashup parameter value MashupParameters")),
+        "{report}"
+    );
+    assert!(
+        !report["cell_notices"].as_array().unwrap().iter().any(|w| w
+            .as_str()
+            .unwrap()
+            .contains("orphan contained-mashup parameter value ResponsiveLayout")),
         "{report}"
     );
     assert!(

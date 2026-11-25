@@ -315,11 +315,30 @@ impl Session {
                 if definitions.iter().any(|definition| definition.name == *name) {
                     true
                 } else {
-                    let static_property = ["mashupcontainer", "ptcsmashupcontainer"].iter().any(|kind| {
-                        crate::core::widgets::catalog().by_type(kind).is_some_and(|widget| {
-                            widget.defaults.contains_key(name) || widget.property(name).is_some()
-                        })
-                    });
+                    // Properties of the container widget itself, whoever wrote them: its contract,
+                    // what the editor adds to every widget, and what twaco manages.
+                    let catalog = crate::core::widgets::catalog();
+                    let static_property = [
+                        "Id",
+                        "Type",
+                        "DisplayName",
+                        "__TypeDisplayName",
+                        "LastContainer",
+                        "ResponsiveLayout",
+                        "MashupParameters",
+                        "_currentParameterDefs",
+                        "id_index",
+                    ]
+                    .contains(&name.as_str())
+                        || catalog.base_properties.contains_key(name)
+                        || catalog.dropped.ptcs.contains_key(name)
+                        || catalog.dropped.flexcontainer.contains_key(name)
+                        || ["mashupcontainer", "ptcsmashupcontainer"].iter().any(|kind| {
+                            catalog.by_type(kind).is_some_and(|widget| {
+                                widget.defaults.contains_key(name)
+                                    || widget.property(name).is_some()
+                            })
+                        });
                     if !static_property {
                         self.warnings.push(format!("orphan contained-mashup parameter value {name}; not a parameter of {mashup}"));
                     }
