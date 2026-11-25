@@ -480,10 +480,13 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "fmt",
         group: 1,
-        text: r#"  fmt [--check] [--apply] [--entity <name>] [--changed-since <git-rev>]
-                              format scripts and sync their entity XML; order subscription Events and RBAC sets
+        text: r#"  fmt [--all] [--check] [--apply] [--entity <name>] [--changed-since <git-rev>]
+                              format scripts and sync their entity XML; order subscription Events and RBAC sets.
+                              Plain fmt covers only files changed against HEAD plus untracked ones (the whole
+                              solution outside git) and says how many others are unformatted
+      --all                   format everything, not only the changed files
       --apply                 apply formatting (the default); incompatible with --check
-      --check                 report which files would change, write nothing
+      --check                 report which files would change, write nothing; always the whole solution
       --entity <name>         an entity name or Collection/Name glob to format (repeatable)
       --changed-since <git-rev>  format entity files and sidecars changed since this revision"#,
     },
@@ -1855,12 +1858,14 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "call",
         group: 3,
-        text: r#"  call <target> <service> [<json>] [--timeout <seconds>] [--detail] [--as <test user>] [--json]
+        text: r#"  call <target> <service> [<name=value>...|<json>] [--timeout <seconds>] [--detail] [--as <test user>] [--json]
       [--lang <code>] [--param <name=value>]...
                               target: Collection/Name, full name, or last dotted segment;
-                              <target>.<service> [<json>] works too, split at the last dot
-      --param <name=value>    one parameter (repeatable), typed by the known signature, else
-                              text; not with <json>
+                              <target>.<service> [...] works too, split at the last dot.
+                              name=value pairs split at the first =; typed by the service signature
+                              (NUMBER, INTEGER, LONG, BOOLEAN; text as given), an unknown name is refused
+                              with the closest one; INFOTABLE and JSON need <json>; pairs and <json> never mix
+      --param <name=value>    the long form of a name=value pair (repeatable)
       --with-logs             then what it wrote to ScriptLog and ApplicationLog (waits up to 3 s)
       --json                  one complete service reply as JSON (logs and notices go to stderr)
       --as <test user>        call as a [[test.user]] with the profile's test_password (the profile

@@ -371,6 +371,7 @@ pub(crate) fn fmt_tool(solution: &Solution, arguments: FmtRequest) -> Result<Val
         mode: if check { Mode::Plan } else { Mode::Apply },
         entities: arguments.entities.items().to_vec(),
         changed_since: arguments.changed_since.as_ref().cloned(),
+        changed_default: false,
         lock_label: "mcp fmt",
     };
     let mut notices = commands::Notices::default();

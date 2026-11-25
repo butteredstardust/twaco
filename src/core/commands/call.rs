@@ -277,13 +277,18 @@ where
     }
 }
 
-/// CLI name=value inputs, typed only when a cached or repository signature is known.
+/// CLI name=value inputs, typed by the repository's (or the platform cache's) signature of the
+/// service. NUMBER, INTEGER and LONG are parsed as numbers, BOOLEAN as true/false, text types and
+/// DATETIME are sent as given; structured types (INFOTABLE, JSON) are refused (use one JSON
+/// object); a name the signature does not declare is refused with the closest one. Without a
+/// signature the values are text, and the second item says so.
 pub fn parameter_pairs(
     solution: &Solution,
     target: &str,
     service: &str,
     pairs: &[String],
-) -> Result<Value, CallCommandError> {
+) -> Result<(Value, Option<String>), CallCommandError> {
+    let shown = format!("{target}.{service}");
     let target = workspace::call_target(&workspace::discover(solution).entities, target)
         .map_err(CallCommandError::Target)?;
     let (model, _) = crate::core::types::load_model(solution);
@@ -317,31 +322,97 @@ pub fn parameter_pairs(
         let (name, raw) = pair
             .split_once('=')
             .filter(|(name, _)| !name.is_empty())
-            .ok_or_else(|| CallCommandError::Arguments("--param must be name=value".into()))?;
-        let base = signature
-            .as_ref()
-            .and_then(|s| s.parameters.iter().find(|p| p.name == name))
-            .map(|p| p.value.base_type.as_str());
+            .ok_or_else(|| CallCommandError::Arguments(format!("{pair} must be name=value")))?;
+        let base = match &signature {
+            Some(signature) => {
+                let Some(parameter) = signature.parameters.iter().find(|p| p.name == name) else {
+                    return Err(unknown_parameter(&shown, name, signature));
+                };
+                Some(parameter.value.base_type.as_str())
+            }
+            None => None,
+        };
         let value = match base {
-            Some("BOOLEAN" | "NUMBER" | "INTEGER" | "LONG" | "JSON" | "INFOTABLE") => {
-                serde_json::from_str(raw).map_err(|_| {
-                    CallCommandError::Arguments(format!(
-                        "--param {name} must be a valid {} value",
-                        base.unwrap()
-                    ))
-                })?
+            Some("NUMBER") => raw
+                .trim()
+                .parse::<f64>()
+                .ok()
+                .and_then(|number| match raw.trim().parse::<i64>() {
+                    Ok(whole) => Some(Value::from(whole)),
+                    Err(_) => serde_json::Number::from_f64(number).map(Value::Number),
+                })
+                .ok_or_else(|| not_a(name, "NUMBER"))?,
+            Some(kind @ ("INTEGER" | "LONG")) => raw
+                .trim()
+                .parse::<i64>()
+                .map(Value::from)
+                .map_err(|_| not_a(name, kind))?,
+            Some("BOOLEAN") => match raw.trim() {
+                "true" => Value::Bool(true),
+                "false" => Value::Bool(false),
+                _ => return Err(not_a(name, "BOOLEAN")),
+            },
+            Some("INFOTABLE" | "JSON") => {
+                return Err(CallCommandError::Arguments(format!(
+                    "{name} is {}; use a JSON object for {name}",
+                    base.unwrap_or_default()
+                )))
             }
             _ => Value::String(raw.into()),
         };
         if result.insert(name.into(), value).is_some() {
             return Err(CallCommandError::Arguments(format!(
-                "--param gives {name} twice"
+                "{name} is given twice"
             )));
         }
     }
     let value = Value::Object(result);
     check_arguments(solution, &target, service, &value)?;
-    Ok(value)
+    let note = (signature.is_none() && !pairs.is_empty()).then(|| {
+        format!("no signature for {shown} in the repository; the values are sent as text")
+    });
+    Ok((value, note))
+}
+
+fn not_a(name: &str, kind: &str) -> CallCommandError {
+    CallCommandError::Arguments(format!(
+        "{name} is {kind} and the value is not one; for an unusual value give a JSON object"
+    ))
+}
+
+/// A name the signature lacks: ThingWorx would ignore it silently, so the call is refused.
+fn unknown_parameter(
+    shown: &str,
+    name: &str,
+    signature: &crate::core::types::Service,
+) -> CallCommandError {
+    let closest = signature
+        .parameters
+        .iter()
+        .map(|p| {
+            (
+                strsim::levenshtein(&name.to_lowercase(), &p.name.to_lowercase()),
+                p,
+            )
+        })
+        .min_by_key(|(distance, _)| *distance)
+        .filter(|(distance, p)| *distance <= 2.max(p.name.len() / 3))
+        .map(|(_, p)| format!("; did you mean {}?", p.name))
+        .unwrap_or_default();
+    let declared: Vec<String> = signature
+        .parameters
+        .iter()
+        .map(|p| format!("{}:{}", p.name, p.value.base_type))
+        .collect();
+    CallCommandError::Arguments(format!(
+        "unknown parameter {name} for {shown}{closest}{} parameters: {}",
+        if closest.is_empty() { ";" } else { "" },
+        if declared.is_empty() {
+            "none".to_string()
+        } else {
+            declared.join(", ")
+        }
+    ))
 }
 
 /// Refuse arguments the repository's own signature of the service rules out: a name it does not
@@ -621,9 +692,50 @@ mod tests {
                 "Run",
                 &["path=D:/data/file.csv".into()]
             )
-            .unwrap(),
+            .unwrap()
+            .0,
             serde_json::json!({"path":"D:/data/file.csv"})
         );
+    }
+
+    #[test]
+    fn pairs_are_typed_by_the_signature_and_unknown_names_are_refused() {
+        let (_dir, root, solution) = solution();
+        std::fs::create_dir_all(root.join("Things")).unwrap();
+        std::fs::write(
+            root.join("Things/P.T.xml"),
+            "<Entities><Things><Thing name=\"P.T\" projectName=\"P\" thingTemplate=\"GenericThing\"><ThingShape><ServiceDefinitions><ServiceDefinition name=\"Get\"><ParameterDefinitions><FieldDefinition baseType=\"STRING\" name=\"RobotName\"/><FieldDefinition baseType=\"NUMBER\" name=\"angle\"/><FieldDefinition baseType=\"INTEGER\" name=\"count\"/><FieldDefinition baseType=\"BOOLEAN\" name=\"on\"/><FieldDefinition baseType=\"DATETIME\" name=\"since\"/><FieldDefinition baseType=\"INFOTABLE\" name=\"rows\"/></ParameterDefinitions></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>",
+        )
+        .unwrap();
+        let pairs = |items: &[&str]| {
+            let owned: Vec<String> = items.iter().map(|i| (*i).to_string()).collect();
+            parameter_pairs(&solution, "P.T", "Get", &owned)
+        };
+        // Split at the first =, a dotted entity name stays a string, each type parses.
+        let (value, note) = pairs(&[
+            "RobotName=Acme.Robot=1",
+            "angle=1.5",
+            "count=3",
+            "on=true",
+            "since=2026-01-02T03:04:05Z",
+        ])
+        .unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({"RobotName":"Acme.Robot=1","angle":1.5,"count":3,"on":true,"since":"2026-01-02T03:04:05Z"})
+        );
+        assert!(note.is_none());
+        let unknown = pairs(&["Robotname=x"]).unwrap_err().to_string();
+        assert_eq!(
+            unknown,
+            "unknown parameter Robotname for P.T.Get; did you mean RobotName? parameters: RobotName:STRING, angle:NUMBER, count:INTEGER, on:BOOLEAN, rows:INFOTABLE, since:DATETIME"
+        );
+        for bad in ["angle=abc", "count=1.5", "on=yes"] {
+            let error = pairs(&[bad]).unwrap_err().to_string();
+            assert!(error.contains("JSON object"), "{error}");
+        }
+        let table = pairs(&["rows={}"]).unwrap_err().to_string();
+        assert!(table.contains("use a JSON object for rows"), "{table}");
     }
 
     #[test]
@@ -671,7 +783,8 @@ mod tests {
                 "Twice",
                 &["x=2".into(), "why=test".into()]
             )
-            .unwrap(),
+            .unwrap()
+            .0,
             serde_json::json!({"x":2,"why":"test"})
         );
         assert!(parameter_pairs(
@@ -681,10 +794,9 @@ mod tests {
             &["x=bad".into(), "why=test".into()]
         )
         .is_err());
-        assert_eq!(
-            parameter_pairs(&solution, "P.T", "Other", &["y=1".into()]).unwrap(),
-            serde_json::json!({"y":"1"})
-        );
+        let (text, note) = parameter_pairs(&solution, "P.T", "Other", &["y=1".into()]).unwrap();
+        assert_eq!(text, serde_json::json!({"y":"1"}));
+        assert!(note.unwrap().contains("sent as text"));
         assert!(parameter_pairs(&solution, "P.T", "Other", &["y=1".into(), "y=2".into()]).is_err());
         assert!(parameter_pairs(&solution, "P.T", "Other", &["bad".into()]).is_err());
         // A Resource outside the repository is typed from the platform cache.
@@ -694,16 +806,15 @@ mod tests {
             r#"{"resources":{"InfoTableFunctions":{"services":{"Query":{"inputs":{"t":{"baseType":"INFOTABLE"}},"result":{"baseType":"INFOTABLE"}}}}}}"#,
         )
         .unwrap();
-        assert_eq!(
-            parameter_pairs(
-                &solution,
-                "Resources/InfoTableFunctions",
-                "Query",
-                &[r#"t={"rows":[]}"#.into()]
-            )
-            .unwrap(),
-            serde_json::json!({"t":{"rows":[]}})
-        );
+        let refused = parameter_pairs(
+            &solution,
+            "Resources/InfoTableFunctions",
+            "Query",
+            &[r#"t={"rows":[]}"#.into()],
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(refused.contains("use a JSON object for t"), "{refused}");
         let target = ServiceTarget::Thing("P.T".into());
         let check = |parameters: Value| check_arguments(&solution, &target, "Twice", &parameters);
         check(serde_json::json!({"x": 2, "why": "test"})).unwrap();

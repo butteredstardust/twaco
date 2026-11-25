@@ -269,6 +269,9 @@ pub(crate) struct Fmt {
     pub(crate) apply: Apply,
     #[arg(long = "check")]
     pub(crate) check: bool,
+    /// Format everything, not only the files changed against HEAD.
+    #[arg(long = "all", conflicts_with_all = ["entity", "changed_since"])]
+    pub(crate) all: bool,
     #[arg(long = "entity", value_name = "name")]
     pub(crate) entity: Vec<String>,
     #[arg(long = "changed-since", value_name = "git-rev")]
@@ -281,19 +284,20 @@ pub(crate) fn fmt(solution: &Solution, args: &Fmt) -> u8 {
         mode: if check { Mode::Plan } else { Mode::Apply },
         entities: args.entity.clone(),
         changed_since: args.changed_since.clone(),
+        changed_default: !args.all,
         lock_label: "fmt",
     };
     let mut notices = commands::Notices::default();
     let result = commands::fmt::execute(solution, &request, &mut notices);
     print_notices(&notices);
-    let outcome = match result {
-        Ok(outcome) => outcome.report,
+    let (outcome, others) = match result {
+        Ok(outcome) => (outcome.report, outcome.others_unformatted),
         Err(error) => {
             eprintln!("{} {error}", style::prefix());
             return FAILED;
         }
     };
-    if outcome.files == 0 && outcome.changed.is_empty() && outcome.failed == 0 {
+    if outcome.files == 0 && outcome.changed.is_empty() && outcome.failed == 0 && others.is_none() {
         println!("no service scripts under {}", solution.src_root().display());
         return OK;
     }
@@ -312,6 +316,16 @@ pub(crate) fn fmt(solution: &Solution, args: &Fmt) -> u8 {
     if outcome.failed > 0 {
         eprintln!("{} {} file(s) failed", style::prefix(), outcome.failed);
         return FAILED;
+    }
+    if let Some(others) = others {
+        // The default scope is the changed files; say what it left alone.
+        let rest = if others == 0 {
+            String::new()
+        } else {
+            format!("; {others} other script(s) unformatted, run `twaco fmt --all`")
+        };
+        println!("formatted {} changed file(s){rest}", outcome.changed.len());
+        return OK;
     }
     if outcome.changed.is_empty() {
         println!("{} service script(s) are formatted", outcome.files);

@@ -6,6 +6,10 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- `twaco call` takes bare `name=value` parameters after the service, typed by the service
+  signature, and refuses a name the signature lacks (ThingWorx ignores it silently) with the
+  closest one. Plain `twaco fmt` formats only the files changed against HEAD plus untracked
+  ones and counts the rest; `twaco fmt --all` formats everything, `--check` still judges all.
 - Page-spec round trips accept horizontal image positions and case variations in catalogue
   options, omit read-only props, bind numbered chart sources, and retain legacy container
   children and navigation parameter cache order/defaults. Extension wiring is carried with an

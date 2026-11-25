@@ -346,6 +346,9 @@ without it, each gate gives a summary.
 
 ### Focused script lint
 
+Plain `twaco fmt` formats only the files changed against git HEAD plus untracked ones (the
+whole solution outside git) and ends by counting what it left alone; `twaco fmt --all`
+formats everything. `twaco fmt --check` and the `formatting` gate always judge everything.
 `twaco fmt` also orders Events directly under a Subscription by alias, preserving their XML bytes and surrounding layout.
 
 `twaco lint` runs the formatting, script-trap, code-order and enabled comment rules, reporting each
@@ -2647,7 +2650,12 @@ keep a `jar:file:` URL and report the SDK version.
 
 - **`twaco call <Thing> <Service> '<json>'`** calls a service now. A service can write, and
   twaco cannot tell which do, so know what it does first. `--with-logs` then shows what the
-  call wrote to ScriptLog and ApplicationLog, waiting up to 3 seconds for them. A target
+  call wrote to ScriptLog and ApplicationLog, waiting up to 3 seconds for them. Simple
+  parameters can be bare pairs, `twaco call Acme.Press.Run Count=3 Name=Acme.Robot1`: split at
+  the first `=`, typed by the service's signature (numbers, booleans; text as given), and a
+  name the signature lacks is refused with the closest one, because ThingWorx would ignore it
+  silently. INFOTABLE and JSON parameters need the JSON object; pairs and a JSON object never
+  mix. A target
   other than a Thing is written `ThingTemplates/<Name>` or `Resources/<Name>`.
 - **`twaco logs ScriptLog --since 10m --level WARN`** reads a log, newest first, in local
   time. `--grep`, `--user` and `--thread` narrow it.
