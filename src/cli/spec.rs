@@ -705,7 +705,7 @@ pub(crate) const USAGE: &[Usage] = &[
   widgets --icons [<filter>] [--json]
                               the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
                               aliases, containers and editable or bindable properties with defaults, events and services
-      --icons                 the 153 CDS icon names a cds: value may take; twaco refuses any other"#,
+      --icons                 the 215 CDS icon names a cds: value may take; twaco refuses any other"#,
     },
     Usage {
         path: "mashup validate",

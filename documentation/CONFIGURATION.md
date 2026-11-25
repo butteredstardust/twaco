@@ -421,7 +421,7 @@ A malformed directive, or one that suppresses nothing, is itself reported.
 | `traps.const-in-loop` | script traps |
 | `traps.const-redeclared` | script traps |
 | `traps.for-in` | script traps |
-| `traps.indexed-rows` | script traps |
+| `traps.for-of` | script traps |
 | `traps.nan-risk` | script traps |
 | `traps.event-data` | script traps |
 | `traps.read-before-assign` | script traps |

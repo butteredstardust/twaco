@@ -396,12 +396,14 @@ A solution without `[lint]` keeps today's gates (`checks-v1`). To take up the fu
 | your hooks | a `[[check]]` command fails ([Configuration](CONFIGURATION.md#check-your-own-gates)) |
 | live parse | with `--live` or `[gates] live`: the server's own parser rejects a script |
 
-The script traps are runtime failures that look like valid JavaScript:
+The script traps cover platform syntax errors and runtime failures in otherwise valid JavaScript:
 
 - **`for-in`:** `for (x in y)` is a syntax error in the script engine.
-- **`const-in-loop`, `const-redeclared`:** `const` is function-scoped there, so two blocks
-  collide, and the caller sees "No service handler defined".
-- **`indexed-rows`:** indexing `rows.toArray()` re-reads the first row.
+- **`const-in-loop`:** on 10.2.1, `const v = rows[k].item + k` in a three-iteration loop
+  keeps the first value (`a0, a0, a0`); use `let`. A `const` inside a `forEach` callback is fine.
+- **`const-redeclared`:** function-scoped declarations in sibling blocks collide, and the
+  caller sees "No service handler defined".
+- **`for-of`:** `for (x of y)` does not compile on ThingWorx 10.2.1; use an index loop or `forEach`.
 - **`unbounded-loop`:** a `while` loop that can run forever pins a platform thread.
 - **`nan-risk`:** a NaN in a result row makes the whole service fail to serialise.
 - **`read-before-assign`:** a variable read before it is assigned.

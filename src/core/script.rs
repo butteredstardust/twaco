@@ -190,6 +190,8 @@ pub(crate) struct Comment {
 /// The facts of one script.
 #[derive(Debug, Clone, Default)]
 pub struct Script {
+    /// Every for...of statement, including its body, in source order.
+    pub(crate) for_of_loops: Vec<scan::Span>,
     /// Every identifier occurrence, in source order, each reported once.
     pub(crate) identifiers: Vec<Identifier>,
     /// Every `obj.name` and `obj["name"]`, whether or not it is called.
@@ -254,6 +256,9 @@ impl Script {
                 )),
             }
         };
+        for span in &self.for_of_loops {
+            slice(*span, "for...of")?;
+        }
         for identifier in &self.identifiers {
             if slice(identifier.span, "identifier")?.is_empty() {
                 return Err(format!("empty identifier at {}", identifier.span.start));
@@ -1018,6 +1023,7 @@ impl Visit for Builder<'_> {
     }
 
     fn visit_for_of_stmt(&mut self, statement: &ForOfStmt) {
+        self.script.for_of_loops.push(self.span(statement.span));
         self.for_head(&statement.left);
         statement.right.visit_with(self);
         statement.body.visit_with(self);
@@ -1039,6 +1045,21 @@ mod tests {
 
     fn text(src: &str, span: scan::Span) -> &str {
         &src[span.start..span.end]
+    }
+
+    #[test]
+    fn for_of_statements_have_verified_spans() {
+        let src = "// λ\nfor (var row of rows) { for (var item of row) {} }";
+        let parsed = facts(src);
+        assert_eq!(parsed.for_of_loops.len(), 2);
+        assert_eq!(
+            text(src, parsed.for_of_loops[0]),
+            "for (var row of rows) { for (var item of row) {} }"
+        );
+        assert_eq!(
+            text(src, parsed.for_of_loops[1]),
+            "for (var item of row) {}"
+        );
     }
 
     /// The text of every identifier with this role, in source order.

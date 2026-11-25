@@ -11185,7 +11185,12 @@ fn mashup_set_checks_cds_icons_and_leaves_other_images_alone() {
             },
         )
     };
-    for good in ["cds:icon_hamburger", "Acme.Media.Logo", "/Thingworx/x.svg"] {
+    for good in [
+        "cds:icon_hamburger",
+        "cds:icon_ai_persona-alt",
+        "Acme.Media.Logo",
+        "/Thingworx/x.svg",
+    ] {
         assert!(set(good).is_ok(), "{good}");
     }
     let error = set("cds:icon_menu").unwrap_err().to_string();

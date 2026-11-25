@@ -153,10 +153,10 @@ pub(crate) const RULES: &[Rule] = &[
         options: NO_OPTIONS,
     },
     Rule {
-        id: "traps.indexed-rows",
+        id: "traps.for-of",
         gate: "script traps",
-        rule: "indexed-rows",
-        summary: "Indexing an InfoTable's rows.toArray() by a loop variable re-reads the first row.",
+        rule: "for-of",
+        summary: "for...of does not compile on ThingWorx 10.2.1; use an index loop or forEach.",
         options: NO_OPTIONS,
     },
     Rule {
@@ -285,6 +285,15 @@ mod tests {
     use super::*;
 
     #[test]
+    fn for_of_is_an_error_in_every_preset() {
+        let rule = by_id("traps.for-of").unwrap();
+        for preset_name in PRESETS {
+            assert_eq!(preset(preset_name, rule), Some(Severity::Error));
+        }
+        assert!(by_id("traps.indexed-rows").is_none());
+    }
+
+    #[test]
     fn registry_covers_every_rule_the_script_gates_emit() {
         let emitted = [
             ("formatting", "unformatted"),
@@ -292,7 +301,7 @@ mod tests {
             ("script traps", "const-in-loop"),
             ("script traps", "const-redeclared"),
             ("script traps", "for-in"),
-            ("script traps", "indexed-rows"),
+            ("script traps", "for-of"),
             ("script traps", "nan-risk"),
             ("script traps", "event-data"),
             ("script traps", "read-before-assign"),

@@ -1,10 +1,9 @@
-//! Traps in the ThingWorx script engine that a formatter and a parser both let through.
+//! ThingWorx script engine traps that an ordinary JavaScript parser lets through.
 //!
-//! These are not style rules. Each one is a thing that compiles, imports, and then behaves
-//! differently from how it reads — silently, at runtime, usually in a way that looks like a data
-//! problem rather than a code one. Every rule here was written after one of them cost a day.
+//! These are not style rules: they cover platform syntax errors and runtime behaviour that
+//! differs from ordinary JavaScript.
 //!
-//! The analysis is line-based rather than syntactic, and deliberately so: every sidecar goes
+//! Most analysis is line-based rather than syntactic: every sidecar goes
 //! through the formatter before it is synced, so indentation is reliable enough to stand in for
 //! brace depth, and a rule that reads like the code it is about is easier to trust than an AST
 //! walk nobody revisits.
@@ -26,12 +25,30 @@ pub(crate) struct Trap {
 pub(crate) fn lint(text: &str) -> Vec<Trap> {
     let lines: Vec<&str> = text.split('\n').collect();
     let mut traps = Vec::new();
+    traps.extend(for_of(text));
     traps.extend(const_in_loop(&lines));
     traps.extend(redeclared(&lines));
     traps.extend(per_line_rules(&lines, text));
     traps.extend(read_before_assign(&lines));
     traps.sort_by_key(|t| (t.line, t.rule));
     traps
+}
+
+/// SWC accepts `ForOfStmt`, but ThingWorx 10.2.1's Rhino parser rejects it.
+/// Parse instead of matching text so comments, strings and wrapped headers are unambiguous.
+fn for_of(text: &str) -> Vec<Trap> {
+    let Ok(script) = super::script::parse(text.as_bytes()) else {
+        return Vec::new();
+    };
+    script.for_of_loops.iter().map(|span| {
+        let line = text[..span.start].bytes().filter(|&byte| byte == b'\n').count() + 1;
+        Trap {
+            line,
+            rule: "for-of",
+            message: "for...of does not compile on ThingWorx 10.2.1 (Rhino: missing ; after for-loop initializer); use an index loop or forEach instead.".to_string(),
+            source: text.lines().nth(line - 1).unwrap_or_default().trim().to_string(),
+        }
+    }).collect()
 }
 
 /// A bare `eventData` in a version 2 subscription script.
@@ -201,8 +218,8 @@ fn const_in_loop(lines: &[&str]) -> Vec<Trap> {
                     rule: "const-in-loop",
                     message: format!(
                         "`{name}` is declared const inside a loop body; every iteration after \
-                         the first silently keeps the first value. Declare it with let outside \
-                         the loop and assign inside."
+                         the first silently keeps the first value on ThingWorx 10.2.1 \
+                         (const v = rows[k].item + k yields a0, a0, a0). Use let instead."
                     ),
                     source: stripped.to_string(),
                 });
@@ -273,16 +290,6 @@ fn per_line_rules(lines: &[&str], whole: &str) -> Vec<Trap> {
                 rule: "for-in",
                 message: "for..in is a syntax error in the ThingWorx script engine; use \
                           Object.keys(x).forEach(...)."
-                    .to_string(),
-                source: stripped.to_string(),
-            });
-        }
-        if indexes_rows(stripped) {
-            traps.push(Trap {
-                line: number,
-                rule: "indexed-rows",
-                message: "indexing into an InfoTable's rows.toArray() re-reads the first row on \
-                          this platform, so every iteration sees row 0. Use .forEach(...) instead."
                     .to_string(),
                 source: stripped.to_string(),
             });
@@ -755,37 +762,6 @@ fn is_for_in(stripped: &str) -> bool {
     false
 }
 
-/// `rows[i]` and friends: an indexed read of something whose name ends in `rows`.
-fn indexes_rows(stripped: &str) -> bool {
-    let mut from = 0usize;
-    while let Some(at) = stripped[from..].find('[') {
-        let open = from + at;
-        from = open + 1;
-        // Whitespace between the name and the bracket is still an indexed read.
-        let head = stripped[..open].trim_end();
-        let before: String = head
-            .chars()
-            .rev()
-            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '$')
-            .collect::<Vec<char>>()
-            .into_iter()
-            .rev()
-            .collect();
-        // `rows` or `Rows`, not `ROWS`: the reference matches the suffix case-sensitively, and
-        // an all-caps constant is not an InfoTable.
-        if !before.ends_with("rows") && !before.ends_with("Rows") {
-            continue;
-        }
-        let Some((index, _)) = stripped[open + 1..].split_once(']') else {
-            continue;
-        };
-        if matches!(index.trim(), "i" | "j" | "index" | "idx") {
-            return true;
-        }
-    }
-    false
-}
-
 /// `field: Number(x)` written straight into an object literal, where `x` is a bare path.
 ///
 /// Only a bare path — `row.value`, `data[0]`, `count` — because that is the shape that can be
@@ -908,6 +884,8 @@ show(1);",
     fn a_const_inside_a_loop_is_reported() {
         let source = "for (var i = 0; i < 3; i++) {\n    const x = i;\n    use(x);\n}\n";
         assert_eq!(rules(source), vec!["const-in-loop"]);
+        let message = &lint(source)[0].message;
+        assert!(message.contains("ThingWorx 10.2.1") && message.contains("a0, a0, a0"));
     }
 
     #[test]
@@ -943,17 +921,43 @@ show(1);",
             rules("for (const key in map) {\n    use(key);\n}\n"),
             vec!["for-in"]
         );
-        // for..of is fine.
-        assert!(rules("for (const item of list) {\n    use(item);\n}\n").is_empty());
+        assert_eq!(
+            rules("for (const item of list) {\n    use(item);\n}\n"),
+            vec!["for-of"]
+        );
     }
 
     #[test]
-    fn indexing_into_rows_is_reported() {
-        assert_eq!(rules("var r = result.rows[i];\n"), vec!["indexed-rows"]);
+    fn verified_indexed_infotable_reads_are_valid() {
+        for source in [
+            "for (var i = 0; i < t.rows.length; i++) {\n    var item = t.rows[i].item;\n}\n",
+            "var arr = t.rows.toArray();\nfor (var j = 0; j < arr.length; j++) {\n    var item = arr[j].item;\n}\n",
+            "var r = result.rows[index];\nvar s = myRows [idx];\n",
+        ] {
+            assert!(rules(source).is_empty(), "{source}: {:?}", lint(source));
+        }
+    }
+
+    #[test]
+    fn a_let_inside_a_loop_is_valid() {
         assert!(
-            rules("var r = rows[0];\n").is_empty(),
-            "a constant index is not the trap"
+            rules("for (var k = 0; k < 3; k++) {\n    let v = rows[k].item + k;\n}\n").is_empty()
         );
+    }
+
+    #[test]
+    fn for_of_is_syntax_aware_and_reports_each_loop() {
+        let source = "// for (var x of list) {}\nvar text = 'for (var x of list) {}';\nif (ok) for (var x\n of list) {\n    for (var y of x) {}\n}\n";
+        let traps = lint(source);
+        assert_eq!(
+            traps.iter().map(|t| (t.line, t.rule)).collect::<Vec<_>>(),
+            vec![(3, "for-of"), (5, "for-of")]
+        );
+        assert!(traps[0].message.contains("index loop or forEach"));
+        assert!(rules(
+            "for (var i = 0; i < list.length; i++) {}\nlist.forEach(function (item) {});"
+        )
+        .is_empty());
     }
 
     #[test]
@@ -967,7 +971,10 @@ show(1);",
         let unclosed = "while (\n".repeat(20_000);
         assert_eq!(rules(&unclosed).len(), 20_000);
         // A `(` in a string never balances; the rules still finish.
-        assert!(rules("for (const c of \"a(b\") {\n    use(c);\n}").is_empty());
+        assert_eq!(
+            rules("for (const c of \"a(b\") {\n    use(c);\n}"),
+            vec!["for-of"]
+        );
         // The same loop as a narrow line width wraps it.
         assert!(rules("while (\n    more()\n    && false\n) {\n    never();\n}\n").is_empty());
         assert_eq!(
@@ -1114,7 +1121,7 @@ show(1);",
     #[test]
     fn an_all_caps_constant_is_not_an_infotable() {
         assert!(rules("var r = ROWS[i];\n").is_empty());
-        assert_eq!(rules("var r = myRows [i];\n"), vec!["indexed-rows"]);
+        assert!(rules("var r = myRows [i];\n").is_empty());
     }
 
     #[test]
@@ -1147,7 +1154,7 @@ show(1);",
             ),
             (
                 "var someVeryLongRowName = someVeryLongResultName.rows[index].someVeryLongFieldName;",
-                vec!["indexed-rows"],
+                vec![],
             ),
             (
                 "while (someVeryLongConditionName() && anotherVeryLongConditionName()) {\n    step();\n}",

@@ -222,9 +222,9 @@ second();
 
     #[test]
     fn spaces_and_multiple_ids_are_accepted() {
-        let mut directives = parse("// twaco-lint-disable-next-line traps.for-in, traps.indexed-rows: legacy\nfor (var key in rows) { rows[i]; }\n");
+        let mut directives = parse("// twaco-lint-disable-next-line traps.for-in, traps.for-of: legacy\nfor (var key in rows) { rows[i]; }\n");
         assert!(directives.suppresses("traps.for-in", 2));
-        assert!(directives.suppresses("traps.indexed-rows", 2));
+        assert!(directives.suppresses("traps.for-of", 2));
     }
 
     #[test]

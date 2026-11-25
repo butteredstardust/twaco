@@ -3121,7 +3121,7 @@ name = \"P\"
         let (_dir, root, solution) = live_solution();
         std::fs::write(
             root.join("src/P.T/services/Bad/script.js"),
-            "// twaco-lint-disable-next-line traps.for-in: platform compatibility\nfor (var key in rows) { rows[i]; }\n",
+            "// twaco-lint-disable-next-line traps.for-in: platform compatibility\nfor (var key in rows) { for (var row of rows) {} }\n",
         )
         .unwrap();
         let traps = script_traps(&solution);
@@ -3139,7 +3139,7 @@ name = \"P\"
                 .iter()
                 .map(|finding| finding.rule.as_str())
                 .collect::<Vec<_>>(),
-            ["indexed-rows"]
+            ["for-of"]
         );
     }
 

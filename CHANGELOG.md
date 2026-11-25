@@ -13,6 +13,11 @@ All notable changes to twaco are recorded here. The format follows
   instead of refusing the page. A data call's `fixed:` keeps the static value of a parameter that
   a binding feeds, and a master's claimed root id is applied before nodes are placed, so a row
   can keep the template center's id.
+- Remove the false-positive indexed InfoTable rows lint; indexed reads work on 10.2.1.
+  Keep the confirmed `const` loop warning concrete and catch unsupported `for...of`
+  syntax offline. Entity pushes report each advisory reference once.
+- Complete the ThingWorx 10.2 CDS catalogue from the 10.2.1 runtime bundle: 215 CDS
+  icons, including the AI icons (the bundle's 216th name belongs to `chat-panel`).
 
 - Fresh mashups built from derived page specs keep parameter defaults, root styles and layout
   flags, custom widget ids, empty bound-label text, native session/user-extension data, mashup
