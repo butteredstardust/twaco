@@ -169,7 +169,7 @@ pub(crate) struct Adopt {
     pub(crate) generated_services: Vec<String>,
 }
 
-/// `[call]`: how MCP `call` treats services.
+/// `[call]`: which services `call` and MCP `call` run without `--apply` or `dry_run: false`.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Call {
@@ -178,6 +178,10 @@ pub(crate) struct Call {
     /// platform list never covers.
     #[serde(default)]
     pub(crate) read_only: Vec<String>,
+    /// `Entity.Service` or `Collection/Entity.Service` entries (the entity may be a glob, as in
+    /// `Acme.*.GetSummary`) that only read, though their names and metadata do not say so.
+    #[serde(default)]
+    pub(crate) read: Vec<String>,
 }
 
 /// `[gates]`: named for the built-in gates, since `[[check]]` is the hook list.
@@ -865,6 +869,12 @@ impl Solution {
         }
         for entry in &self.call.read_only {
             super::read_only::check_entry(entry).map_err(|why| ConfigError::Invalid {
+                path: path.to_path_buf(),
+                why,
+            })?;
+        }
+        for entry in &self.call.read {
+            super::read_only::check_read_entry(entry).map_err(|why| ConfigError::Invalid {
                 path: path.to_path_buf(),
                 why,
             })?;

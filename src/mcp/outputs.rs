@@ -655,6 +655,10 @@ pub(crate) struct LogLevelResult {
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct CallResult {
     dry_run: bool,
+    /// false when nothing was sent.
+    called: Option<bool>,
+    /// A plan: why the service counts as a write, and how to say it reads.
+    reason: Option<String>,
     would_call: Option<Value>,
     note: Option<String>,
     /// A reply that is not an InfoTable, whole, or `void`.
@@ -668,7 +672,7 @@ pub(crate) struct CallResult {
     result_head: Option<String>,
     /// With with_logs: the entries logged during the call, or why they could not be read.
     logs: Option<Value>,
-    /// Why a call without dry_run ran: "platform" (a built-in platform read) or "twaco.toml" (listed in [call] read_only).
+    /// Why a call without dry_run ran: "platform" (a built-in platform read), "category", "name" or "twaco.toml" (listed in [call] read).
     read_only: Option<String>,
     notices: Notices,
 }

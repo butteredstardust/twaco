@@ -32,6 +32,8 @@ pub struct CallRequest {
     /// The caller left the choice to twaco: a plan becomes a call when the service only reads
     /// (and no `lang` makes the call write the user's preference).
     pub run_if_read_only: bool,
+    /// The caller says the service only reads (`--read`): a plan becomes a call.
+    pub force_read: bool,
 }
 
 /// The completed service call or its dry-run description.
@@ -40,6 +42,12 @@ pub enum CallOutcome {
     Plan {
         target: ServiceTarget,
         effects: Effects,
+        /// Why nothing was sent: the write sentence, or why a read was still only planned.
+        reason: String,
+        /// The request that would be made, `POST <path>`.
+        would_call: String,
+        /// The service was classed as a write.
+        write: bool,
     },
     Applied {
         target: ServiceTarget,
@@ -219,14 +227,40 @@ where
     let target = workspace::call_target(&workspace::discover(solution).entities, &request.target)
         .map_err(CallCommandError::Target)?;
     check_arguments(solution, &target, &request.service, &request.parameters)?;
-    let read_only =
-        (matches!(request.mode, Mode::Plan) && request.run_if_read_only && request.lang.is_none())
-            .then(|| read_only::reason(solution, &target, &request.service))
-            .flatten();
+    let class = read_only::classify(solution, &target, &request.service);
+    let read_only = (matches!(request.mode, Mode::Plan) && request.lang.is_none())
+        .then_some(match &class {
+            _ if request.force_read => Some(read_only::Reason::Flag),
+            read_only::Class::Read(why) if request.run_if_read_only => Some(*why),
+            _ => None,
+        })
+        .flatten();
     if matches!(request.mode, Mode::Plan) && read_only.is_none() {
+        let (reason, write) = match class {
+            read_only::Class::Write(why) => (why, true),
+            read_only::Class::Read(why) if request.lang.is_some() => (
+                format!(
+                    "read ({}), but --lang sets the test user's language preference for the call",
+                    why.as_str()
+                ),
+                false,
+            ),
+            read_only::Class::Read(why) => (
+                format!("read ({}), but a dry run was requested", why.as_str()),
+                false,
+            ),
+        };
+        let would_call = format!(
+            "POST {}/Services/{}",
+            target.url_path(),
+            crate::core::server::encode_path_segment(&request.service)
+        );
         return Ok(CallOutcome::Plan {
             target,
             effects: Effects::new(Access::Read, Access::None),
+            reason,
+            would_call,
+            write,
         });
     }
     let profile = match selected {
@@ -850,6 +884,7 @@ mod tests {
             as_user: None,
             lang: None,
             run_if_read_only: false,
+            force_read: false,
         };
         let outcome = execute::<server::Client, _>(
             &solution,
@@ -877,6 +912,7 @@ mod tests {
             as_user: None,
             lang: None,
             run_if_read_only: false,
+            force_read: false,
         };
         let error = execute::<server::Client, _>(
             &solution,
@@ -981,6 +1017,7 @@ mod tests {
             as_user: as_user.map(str::to_string),
             lang: Some(lang.to_string()),
             run_if_read_only: false,
+            force_read: false,
         };
         let log = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
         let opened = log.clone();

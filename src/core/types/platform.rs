@@ -81,6 +81,9 @@ pub(crate) struct PlatformMeta {
 pub(crate) struct PlatformService {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub(crate) description: String,
+    /// The service's category as the platform reports it (READ, WRITE, ...), if it has one.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub(crate) category: String,
     #[serde(default)]
     pub(crate) inputs: BTreeMap<String, PlatformInput>,
     pub(crate) result: PlatformValue,
@@ -433,6 +436,7 @@ pub(super) fn trim_metadata(value: &Value) -> Result<PlatformMeta, TypesError> {
             name,
             PlatformService {
                 description: optional_string(raw.get("description")).unwrap_or_default(),
+                category: optional_string(raw.get("category")).unwrap_or_default(),
                 inputs,
                 result: PlatformValue {
                     base_type: required_string(outputs, "baseType")?,

@@ -19,7 +19,7 @@ I want to ... -> command (use --help for flags; most writers plan until --apply)
 - Create a DataShape with fields -> `twaco new data-shape <name> --field <name:TYPE>`
 - Edit DataShape fields -> edit its fields.json, then `twaco sync <DataShape> --check --allow-add-remove`
 - Deploy changes -> `twaco deploy --help`
-- Call a service -> `twaco call <Entity>.<Service>` (runs immediately)
+- Call a service -> `twaco call <Entity>.<Service>` (a read runs; a write needs --apply; --read for an odd-named read)
 - Read server logs -> `twaco logs`
 - Compare with the server -> `twaco entity status <entity>`
 - Manage permissions -> `twaco permissions --help`

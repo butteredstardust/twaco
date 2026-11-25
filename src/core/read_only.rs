@@ -1,8 +1,13 @@
-//! Which service calls only read, so MCP `call` may run them without `dry_run: false`.
+//! Which service calls only read, so `call` (CLI) and MCP `call` run them without `--apply` or
+//! `dry_run: false`.
 //!
-//! Two lists say so: the platform services in `read_only_services.toml`, reviewed once from the
-//! Javadoc, and the team's own `[call] read_only` in twaco.toml. The platform list never covers a
-//! service name the repository defines or overrides: the repository's version may write.
+//! In order: the team's `[call] read` / `read_only` in twaco.toml; for a `Resources/*` entity only
+//! the built-in list (the name prefix never applies there: ContentLoaderFunctions, EntityServices
+//! and the like write under Get-like names too); the platform's own category (READ or QUERY, from
+//! the platform cache); the platform services in `read_only_services.toml`, reviewed once from the
+//! Javadoc, which never cover a name the repository defines or overrides; and last the name
+//! (Get, Query, Is, Has, Search, Find followed by a capital) when nothing else is known. Anything
+//! else is a write.
 
 use super::config::Solution;
 use super::entity::key::ServiceTarget;
@@ -15,8 +20,21 @@ use std::sync::OnceLock;
 pub enum Reason {
     /// The built-in list of platform services.
     Platform,
-    /// The solution's `[call] read_only`.
+    /// The solution's `[call] read` or `read_only`.
     Declared,
+    /// The platform cache says the service's category is READ or QUERY.
+    Category,
+    /// The name starts with Get, Query, Is, Has, Search or Find.
+    Name,
+    /// The caller passed `--read`.
+    Flag,
+}
+
+/// Whether a call reads (and why) or writes (and what to say about it).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Class {
+    Read(Reason),
+    Write(String),
 }
 
 impl Reason {
@@ -24,6 +42,9 @@ impl Reason {
         match self {
             Self::Platform => "platform",
             Self::Declared => "twaco.toml",
+            Self::Category => "category",
+            Self::Name => "name",
+            Self::Flag => "--read",
         }
     }
 }
@@ -44,24 +65,105 @@ fn built_in() -> &'static BuiltIn {
     })
 }
 
-/// Whether calling `service` on `target` only reads, and which list says so.
-pub(crate) fn reason(solution: &Solution, target: &ServiceTarget, service: &str) -> Option<Reason> {
+/// The name prefixes of a read when no metadata says otherwise.
+const READ_PREFIXES: [&str; 6] = ["Get", "Query", "Is", "Has", "Search", "Find"];
+
+/// Reads by name that still return something secret or reach other hosts, so a prefix never
+/// vouches for them (the built-in list leaves them out for the same reason).
+fn never_by_name(service: &str) -> bool {
+    service == "GetKeyID" || service.starts_with("GetConfigurationTable")
+}
+
+fn by_name(service: &str) -> bool {
+    !never_by_name(service)
+        && READ_PREFIXES.iter().any(|prefix| {
+            service.strip_prefix(prefix).is_some_and(|rest| {
+                rest.chars()
+                    .next()
+                    .is_none_or(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+            })
+        })
+}
+
+/// The category the platform cache holds for a platform service, if it holds one.
+fn category(solution: &Solution, collection: &str, name: &str, service: &str) -> Option<String> {
+    let platform = super::types::platform::cached(solution)?;
+    let meta = match collection {
+        "Things" => platform.things.get(name),
+        "ThingTemplates" => platform.templates.get(name),
+        "ThingShapes" => platform.shapes.get(name),
+        "Resources" => platform.resources.get(name),
+        _ => None,
+    }?;
+    let found = &meta.services.get(service)?.category;
+    (!found.is_empty()).then(|| found.clone())
+}
+
+/// Whether calling `service` on `target` only reads, and why; otherwise the sentence that says
+/// it is a write and how to say it only reads.
+pub(crate) fn classify(solution: &Solution, target: &ServiceTarget, service: &str) -> Class {
     let (collection, name) = match target {
         ServiceTarget::Thing(name) => ("Things", name.as_str()),
         ServiceTarget::Entity(key) => (key.collection(), key.name()),
     };
-    if declared(&solution.call.read_only, collection, name, service) {
-        return Some(Reason::Declared);
+    let declared_here = declared(&solution.call.read_only, collection, name, service)
+        || declared(&solution.call.read, collection, name, service);
+    if declared_here {
+        return Class::Read(Reason::Declared);
     }
-    (platform(collection, name, service) && !repository_defines(solution, service))
-        .then_some(Reason::Platform)
+    let add = "add it to [call] read in twaco.toml or pass --read if it only reads";
+    if collection == "Resources" {
+        return if platform(collection, name, service) && !repository_defines(solution, service) {
+            Class::Read(Reason::Platform)
+        } else {
+            Class::Write(format!(
+                "write: {service} (a Resources service is a write unless it is on the built-in read list; {add})"
+            ))
+        };
+    }
+    let known = category(solution, collection, name, service);
+    if let Some(found) = &known {
+        // Categories only ever add reads: the platform's own category names are not verified,
+        // so one that is not a read category leaves the name rule in charge.
+        let reads = ["READ", "QUERY", "QUERIES"]
+            .iter()
+            .any(|read| found.eq_ignore_ascii_case(read));
+        if reads && !repository_defines(solution, service) {
+            return Class::Read(Reason::Category);
+        }
+    }
+    if platform(collection, name, service) && !repository_defines(solution, service) {
+        return Class::Read(Reason::Platform);
+    }
+    // An explicit WRITE category outranks a reading name; any other category leaves it to the name.
+    let says_write = known
+        .as_deref()
+        .is_some_and(|found| found.eq_ignore_ascii_case("WRITE"));
+    if !says_write && by_name(service) {
+        return Class::Read(Reason::Name);
+    }
+    let why = match known {
+        Some(found) => format!("category {found}, not READ; name not Get/Query/Is/Has/Search/Find"),
+        None => "no READ category; name not Get/Query/Is/Has/Search/Find".to_string(),
+    };
+    Class::Write(format!("write: {service} ({why}; {add})"))
+}
+
+/// Whether calling `service` on `target` only reads, and which rule says so.
+#[cfg(test)]
+pub(crate) fn reason(solution: &Solution, target: &ServiceTarget, service: &str) -> Option<Reason> {
+    match classify(solution, target, service) {
+        Class::Read(why) => Some(why),
+        Class::Write(_) => None,
+    }
 }
 
 fn declared(entries: &[String], collection: &str, name: &str, service: &str) -> bool {
     let entity = format!("{collection}/{name}");
     entries.iter().any(|entry| {
         entry.rsplit_once('.').is_some_and(|(selector, listed)| {
-            listed == service && super::glob::matches(selector, &entity)
+            listed == service
+                && (super::glob::matches(selector, &entity) || super::glob::matches(selector, name))
         })
     })
 }
@@ -70,7 +172,7 @@ fn platform(collection: &str, name: &str, service: &str) -> bool {
     let list = built_in();
     let has = |names: &Vec<String>| names.iter().any(|listed| listed == service);
     if collection == "Resources" {
-        return list.resources.get(name).is_some_and(has);
+        return list.resources.get(name).is_some_and(has) || has(&list.every_entity);
     }
     has(&list.every_entity) || list.collections.get(collection).is_some_and(has)
 }
@@ -125,6 +227,25 @@ pub(crate) fn check_entry(entry: &str) -> Result<(), String> {
     } else {
         Err(format!(
             "[call] read_only entry {entry:?} is not Collection/Name.Service"
+        ))
+    }
+}
+
+/// Refuse a `[call] read` entry that names no service: `Entity.Service` or
+/// `Collection/Entity.Service`, the entity possibly a glob (`Acme.*.GetSummary`).
+pub(crate) fn check_read_entry(entry: &str) -> Result<(), String> {
+    let valid = entry.rsplit_once('.').is_some_and(|(selector, service)| {
+        !selector.is_empty()
+            && !service.is_empty()
+            && service
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    });
+    if valid {
+        Ok(())
+    } else {
+        Err(format!(
+            "[call] read entry {entry:?} is not Entity.Service or Collection/Entity.Service"
         ))
     }
 }
@@ -205,10 +326,11 @@ mod tests {
             "[[project]]\nname = \"P\"\n",
             &[("Things/P.Orders.xml", thing)],
         );
+        // The platform list is not used, though the name still reads.
         for on in ["Things/P.Orders", "Things/P.Elsewhere"] {
             assert_eq!(
                 reason(&solution, &target(on), "GetPropertyValues"),
-                None,
+                Some(Reason::Name),
                 "{on}"
             );
         }
@@ -230,7 +352,7 @@ mod tests {
         );
         assert_eq!(
             reason(&several, &target("Things/P.X"), "GetPropertyValues"),
-            None
+            Some(Reason::Name)
         );
         let (_second, broken) = solution(
             "[[project]]\nname = \"P\"\n",
@@ -238,8 +360,124 @@ mod tests {
         );
         assert_eq!(
             reason(&broken, &target("Things/P.X"), "GetPropertyTime"),
-            None
+            Some(Reason::Name)
         );
+    }
+
+    #[test]
+    fn a_read_by_name_needs_a_capital_after_the_prefix_and_never_covers_secrets() {
+        let (_dir, solution) = solution(
+            "[[project]]
+name = \"P\"
+",
+            &[],
+        );
+        let on = target("Things/P.Orders");
+        for read in [
+            "GetOrders",
+            "QueryRows",
+            "IsReady",
+            "HasStock",
+            "SearchAll",
+            "Find",
+        ] {
+            assert_eq!(reason(&solution, &on, read), Some(Reason::Name), "{read}");
+        }
+        for write in [
+            "Getter",
+            "Issue",
+            "Delete",
+            "Settle",
+            "GetKeyID",
+            "GetConfigurationTableRows",
+        ] {
+            assert_eq!(reason(&solution, &on, write), None, "{write}");
+        }
+    }
+
+    #[test]
+    fn a_resources_service_reads_only_from_the_built_in_list_or_the_team_list() {
+        let (_dir, solution) = solution(
+            "[[project]]
+name = \"P\"
+[call]
+read = [\"EntityServices.Odd\"]
+",
+            &[],
+        );
+        let on = target("Resources/EntityServices");
+        assert_eq!(
+            reason(&solution, &on, "GetEntityList"),
+            Some(Reason::Platform)
+        );
+        assert_eq!(
+            reason(&solution, &on, "GetIncomingDependencies"),
+            Some(Reason::Platform)
+        );
+        assert_eq!(reason(&solution, &on, "Odd"), Some(Reason::Declared));
+        // Get-prefixed, but not on the list: a write.
+        assert_eq!(reason(&solution, &on, "GetSomethingNew"), None);
+        let Class::Write(why) = classify(&solution, &on, "DeleteDataTagVocabulary") else {
+            panic!("a write")
+        };
+        assert!(why.contains("[call] read"), "{why}");
+    }
+
+    #[test]
+    fn the_platform_category_makes_an_oddly_named_service_a_read() {
+        let cache = r#"{"things":{"P.Orders":{"services":{
+            "Compute":{"category":"READ","result":{"baseType":"NOTHING"}},
+            "Wipe":{"category":"WRITE","result":{"baseType":"NOTHING"}},
+            "GetAndWipe":{"category":"WRITE","result":{"baseType":"NOTHING"}}}}}}"#;
+        let (_dir, solution) = solution(
+            "[[project]]
+name = \"P\"
+",
+            &[(".twaco/platform.json", cache)],
+        );
+        let on = target("Things/P.Orders");
+        assert_eq!(reason(&solution, &on, "Compute"), Some(Reason::Category));
+        assert_eq!(reason(&solution, &on, "Wipe"), None);
+        // Metadata that says WRITE outranks a reading name.
+        let Class::Write(why) = classify(&solution, &on, "GetAndWipe") else {
+            panic!("a write")
+        };
+        assert!(why.contains("category WRITE"), "{why}");
+    }
+
+    #[test]
+    fn an_unknown_category_leaves_a_reading_name_a_read() {
+        // The platform's own category names are not verified; only READ/QUERY add a read and only
+        // WRITE takes one away.
+        let cache = r#"{"things":{"P.Orders":{"services":{
+            "GetOrderTotals":{"category":"Properties","result":{"baseType":"INFOTABLE"}},
+            "Reset":{"category":"Properties","result":{"baseType":"NOTHING"}}}}}}"#;
+        let (_dir, solution) = solution(
+            "[[project]]
+name = \"P\"
+",
+            &[(".twaco/platform.json", cache)],
+        );
+        let on = target("Things/P.Orders");
+        assert_eq!(reason(&solution, &on, "GetOrderTotals"), Some(Reason::Name));
+        assert_eq!(reason(&solution, &on, "Reset"), None);
+    }
+
+    #[test]
+    fn read_entries_take_a_bare_entity_name_or_a_glob() {
+        let (_dir, solution) = solution(
+            "[[project]]
+name = \"P\"
+[call]
+read = [\"P.Orders.Odd\", \"P.*.Strange\"]
+",
+            &[],
+        );
+        let reads = |on: &str, service: &str| reason(&solution, &target(on), service);
+        assert_eq!(reads("P.Orders", "Odd"), Some(Reason::Declared));
+        assert_eq!(reads("Things/P.Orders", "Odd"), Some(Reason::Declared));
+        assert_eq!(reads("P.Lines", "Strange"), Some(Reason::Declared));
+        assert_eq!(reads("P.Lines", "Odd"), None);
     }
 
     #[test]
@@ -256,13 +494,13 @@ mod tests {
             reason(&solution, &target("P.Lines"), "GetSummary"),
             Some(Reason::Declared)
         );
-        assert_eq!(
+        assert_ne!(
             reason(&solution, &target("Things/P.Lines"), "GetOrders"),
-            None
+            Some(Reason::Declared)
         );
-        assert_eq!(
+        assert_ne!(
             reason(&solution, &target("Things/Q.Lines"), "GetSummary"),
-            None
+            Some(Reason::Declared)
         );
     }
 

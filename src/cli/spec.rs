@@ -1861,8 +1861,13 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "call",
         group: 3,
-        text: r#"  call <target> <service> [<name=value>...|<json>] [--timeout <seconds>] [--detail] [--as <test user>] [--json]
-      [--lang <code>] [--param <name=value>]...
+        text: r#"  call <target> <service> [<name=value>...|<json>] [--apply] [--read] [--timeout <seconds>] [--detail]
+      [--as <test user>] [--json] [--lang <code>] [--param <name=value>]...
+                              a read runs; any other service is a dry run (nothing sent, exit 0) until --apply.
+                              A read: platform category READ, the built-in list, a name starting Get, Query,
+                              Is, Has, Search or Find (not under Resources/*), or [call] read in twaco.toml
+      --apply                 call a service that is not a read
+      --read                  call this service without --apply: you know it only reads
                               target: Collection/Name, full name, or last dotted segment;
                               <target>.<service> [...] works too, split at the last dot.
                               name=value pairs split at the first =; typed by the service signature

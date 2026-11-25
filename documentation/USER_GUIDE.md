@@ -319,7 +319,7 @@ twaco sync <Entity>                         # sidecars into the XML
 twaco check                                 # every offline gate
 twaco deploy --only <Entity>                # the plan
 twaco deploy --only <Entity> --apply        # the import
-twaco call <Thing> <Service> '<json>' --with-logs
+twaco call <Thing> <Service> '<json>' --apply --with-logs   # a write needs --apply
 ```
 
 Then commit. `deploy --apply` and `entity push --apply` record what they sent in
@@ -2653,8 +2653,11 @@ selected local server profile. A path may be the SDK zip, its extracted folder, 
 `thingworx-javadocs-*.jar`; the jar is read in place and `--refresh` does not apply. JSON results
 keep a `jar:file:` URL and report the SDK version.
 
-- **`twaco call <Thing> <Service> '<json>'`** calls a service now. A service can write, and
-  twaco cannot tell which do, so know what it does first. `--with-logs` then shows what the
+- **`twaco call <Thing> <Service> '<json>'`** calls a service now when it reads (platform
+  category READ, the built-in list, a name starting Get, Query, Is, Has, Search or Find, or
+  `[call] read` in twaco.toml; `--read` says so for one call). Any other service is a dry run
+  that says why and sends nothing until you add `--apply`; under `Resources/*` only the built-in
+  list counts. `--with-logs` then shows what the
   call wrote to ScriptLog and ApplicationLog, waiting up to 3 seconds for them. Simple
   parameters can be bare pairs, `twaco call Acme.Press.Run Count=3 Name=Acme.Robot1`: split at
   the first `=`, typed by the service's signature (numbers, booleans; text as given), and a

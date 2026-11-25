@@ -6,6 +6,16 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- **Breaking: `call` now needs `--apply` for writes.** `twaco call` used to run anything at once
+  (`Resources/EntityServices DeleteDataTagVocabulary` deleted on the spot). It now runs only a read:
+  a service whose platform category is READ or QUERY, one on the built-in read list, one named
+  Get, Query, Is, Has, Search or Find, one `[call] read` in twaco.toml lists, or one called with
+  `--read`. Under `Resources/*` only the built-in list and `[call] read` count; the name prefix does
+  not. Any other call is a dry run: exit 0, nothing sent, `{"called": false, "dry_run": true,
+  "reason", "would_call", "params"}` with `--json`. `--apply` calls it. A real call's `--json`
+  output is unchanged (the bare result). MCP `call` shares the classification, says `called: false`
+  and the reason, and `read_only` can now be `category` or `name`.
+
 - `mashup spec` no longer calls a page "edited by hand" after a build that kept no hand edit and
   wrote nothing: that build refreshes the digest the spec check compares against.
 - A contained mashup's own properties (`ResponsiveLayout`, the editor's and twaco's managed ones)

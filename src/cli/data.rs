@@ -322,6 +322,11 @@ pub(crate) struct Call {
     pub(crate) json: Json,
     #[command(flatten)]
     pub(crate) profile: Profile,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    /// The service only reads: call it without `--apply`.
+    #[arg(long = "read")]
+    pub(crate) read: bool,
     #[arg(long = "with-logs")]
     pub(crate) with_logs: bool,
     #[arg(long = "as", value_name = "new")]
@@ -376,9 +381,9 @@ fn call_inputs<'a>(rest: &'a [String], params: &[String]) -> Result<CallInputs<'
     Ok(CallInputs::Json(json[0]))
 }
 
-/// Execute exactly the named opaque service. There is no dry run because twaco cannot infer
-/// whether an arbitrary ThingWorx service writes. The MCP surface must decide separately
-/// whether and how to expose this capability.
+/// Call the named service when it only reads (by the platform's category, the built-in list, its
+/// name, `[call] read` or `--read`) or with `--apply`; otherwise describe the call and send
+/// nothing, as every other writing command does.
 pub(crate) fn call(solution: &Solution, args: &Call) -> u8 {
     let Some(operands) = call_operands(&args.operands) else {
         eprintln!(
@@ -430,13 +435,18 @@ pub(crate) fn call(solution: &Solution, args: &Call) -> u8 {
         service: operands.1,
         parameters,
         timeout: args.timeout.or(Duration::from_secs(120)),
-        mode: Mode::Apply,
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
         profile: args.profile.name().to_string(),
         with_logs: args.with_logs,
         profile_before_target: true,
         as_user: args.user.clone(),
         lang: args.lang.clone(),
-        run_if_read_only: false,
+        run_if_read_only: true,
+        force_read: args.read,
     };
     let mut notices = commands::Notices::default();
     let outcome =
@@ -497,7 +507,40 @@ pub(crate) fn call(solution: &Solution, args: &Call) -> u8 {
         ..
     } = outcome
     else {
-        unreachable!("the command line always calls")
+        let commands::call::CallOutcome::Plan {
+            target,
+            reason,
+            would_call,
+            ..
+        } = outcome
+        else {
+            unreachable!("an outcome is a plan or a call")
+        };
+        if args.json.json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "called": false,
+                    "dry_run": true,
+                    "reason": reason,
+                    "would_call": would_call,
+                    "params": request.parameters,
+                }))
+                .expect("JSON value serialises")
+            );
+        } else {
+            println!(
+                "not called (dry run); pass --apply to call {target}.{}",
+                request.service
+            );
+            println!("{reason}");
+            println!("would call: {would_call}");
+            println!(
+                "params: {}",
+                serde_json::to_string(&request.parameters).expect("JSON value serialises")
+            );
+        }
+        return OK;
     };
     if target.to_string() != args.operands[0] {
         eprintln!("{} calling {target}", style::prefix());

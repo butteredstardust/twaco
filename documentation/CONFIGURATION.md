@@ -559,7 +559,11 @@ Mashups, things a deploy runs (`[project.deploy]`) and anything that runs on eve
 
 ### `[call]`
 
-MCP `call` without `dry_run` runs a service known to only read and plans any other. twaco knows
+`twaco call` and MCP `call` (without `dry_run`) run a service that reads and plan any other; the
+CLI's `--apply` (MCP `dry_run: false`) calls it anyway. A read is, in this order: listed here; for
+`Resources/*`, on the built-in list (the name never counts there); a platform category READ or
+QUERY in the platform cache; on the built-in list; or named Get, Query, Is, Has, Search or Find
+when nothing else is known. twaco knows
 the platform's reads (InfoTableFunctions, SearchFunctions, `GetPropertyValues`,
 `QueryDataTableEntries` and the like, from the ThingWorx Javadoc), but never trusts that list for
 a service name the repository defines or overrides (or while any repository file cannot be read).
@@ -568,13 +572,15 @@ listed name is trusted too. List your own reads here:
 
 ```toml
 [call]
+read = ["P.Orders.Compute", "ThingTemplates/P.*.Summarise"]
 read_only = ["Things/P.Orders.GetOrders", "Things/P.*.GetSummary"]
 ```
 
-Each entry is `Collection/Name.Service`; the name may be a glob as in `[[server_owned]]`. A result
-that ran this way says `read_only: "platform"` or `"twaco.toml"`. `dry_run: true` still plans and
+`read` entries are `Entity.Service` or `Collection/Entity.Service`; the entity may be a glob as in
+`[[server_owned]]`. `read_only` (older) entries are strictly `Collection/Name.Service`. A result
+that ran this way says `read_only: "platform"`, `"category"`, `"name"` or `"twaco.toml"`. `dry_run: true` still plans and
 `dry_run: false` still calls; a call with `lang` always needs `dry_run: false`, because it sets the
-test user's language preference. The CLI's `twaco call` always calls.
+test user's language preference. `twaco call --read` calls a service you know only reads, once.
 
 ### `[adopt]`
 

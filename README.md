@@ -102,7 +102,7 @@ Then the everyday loop, after editing `src/<Entity>/services/<Service>/script.js
 twaco sync <Entity>                     # write the edit back into the entity XML
 twaco deploy --only <Entity>            # the plan: what it imports, and any conflict
 twaco deploy --only <Entity> --apply    # do it
-twaco call <Thing> <Service> '{"x": 1}' --with-logs
+twaco call <Thing> <Service> '{"x": 1}' --apply --with-logs
 ```
 
 The [quick start guide](documentation/QUICK_START.md) walks through it in full.
@@ -159,8 +159,8 @@ groups an agent needs. See [MCP server](documentation/MCP_SERVER.md).
 
 ## Safe by default
 
-- **Plans first.** Every command that changes a server shows a plan until you add `--apply`.
-  The one exception is `twaco call`, which runs the service you name.
+- **Plans first.** Every command that changes a server shows a plan until you add `--apply`;
+  `twaco call` runs reads at once and plans the rest.
 - **Conflicts are refused.** `deploy` and `entity push` will not overwrite a change someone made
   on the server since your last deploy, unless you `--force` it.
 - **Changes are all or nothing.** Commands that change several files write them in one

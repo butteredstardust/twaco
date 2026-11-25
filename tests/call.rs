@@ -402,14 +402,17 @@ fn bare_and_qualified_targets_encode_segments_and_send_the_required_request() {
         requests
     });
 
-    assert!(run(&root, &["call", "A? Thing", "Do/It"]).status.success());
+    assert!(run(&root, &["call", "A? Thing", "Do/It", "--apply"])
+        .status
+        .success());
     assert!(run(
         &root,
         &[
             "call",
             "Resources/Entity Services",
             "List Things",
-            r#"{"type":"Project"}"#
+            r#"{"type":"Project"}"#,
+            "--apply"
         ],
     )
     .status
@@ -457,8 +460,8 @@ fn a_short_name_is_resolved_against_the_solution_and_said_aloud() {
     });
 
     // The platform's own Manager is reached by its collection; the solution's by its last segment.
-    let short = run(&root, &["call", "Manager", "Do"]);
-    let platform = run(&root, &["call", "Things/Manager", "Do"]);
+    let short = run(&root, &["call", "Manager", "Do", "--apply"]);
+    let platform = run(&root, &["call", "Things/Manager", "Do", "--apply"]);
     let requests = server.join().unwrap();
     let first = String::from_utf8(requests[0].clone()).unwrap();
     let second = String::from_utf8(requests[1].clone()).unwrap();
@@ -510,11 +513,11 @@ fn void_summary_detail_invalid_json_and_http_error_have_distinct_results() {
         }
     });
 
-    let void = run(&root, &["call", "T", "Void"]);
+    let void = run(&root, &["call", "T", "Void", "--apply"]);
     assert!(void.status.success());
     assert_eq!(String::from_utf8(void.stdout).unwrap(), "done\n");
 
-    let summary = run(&root, &["call", "T", "Table"]);
+    let summary = run(&root, &["call", "T", "Table", "--apply"]);
     let summary = String::from_utf8(summary.stdout).unwrap();
     assert!(summary.contains("2 row(s)"));
     assert!(summary.contains("fields: name, ok"));
@@ -522,17 +525,17 @@ fn void_summary_detail_invalid_json_and_http_error_have_distinct_results() {
     assert!(summary.contains(r#""name": "one""#));
     assert!(!summary.contains("two"));
 
-    let detail = run(&root, &["call", "T", "Table", "--detail"]);
+    let detail = run(&root, &["call", "T", "Table", "--detail", "--apply"]);
     let detail = String::from_utf8(detail.stdout).unwrap();
     assert!(detail.contains("fieldDefinitions"));
     assert!(detail.contains(r#""rows": ["#));
 
-    let invalid = run(&root, &["call", "T", "Text"]);
+    let invalid = run(&root, &["call", "T", "Text", "--apply"]);
     let invalid_error = String::from_utf8(invalid.stderr).unwrap();
     assert_eq!(invalid.status.code(), Some(2));
     assert!(invalid_error.contains("invalid response"));
 
-    let http = run(&root, &["call", "T", "Missing"]);
+    let http = run(&root, &["call", "T", "Missing", "--apply"]);
     let http_error = String::from_utf8(http.stderr).unwrap();
     assert_eq!(http.status.code(), Some(2));
     assert!(http_error.contains("HTTP 500"));
@@ -568,13 +571,16 @@ fn json_call_writes_one_complete_value_and_keeps_logs_on_stderr() {
         }
     });
 
-    let table = run(&root, &["call", "T", "Table", "--json", "--with-logs"]);
+    let table = run(
+        &root,
+        &["call", "T", "Table", "--json", "--with-logs", "--apply"],
+    );
     assert!(table.status.success());
     let value: serde_json::Value = serde_json::from_slice(&table.stdout).unwrap();
     assert_eq!(value["rows"].as_array().unwrap().len(), 2);
     assert!(String::from_utf8_lossy(&table.stderr).contains("logged during the call"));
 
-    let void = run(&root, &["call", "T", "Void", "--json"]);
+    let void = run(&root, &["call", "T", "Void", "--json", "--apply"]);
     assert!(void.status.success());
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&void.stdout).unwrap(),
@@ -616,7 +622,7 @@ fn request_timeout_overrides_the_agent_default() {
         let _ = write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n");
     });
     let started = Instant::now();
-    let output = run(&root, &["call", "T", "Slow", "--timeout", "1"]);
+    let output = run(&root, &["call", "T", "Slow", "--timeout", "1", "--apply"]);
     let elapsed = started.elapsed();
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr).contains("could not be reached"));
@@ -714,7 +720,9 @@ fn repeated_params_send_strings_without_a_signature_and_refuse_json_mixing() {
     });
     let output = run(
         &root,
-        &["call", "T.S", "--param", "a=1", "--param", "b=x=y"],
+        &[
+            "call", "T.S", "--param", "a=1", "--param", "b=x=y", "--apply",
+        ],
     );
     assert!(
         output.status.success(),
@@ -729,4 +737,149 @@ fn repeated_params_send_strings_without_a_signature_and_refuse_json_mixing() {
     assert_eq!(output.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&output.stderr)
         .contains("use either key=value pairs or one JSON object"));
+}
+
+/// Serve `replies` canned answers on a thread and return the request lines it saw.
+fn serve_lines(listener: TcpListener, replies: usize) -> std::thread::JoinHandle<Vec<String>> {
+    std::thread::spawn(move || {
+        let mut lines = Vec::new();
+        for _ in 0..replies {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = receive(&mut stream);
+            lines.push(
+                String::from_utf8_lossy(&request)
+                    .lines()
+                    .next()
+                    .unwrap_or_default()
+                    .to_string(),
+            );
+            answer(&mut stream, "200 OK", "application/json", r#"{"ok":1}"#);
+        }
+        lines
+    })
+}
+
+fn nothing_reaches(listener: &TcpListener) {
+    assert!(
+        matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock),
+        "a request reached the server"
+    );
+}
+
+#[test]
+fn a_read_by_name_prefix_runs_without_apply_and_prints_the_bare_result() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let (_dir, root) = temp("read-name");
+    profile(&root, listener.local_addr().unwrap());
+    let server = serve_lines(listener, 1);
+    let output = run(&root, &["call", "T", "GetThing", "--json"]);
+    assert!(output.status.success());
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value, serde_json::json!({"ok": 1}));
+    assert!(server.join().unwrap()[0].contains("/Things/T/Services/GetThing"));
+}
+
+#[test]
+fn the_platform_category_team_list_and_read_flag_each_run_an_odd_name() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let (_dir, root) = temp("read-odd");
+    profile(&root, listener.local_addr().unwrap());
+    std::fs::write(
+        root.join(".twaco/platform.json"),
+        r#"{"things":{"T":{"services":{"Compute":{"category":"READ","result":{"baseType":"NOTHING"}}}}}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("twaco.toml"),
+        "[[project]]\nname = \"Test\"\n[call]\nread = [\"T.Listed\"]\n",
+    )
+    .unwrap();
+    let server = serve_lines(listener, 3);
+    for service in ["Compute", "Listed"] {
+        assert!(run(&root, &["call", "T", service]).status.success());
+    }
+    assert!(run(&root, &["call", "T", "Unlisted", "--read"])
+        .status
+        .success());
+    let lines = server.join().unwrap();
+    for (line, service) in lines.iter().zip(["Compute", "Listed", "Unlisted"]) {
+        assert!(line.contains(&format!("/Services/{service} ")), "{line}");
+    }
+}
+
+#[test]
+fn a_write_without_apply_sends_nothing_and_says_why() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (_dir, root) = temp("dry");
+    profile(&root, listener.local_addr().unwrap());
+    let output = run(
+        &root,
+        &[
+            "call",
+            "Resources/EntityServices",
+            "DeleteDataTagVocabulary",
+            "--param",
+            "name=X",
+            "--json",
+        ],
+    );
+    assert!(output.status.success());
+    nothing_reaches(&listener);
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["called"], false);
+    assert_eq!(value["dry_run"], true);
+    assert!(value["reason"].as_str().unwrap().contains("[call] read"));
+    assert_eq!(
+        value["would_call"],
+        "POST Resources/EntityServices/Services/DeleteDataTagVocabulary"
+    );
+    assert_eq!(value["params"], serde_json::json!({"name": "X"}));
+    let text = run(
+        &root,
+        &[
+            "call",
+            "Resources/EntityServices",
+            "DeleteDataTagVocabulary",
+        ],
+    );
+    let text = String::from_utf8(text.stdout).unwrap();
+    assert!(text.starts_with(
+        "not called (dry run); pass --apply to call Resources/EntityServices.DeleteDataTagVocabulary\n"
+    ));
+    nothing_reaches(&listener);
+    listener.set_nonblocking(false).unwrap();
+    let server = serve_lines(listener, 1);
+    let applied = run(
+        &root,
+        &[
+            "call",
+            "Resources/EntityServices",
+            "DeleteDataTagVocabulary",
+            "--apply",
+        ],
+    );
+    assert!(applied.status.success());
+    assert!(server.join().unwrap()[0].contains("/Services/DeleteDataTagVocabulary"));
+}
+
+#[test]
+fn a_get_named_resource_service_off_the_built_in_list_is_a_write() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let (_dir, root) = temp("resource");
+    profile(&root, listener.local_addr().unwrap());
+    let output = run(
+        &root,
+        &[
+            "call",
+            "Resources/ContentLoaderFunctions",
+            "GetJSON",
+            "--json",
+        ],
+    );
+    assert!(output.status.success());
+    nothing_reaches(&listener);
+    let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(value["called"], false);
 }

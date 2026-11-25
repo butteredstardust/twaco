@@ -907,6 +907,7 @@ fn generated_schemas_mean_what_the_hand_written_ones_did() {
                 && matches!(
                     name,
                     "fmt"
+                        | "call"
                         | "mashup_bind"
                         | "mashup_on"
                         | "mashup_recipe"
@@ -2635,6 +2636,29 @@ fn a_call_known_to_only_read_runs_without_dry_run_and_any_other_stays_a_plan() {
         let body: Value = serde_json::from_str(&text).unwrap();
         assert_eq!(body["dry_run"], true, "{arguments}");
     }
+}
+
+#[test]
+fn a_write_call_plans_with_a_reason_by_default_and_calls_with_dry_run_false() {
+    let (_dir, root) = solution_with_unreachable_server();
+    let arguments = json!({
+        "target": "Resources/EntityServices",
+        "service": "DeleteDataTagVocabulary",
+        "parameters": {"name": "X"},
+    });
+    let result = call(&root, "call", arguments.clone());
+    assert_ne!(result["isError"], true, "{result}");
+    let body: Value = serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(body["called"], false);
+    assert_eq!(body["dry_run"], true);
+    assert!(
+        body["reason"].as_str().unwrap().contains("[call] read"),
+        "{body}"
+    );
+    // dry_run false really calls: the unreachable server is then reached and fails.
+    let mut applied = arguments;
+    applied["dry_run"] = json!(false);
+    assert_eq!(call(&root, "call", applied)["isError"], true);
 }
 
 /// The `outputSchema` a tool publishes to the newest protocol revision.
