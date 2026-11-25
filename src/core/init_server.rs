@@ -160,6 +160,7 @@ where
     let mut per_project = BTreeMap::<String, usize>::new();
     let mut dependencies = BTreeMap::<String, Vec<String>>::new();
     let mut members_owned = Vec::new();
+    let mut values_owned: Vec<String> = Vec::new();
     let mut names = Vec::new();
     let already_here: BTreeSet<(String, String)> = existing
         .as_ref()
@@ -204,6 +205,9 @@ where
         }
     }
     notes.extend(derived.notes.iter().cloned());
+    // How many of each project's entities the others name, to break a dependency cycle at its
+    // weakest edge rather than by guessing.
+    let references = cross_references(&request.projects, &exports);
     for (project, exported) in request.projects.iter().zip(exports) {
         let entities =
             adopt::export_entities_bytes(&exported.xml, Path::new(project)).map_err(|e| {
@@ -285,6 +289,55 @@ where
             (!members_covered && matches!(key.collection.as_str(), "Groups" | "Organizations"))
                 .then(|| differs_only_in_members(remote, &key.collection, &info.name, document))
         });
+        // A timer or logger can write a Thing's property values after the export was read, so
+        // the baseline would read as server-changed minutes later. Read those Things once more
+        // after a short pause: where only the values moved, the values are the server's.
+        let mut rereads = Vec::new();
+        for (key, _, result) in &prepared {
+            let Ok((info, Some(document))) = result else {
+                continue;
+            };
+            let covered = existing.as_ref().is_some_and(|solution| {
+                super::server_owned::parts(
+                    &solution.server_owned_for(&request.profile),
+                    &key.collection,
+                    &info.name,
+                )
+                .iter()
+                .any(|part| matches!(part, super::server_owned::Part::Properties(_)))
+            });
+            if key.collection == "Things" && !covered && holds_property_values(document) {
+                rereads.push((info.name.clone(), document.clone()));
+            }
+        }
+        let skipped_rereads = rereads.len().saturating_sub(VALUE_REREAD_LIMIT);
+        rereads.truncate(VALUE_REREAD_LIMIT);
+        if !rereads.is_empty() {
+            std::thread::sleep(value_reread_pause());
+        }
+        let moving = parallel::map(&rereads, |(name, document)| {
+            differs_only_in(
+                remote,
+                "Things",
+                name,
+                document,
+                super::server_owned::Part::Properties(BTreeSet::new()),
+            )
+        });
+        for ((name, _), moved) in rereads.iter().zip(moving) {
+            match moved {
+                Ok(true) => values_owned.push(format!("Things/{name}")),
+                Ok(false) => {}
+                Err(why) => notes.push(format!(
+                    "could not read the property values of Things/{name} a second time ({why}); if a timer changes them, add a [[server_owned]] rule with parts = [\"property-values\"] for it"
+                )),
+            }
+        }
+        if skipped_rereads > 0 {
+            notes.push(format!(
+                "{skipped_rereads} more Things with property values were not read a second time (the limit is {VALUE_REREAD_LIMIT}); if a timer changes their values, add a [[server_owned]] rule with parts = [\"property-values\"]"
+            ));
+        }
         for ((key, element, result), comparison) in prepared.into_iter().zip(comparisons) {
             let (info, document) = result?;
             // A project's export carries entities of others it needs; each named project's own
@@ -364,19 +417,45 @@ where
             "the server exports contained no entities for the named projects".to_string()
         });
     }
+    let mut cut = BTreeMap::<String, Vec<String>>::new();
+    if !request.missing {
+        let fixed: BTreeMap<String, Vec<String>> = existing
+            .iter()
+            .flat_map(|solution| solution.projects.iter())
+            .map(|project| (project.name.clone(), project.depends_on.clone()))
+            .collect();
+        for (from, to, path) in break_cycles(&mut dependencies, &fixed, &references) {
+            let count = |a: &str, b: &str| match references.get(&(a.to_string(), b.to_string())) {
+                Some(n) => format!("{n} reference{}", if *n == 1 { "" } else { "s" }),
+                None => "already configured".to_string(),
+            };
+            let kept = path
+                .windows(2)
+                .skip(1)
+                .map(|step| format!("{} -> {} ({})", step[0], step[1], count(&step[0], &step[1])))
+                .collect::<Vec<_>>()
+                .join(", ");
+            notes.push(format!(
+                "the server's project dependencies form a cycle ({}), which twaco cannot order a deploy by: twaco.toml leaves {to} out of the depends_on of {from} ({}), with a comment, and keeps {kept}, the edges whose entities name more of the other project's; if this is backwards, add {to:?} back to the depends_on of {from:?} and remove the depends_on entry of another edge of the cycle",
+                path.join(" -> "),
+                count(&from, &to)
+            ));
+            cut.entry(from).or_default().push(to);
+        }
+    }
     let mut toml = if request.missing {
         String::from_utf8(config_before.clone().unwrap_or_default())
             .expect("a loaded twaco.toml is UTF-8")
     } else if existing.is_some() {
         let before = String::from_utf8_lossy(config_before.as_deref().unwrap_or_default());
-        append_projects(&before, &request.projects, &dependencies)
+        append_projects(&before, &request.projects, &dependencies, &cut)
     } else {
         let proposal_files = files
             .iter()
             .map(|file| (file.path.clone(), file.bytes.clone()))
             .collect();
         let mut proposal = init::propose_files(&request.root, proposal_files);
-        add_project_dependencies(&mut proposal.toml, &dependencies);
+        add_project_dependencies(&mut proposal.toml, &dependencies, &cut);
         proposal.notes.extend(notes);
         notes = proposal.notes;
         proposal.toml
@@ -400,6 +479,28 @@ where
             notes.push(format!(
                 "{} keep their members on the server: the Exporter leaves out user members, so membership is [[server_owned]]",
                 members_owned.join(", ")
+            ));
+        }
+    }
+    if !values_owned.is_empty() {
+        let mut rule = String::new();
+        add_owned(
+            &mut rule,
+            &values_owned,
+            "# A timer or logger writes these Things' property values, so their values change after\n# the export is read. They are then the server's: a change to them is not deployed.",
+            "property-values",
+        );
+        if request.missing {
+            notes.push(format!(
+                "{} changed property values between two reads a moment apart (something simulates them); add this to twaco.toml so status and deploy leave the values to the server:{}",
+                values_owned.join(", "),
+                rule.trim_end()
+            ));
+        } else {
+            toml.push_str(&rule);
+            notes.push(format!(
+                "{} changed property values between two reads a moment apart (something simulates them), so their values are [[server_owned]] (property-values)",
+                values_owned.join(", ")
             ));
         }
     }
@@ -630,9 +731,13 @@ where
 /// Exporter stores project dependencies in a Project's `dependsOn` JSON attribute.  Its exact
 /// extension-version syntax is server-owned, but project names are stable; only names that were
 /// requested become local deploy dependencies.
-fn add_project_dependencies(toml: &mut String, dependencies: &BTreeMap<String, Vec<String>>) {
+fn add_project_dependencies(
+    toml: &mut String,
+    dependencies: &BTreeMap<String, Vec<String>>,
+    cut: &BTreeMap<String, Vec<String>>,
+) {
     for (project, needed) in dependencies {
-        if needed.is_empty() {
+        if needed.is_empty() && !cut.contains_key(project) {
             continue;
         }
         let quoted = format!("\"{}\"", project.replace('"', "\\\""));
@@ -649,7 +754,12 @@ fn add_project_dependencies(toml: &mut String, dependencies: &BTreeMap<String, V
             .map(|name| format!("\"{}\"", name.replace('"', "\\\"")))
             .collect::<Vec<_>>()
             .join(", ");
-        toml.insert_str(root_end, &format!("depends_on = [{names}]\n"));
+        let mut lines = String::new();
+        if !needed.is_empty() {
+            lines.push_str(&format!("depends_on = [{names}]\n"));
+        }
+        lines.push_str(&cut_comment(cut.get(project)));
+        toml.insert_str(root_end, &lines);
     }
     // The server said the deploy order, so the files' hint that they cannot is not needed.
     if dependencies.values().any(|needed| !needed.is_empty()) {
@@ -662,6 +772,7 @@ fn append_projects(
     before: &str,
     projects: &[String],
     dependencies: &BTreeMap<String, Vec<String>>,
+    cut: &BTreeMap<String, Vec<String>>,
 ) -> String {
     let mut toml = before.to_string();
     if !toml.ends_with('\n') {
@@ -679,8 +790,120 @@ fn append_projects(
                 .join(", ");
             toml.push_str(&format!("depends_on = [{names}]\n"));
         }
+        toml.push_str(&cut_comment(cut.get(project)));
     }
     toml
+}
+
+/// The comment that names a dependency the server has but twaco.toml leaves out to stay acyclic.
+fn cut_comment(cut: Option<&Vec<String>>) -> String {
+    cut.map(|names| {
+        format!(
+            "# The server also lists {} here; it is left out because it would close a dependency cycle.\n",
+            names.join(", ")
+        )
+    })
+    .unwrap_or_default()
+}
+
+/// For each pair of requested projects, how many entities of the second the first one's export
+/// names (in entity attributes, mashup content or scripts). The Project entities themselves are left
+/// out: a dependsOn list names projects whether or not anything uses them.
+fn cross_references(
+    projects: &[String],
+    exports: &[export::Exported],
+) -> BTreeMap<(String, String), usize> {
+    let names: Vec<Vec<String>> = projects
+        .iter()
+        .zip(exports)
+        .map(|(project, exported)| {
+            let mut names: Vec<String> =
+                adopt::export_entities_bytes(&exported.xml, Path::new(project))
+                    .map(|entities| {
+                        entities
+                            .into_keys()
+                            .filter(|key| key.collection != "Projects")
+                            .map(|key| key.name)
+                            .collect()
+                    })
+                    .unwrap_or_default();
+            // Longest first, so a name that extends another is matched whole.
+            names.sort_by(|a, b| b.len().cmp(&a.len()).then(a.cmp(b)));
+            names.dedup();
+            names
+        })
+        .collect();
+    let mut counts = BTreeMap::new();
+    for (b, theirs) in projects.iter().zip(&names) {
+        if theirs.is_empty() {
+            continue;
+        }
+        let alternation = theirs
+            .iter()
+            .map(|name| regex::escape(name))
+            .collect::<Vec<_>>()
+            .join("|");
+        let Ok(pattern) = regex::bytes::Regex::new(&alternation) else {
+            continue;
+        };
+        for (a, exported) in projects.iter().zip(exports) {
+            if a == b {
+                continue;
+            }
+            let xml = &exported.xml;
+            let part =
+                |byte: u8| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'.' | b'-');
+            let found: BTreeSet<&[u8]> = pattern
+                .find_iter(xml)
+                .filter(|m| {
+                    !(m.start() > 0 && part(xml[m.start() - 1]))
+                        && !xml.get(m.end()).is_some_and(|byte| part(*byte))
+                })
+                .map(|m| m.as_bytes())
+                .collect();
+            counts.insert((a.clone(), b.clone()), found.len());
+        }
+    }
+    counts
+}
+
+/// Drop each dependency that would close a cycle, so the written depends_on has a deploy order.
+/// Edges are kept strongest first: the one whose project names the most of its dependency's
+/// entities (`references`), then, on a tie, the one from the project with fewer dependencies.
+/// An edge is dropped when its target already reaches its source through the edges kept so far
+/// (`fixed` ones are the configured solution's, which stay). Returns what was dropped as
+/// (project, dependency, the cycle it would have closed, starting and ending at the project).
+fn break_cycles(
+    dependencies: &mut BTreeMap<String, Vec<String>>,
+    fixed: &BTreeMap<String, Vec<String>>,
+    references: &BTreeMap<(String, String), usize>,
+) -> Vec<(String, String, Vec<String>)> {
+    let mut edges: Vec<(String, String)> = dependencies
+        .iter()
+        .flat_map(|(from, needs)| needs.iter().map(move |to| (from.clone(), to.clone())))
+        .collect();
+    let strength = |edge: &(String, String)| references.get(edge).copied().unwrap_or(0);
+    edges.sort_by(|x, y| {
+        strength(y)
+            .cmp(&strength(x))
+            .then(dependencies[&x.0].len().cmp(&dependencies[&y.0].len()))
+            .then(x.cmp(y))
+    });
+    let mut kept = fixed.clone();
+    let mut dropped = Vec::new();
+    for (project, need) in edges {
+        match super::config::dependency_path(&kept, &need, &project) {
+            Some(mut path) => {
+                path.insert(0, project.clone());
+                dropped.push((project, need, path));
+            }
+            None => kept.entry(project).or_default().push(need),
+        }
+    }
+    for (project, needs) in dependencies.iter_mut() {
+        needs.retain(|need| !dropped.iter().any(|(p, n, _)| p == project && n == need));
+    }
+    dropped
 }
 
 /// Whether the server's own copy of a Group or Organization differs from its exported file only
@@ -692,6 +915,23 @@ fn differs_only_in_members<R: push::Remote>(
     name: &str,
     document: &[u8],
 ) -> Result<bool, String> {
+    differs_only_in(
+        remote,
+        collection,
+        name,
+        document,
+        super::server_owned::Part::Members,
+    )
+}
+
+/// Whether the server's copy differs from `document`, and only in `part`.
+fn differs_only_in<R: push::Remote>(
+    remote: &R,
+    collection: &str,
+    name: &str,
+    document: &[u8],
+    part: super::server_owned::Part,
+) -> Result<bool, String> {
     let key =
         super::entity::key::EntityKey::address(collection, name).map_err(|e| e.to_string())?;
     let Some(server) = remote.fetch(&key).map_err(|e| e.to_string())? else {
@@ -700,15 +940,44 @@ fn differs_only_in_members<R: push::Remote>(
     let hash = |bytes: &[u8], parts: &[super::server_owned::Part]| {
         normalise::hash_with_parts(bytes, parts).map_err(|e| e.to_string())
     };
-    let members = [super::server_owned::Part::Members];
+    let owned = [part];
     Ok(hash(document, &[])? != hash(&server, &[])?
-        && hash(document, &members)? == hash(&server, &members)?)
+        && hash(document, &owned)? == hash(&server, &owned)?)
+}
+
+/// How many Things get a second read, and how long to wait before it: a few seconds in all.
+const VALUE_REREAD_LIMIT: usize = 100;
+
+fn value_reread_pause() -> std::time::Duration {
+    if cfg!(test) {
+        std::time::Duration::ZERO
+    } else {
+        std::time::Duration::from_secs(2)
+    }
+}
+
+/// Whether a Thing document sets any property value: a non-empty `<ThingProperties>`.
+fn holds_property_values(document: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(document);
+    text.find("<ThingProperties>").is_some_and(|start| {
+        let rest = &text[start + "<ThingProperties>".len()..];
+        !rest.trim_start().starts_with("</ThingProperties>")
+    })
 }
 
 /// Membership is assigned per server; the rule keeps it out of comparison and as the server has it.
 /// A character a `[[server_owned]]` pattern refuses becomes `*`, which still matches the name;
 /// returns whether any did.
 fn add_members_owned(toml: &mut String, entities: &[String]) -> bool {
+    add_owned(
+        toml,
+        entities,
+        "# Membership is assigned per server; the export leaves out user members. All members are\n# then the server's, group members in these files included: a change to them is not deployed.",
+        "members",
+    )
+}
+
+fn add_owned(toml: &mut String, entities: &[String], comment: &str, part: &str) -> bool {
     let mut widened = false;
     let names = entities
         .iter()
@@ -729,7 +998,7 @@ fn add_members_owned(toml: &mut String, entities: &[String]) -> bool {
         .collect::<Vec<_>>()
         .join(", ");
     toml.push_str(&format!(
-        "\n# Membership is assigned per server; the export leaves out user members. All members are\n# then the server's, group members in these files included: a change to them is not deployed.\n[[server_owned]]\nentities = [{names}]\nparts = [\"members\"]\n"
+        "\n{comment}\n[[server_owned]]\nentities = [{names}]\nparts = [\"{part}\"]\n"
     ));
     widened
 }
@@ -1532,6 +1801,83 @@ mod tests {
         );
     }
 
+    fn thing_with_value(name: &str, value: &str) -> String {
+        format!("<Thing name=\"{name}\" projectName=\"P\"><ThingProperties><Temp>{value}</Temp></ThingProperties></Thing>")
+    }
+
+    #[test]
+    fn things_whose_values_move_between_two_reads_are_proposed_as_server_owned() {
+        let temp = tempfile::tempdir().unwrap();
+        profile(temp.path());
+        let wrap = |inner: String| format!("<Entities><Things>{inner}</Things></Entities>");
+        let remote = Members::new(
+            wrap(thing_with_value("P.Sim", "1") + thing_with_value("P.Still", "1").as_str())
+                .into_bytes(),
+            BTreeMap::from([
+                (
+                    "Things/P.Sim".to_string(),
+                    wrap(thing_with_value("P.Sim", "2")).into_bytes(),
+                ),
+                (
+                    "Things/P.Still".to_string(),
+                    wrap(thing_with_value("P.Still", "1")).into_bytes(),
+                ),
+            ]),
+        );
+        let request = |missing| Request {
+            root: temp.path().to_path_buf(),
+            projects: vec!["P".into()],
+            apply: false,
+            missing,
+            profile: "default".into(),
+        };
+        let plan = execute(&remote, request(false)).unwrap();
+        assert!(
+            plan.toml.contains(
+                "[[server_owned]]\nentities = [\"Things/P.Sim\"]\nparts = [\"property-values\"]"
+            ),
+            "{}",
+            plan.toml
+        );
+        assert!(!plan.toml.contains("P.Still\"]"), "{}", plan.toml);
+        assert!(
+            plan.notes
+                .iter()
+                .any(|note| note.starts_with("Things/P.Sim changed property values")),
+            "{:?}",
+            plan.notes
+        );
+    }
+
+    #[test]
+    fn a_tag_vocabulary_is_adopted_from_the_export() {
+        let temp = tempfile::tempdir().unwrap();
+        profile(temp.path());
+        let remote = Members::new(
+            b"<Entities><DataTags><DataTagVocabulary name=\"P.Data\" projectName=\"P\" isDynamic=\"true\"/></DataTags><ModelTags><ModelTagVocabulary name=\"P.Model\" projectName=\"P\" isDynamic=\"true\"/></ModelTags></Entities>".to_vec(),
+            BTreeMap::new(),
+        );
+        let plan = execute(
+            &remote,
+            Request {
+                root: temp.path().to_path_buf(),
+                projects: vec!["P".into()],
+                apply: true,
+                missing: false,
+                profile: "default".into(),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            plan.entities.get("DataTags"),
+            Some(&1),
+            "{:?}",
+            plan.entities
+        );
+        assert!(temp.path().join("DataTags/P.Data.xml").exists());
+        assert!(temp.path().join("ModelTags/P.Model.xml").exists());
+    }
+
     #[test]
     fn missing_names_the_members_rule_a_new_group_needs_and_leaves_twaco_toml_alone() {
         let temp = tempfile::tempdir().unwrap();
@@ -1666,9 +2012,246 @@ mod tests {
             },
         )
         .unwrap();
+        let toml = std::fs::read_to_string(temp.path().join("twaco.toml")).unwrap();
+        assert!(
+            toml.contains("[lint]\nextends = [\"platform-v1\"]"),
+            "{toml}"
+        );
         assert!(temp.path().join("A/Things/A.T.xml").exists());
         assert!(temp.path().join("B/Things/B.T.xml").exists());
         assert!(temp.path().join("src/A.T/services/S/script.js").exists());
+    }
+
+    #[test]
+    fn instance_permission_children_survive_init() {
+        let temp = tempfile::tempdir().unwrap();
+        profile(temp.path());
+        let entity = "<Entities><ThingTemplates><ThingTemplate name=\"A.TT\" projectName=\"A\" baseThingTemplate=\"GenericThing\"><DesignTimePermissions><Create/><Read/><Update/><Delete/><Metadata/></DesignTimePermissions><InstanceDesignTimePermissions><Create/><Delete/><Update/><Read/><Metadata/></InstanceDesignTimePermissions><InstanceRunTimePermissions/></ThingTemplate></ThingTemplates></Entities>";
+        let remote = Fake(BTreeMap::from([(
+            "A".to_string(),
+            entity.as_bytes().to_vec(),
+        )]));
+        execute(
+            &remote,
+            Request {
+                root: temp.path().to_path_buf(),
+                projects: vec!["A".into()],
+                apply: true,
+                missing: false,
+                profile: "default".into(),
+            },
+        )
+        .unwrap();
+        let written = std::fs::read_to_string(temp.path().join("ThingTemplates/A.TT.xml")).unwrap();
+        let block = written
+            .split("<InstanceDesignTimePermissions>")
+            .nth(1)
+            .and_then(|rest| rest.split("</InstanceDesignTimePermissions>").next())
+            .unwrap_or_else(|| panic!("{written}"));
+        for child in ["Create", "Delete", "Update", "Read", "Metadata"] {
+            assert!(
+                block.contains(&format!("<{child}")),
+                "{child} lost: {written}"
+            );
+        }
+    }
+
+    fn project_export(project: &str, needs: &[&str]) -> Vec<u8> {
+        let list = needs
+            .iter()
+            .map(|name| format!("{name}:1.0.0"))
+            .collect::<Vec<_>>()
+            .join(",");
+        format!("<Entities><Projects><Project name=\"{project}\" projectName=\"{project}\" dependsOn='{{\"projects\":\"{list}\"}}'/></Projects></Entities>").into_bytes()
+    }
+
+    #[test]
+    fn a_dependency_cycle_on_the_server_is_written_without_the_edges_that_close_it() {
+        let temp = tempfile::tempdir().unwrap();
+        profile(temp.path());
+        // Three projects: Acme.App and Acme.Docs need Acme.Core, which needs both back.
+        let remote = Fake(BTreeMap::from([
+            (
+                "Acme.App".to_string(),
+                project_export("Acme.App", &["Acme.Core"]),
+            ),
+            (
+                "Acme.Docs".to_string(),
+                project_export("Acme.Docs", &["Acme.Core"]),
+            ),
+            (
+                "Acme.Core".to_string(),
+                project_export("Acme.Core", &["Acme.App", "Acme.Docs"]),
+            ),
+        ]));
+        let outcome = execute(
+            &remote,
+            Request {
+                root: temp.path().to_path_buf(),
+                projects: vec!["Acme.App".into(), "Acme.Docs".into(), "Acme.Core".into()],
+                apply: true,
+                missing: false,
+                profile: "default".into(),
+            },
+        )
+        .unwrap();
+        let toml = std::fs::read_to_string(temp.path().join("twaco.toml")).unwrap();
+        let config = toml::from_str::<toml::Value>(&toml).unwrap();
+        let depends = |name: &str| -> Vec<String> {
+            config["project"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|p| p["name"].as_str() == Some(name))
+                .and_then(|p| p.get("depends_on"))
+                .map(|d| {
+                    d.as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|v| v.as_str().unwrap().to_string())
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        assert_eq!(depends("Acme.App"), ["Acme.Core"]);
+        assert_eq!(depends("Acme.Docs"), ["Acme.Core"]);
+        assert!(depends("Acme.Core").is_empty(), "{toml}");
+        assert!(
+            toml.contains("# The server also lists Acme.App, Acme.Docs here"),
+            "{toml}"
+        );
+        // The written solution has a deploy order, and the note names a real cycle.
+        let solution =
+            crate::core::config::Solution::load(&temp.path().join("twaco.toml")).unwrap();
+        solution.deploy_order().unwrap();
+        let notes = outcome.notes.join(
+            "
+",
+        );
+        assert!(
+            notes.contains("Acme.Core -> Acme.App -> Acme.Core"),
+            "{notes}"
+        );
+    }
+
+    fn template(project: &str, name: &str, base: &str) -> String {
+        format!("<ThingTemplate name=\"{name}\" projectName=\"{project}\" baseThingTemplate=\"{base}\"/>")
+    }
+
+    fn project_with(project: &str, needs: &[&str], templates: &[String]) -> Vec<u8> {
+        let head = String::from_utf8(project_export(project, needs)).unwrap();
+        head.replace(
+            "</Entities>",
+            &format!(
+                "<ThingTemplates>{}</ThingTemplates></Entities>",
+                templates.concat()
+            ),
+        )
+        .into_bytes()
+    }
+
+    #[test]
+    fn a_cycle_is_broken_at_the_edge_whose_entities_name_the_least() {
+        // An umbrella app built on two kits, which the server also lists as depending back on it.
+        // The app has more dependencies, but its entities are the ones that use the others'.
+        let temp = tempfile::tempdir().unwrap();
+        profile(temp.path());
+        let remote = Fake(BTreeMap::from([
+            (
+                "Acme.Suite".to_string(),
+                project_with(
+                    "Acme.Suite",
+                    &["Acme.Mu", "Acme.Ui"],
+                    &[
+                        template("Acme.Suite", "Acme.Suite.A", "Acme.Mu.TT"),
+                        template("Acme.Suite", "Acme.Suite.B", "Acme.Ui.TT"),
+                        template("Acme.Suite", "Acme.Suite.C", "Acme.Ui.Other"),
+                    ],
+                ),
+            ),
+            (
+                "Acme.Mu".to_string(),
+                project_with(
+                    "Acme.Mu",
+                    &["Acme.Suite"],
+                    &[template("Acme.Mu", "Acme.Mu.TT", "GenericThing")],
+                ),
+            ),
+            (
+                "Acme.Ui".to_string(),
+                project_with(
+                    "Acme.Ui",
+                    &["Acme.Suite"],
+                    &[
+                        template("Acme.Ui", "Acme.Ui.TT", "GenericThing"),
+                        template("Acme.Ui", "Acme.Ui.Other", "GenericThing"),
+                    ],
+                ),
+            ),
+        ]));
+        let outcome = execute(
+            &remote,
+            Request {
+                root: temp.path().to_path_buf(),
+                projects: vec!["Acme.Suite".into(), "Acme.Mu".into(), "Acme.Ui".into()],
+                apply: true,
+                missing: false,
+                profile: "default".into(),
+            },
+        )
+        .unwrap();
+        let solution =
+            crate::core::config::Solution::load(&temp.path().join("twaco.toml")).unwrap();
+        let depends = |name: &str| solution.project(name).unwrap().depends_on.clone();
+        assert_eq!(depends("Acme.Suite"), ["Acme.Mu", "Acme.Ui"]);
+        assert!(depends("Acme.Mu").is_empty());
+        assert!(depends("Acme.Ui").is_empty());
+        solution.deploy_order().unwrap();
+        let notes = outcome.notes.join(
+            "
+",
+        );
+        assert!(
+            notes.contains("leaves Acme.Suite out of the depends_on of Acme.Ui (0 references)")
+                && notes.contains("keeps Acme.Suite -> Acme.Ui (2 references)")
+                && notes.contains("if this is backwards"),
+            "{notes}"
+        );
+    }
+
+    #[test]
+    fn the_cycle_error_names_a_real_path_and_the_edge_to_remove() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("twaco.toml"),
+            "[solution]
+name = \"S\"
+
+[[project]]
+name = \"A\"
+root = \"A\"
+depends_on = [\"C\"]
+
+[[project]]
+name = \"B\"
+root = \"B\"
+depends_on = [\"C\"]
+
+[[project]]
+name = \"C\"
+root = \"C\"
+depends_on = [\"A\", \"B\"]
+",
+        )
+        .unwrap();
+        let solution =
+            crate::core::config::Solution::load(&temp.path().join("twaco.toml")).unwrap();
+        let text = solution.deploy_order().unwrap_err().to_string();
+        assert!(text.contains("cycle: A -> C -> A."), "{text}");
+        assert!(
+            text.contains("\"A\" from the depends_on of \"C\""),
+            "{text}"
+        );
     }
 }
 

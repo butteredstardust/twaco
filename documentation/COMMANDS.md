@@ -178,9 +178,15 @@ reproject <entity>... --to <project> [--apply] [--json]
 widgets [<widget>] [--search <text>] [--json]
                             --search html finds display-only HTML; collapsible finds its recipe
 widgets --icons [<filter>] [--json]
+widgets (--platform [--profile <name>] | --webapp <webapp folder>) [--json]
                             the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
                             aliases, containers and editable or bindable properties with defaults, events and services
     --icons                 the 215 CDS icon names a cds: value may take; twaco refuses any other
+    --platform              read the server's widget files (GET only) into .twaco/widgets.json: the
+                            contracts of legacy widgets (tree, collection, ...) and of installed
+                            extensions, read without running them; widgets, check, mashup validate
+                            and page specs then use them after the embedded catalogue, which wins
+    --webapp <folder>       the same from a Thingworx webapp folder on disk (the one holding Common/)
 mashup validate <mashup>|--all [--json]
                             what in a mashup ThingWorx would load but not honour, or the next edit would
                             trip over: structure, ids, bindings and events that name what is not there,
@@ -907,8 +913,13 @@ db clean [--apply] [--json] delete temporary ZZ.Twaco.Sql.* Things an interrupte
 Call services and read what the server says.
 
 ```text
-call <target> <service> [<name=value>...|<json>] [--timeout <seconds>] [--detail] [--as <test user>] [--json]
-    [--lang <code>] [--param <name=value>]...
+call <target> <service> [<name=value>...|<json>] [--apply] [--read] [--timeout <seconds>] [--detail]
+    [--as <test user>] [--json] [--lang <code>] [--param <name=value>]...
+                            a read runs; any other service is a dry run (nothing sent, exit 0) until --apply.
+                            A read: platform category READ, the built-in list, a name starting Get, Query,
+                            Is, Has, Search or Find (not under Resources/*), or [call] read in twaco.toml
+    --apply                 call a service that is not a read
+    --read                  call this service without --apply: you know it only reads
                             target: Collection/Name, full name, or last dotted segment;
                             <target>.<service> [...] works too, split at the last dot.
                             name=value pairs split at the first =; typed by the service signature

@@ -152,8 +152,8 @@ pub(crate) fn check(src: &[u8], shapes: &[DataShape]) -> Vec<TableProblem> {
         if copy_fields.is_empty() {
             continue;
         }
-        let differences = differences(fields, &copy_fields, &text);
-        if !differences.is_empty() {
+        let (differences, substantive) = differences(fields, &copy_fields, &text);
+        if substantive {
             problems.push(TableProblem {
                 rule: "config-table-copy-differs",
                 message: format!(
@@ -188,12 +188,13 @@ fn is_key(field: &Field) -> bool {
     matches!(field.aspects.get("isPrimaryKey"), Some(Aspect::Bool(true)))
 }
 
-/// How the copy's fields differ from the DataShape's, by name.
+/// Differences by name, and whether anything beyond ordinals differs.
+/// Keep ordinal details in mixed differences, but do not report ordinal-only copies.
 fn differences(
     fields: &[Field],
     copy: &[&Token],
     text: &dyn Fn(&Token, &str) -> String,
-) -> Vec<String> {
+) -> (Vec<String>, bool) {
     let copied: BTreeMap<String, &Token> = copy
         .iter()
         .map(|field| (text(field, "name"), *field))
@@ -215,6 +216,7 @@ fn differences(
     if !extra.is_empty() {
         out.push(format!("not in the DataShape {}", extra.join(", ")));
     }
+    let mut substantive = !out.is_empty();
     for field in fields {
         let Some(token) = copied.get(&field.name) else {
             continue;
@@ -232,11 +234,12 @@ fn differences(
         if (text(token, "aspect.isPrimaryKey") == "true") != is_key(field) {
             what.push("key");
         }
+        substantive |= what.iter().any(|difference| *difference != "ordinal");
         if !what.is_empty() {
             out.push(format!("{} {}", field.name, what.join(", ")));
         }
     }
-    out
+    (out, substantive)
 }
 
 /// The start or empty tags directly inside the element that opens at `parent`.
@@ -316,6 +319,49 @@ mod tests {
         )];
         let copy = r#"<DataShape><FieldDefinitions><FieldDefinition name="b" baseType="STRING" ordinal="1" aspect.isPrimaryKey="true"/></FieldDefinitions></DataShape>"#;
         assert_eq!(rules(&thing(copy, ""), &shapes), []);
+    }
+
+    #[test]
+    fn ordinal_only_differences_are_silent_but_other_metadata_still_reports() {
+        let shapes = [shape("Acme.Row_DS", SHAPE)];
+        let reordered = COPY.replace("ordinal=\"2\"", "ordinal=\"9\"");
+        let wrap = |fields: &str| {
+            format!("<DataShape><FieldDefinitions>{fields}</FieldDefinitions></DataShape>")
+        };
+        assert_eq!(rules(&thing(&wrap(&reordered), ROW), &shapes), []);
+        for (from, to, expected) in [
+            (
+                "name=\"a\"",
+                "name=\"z\"",
+                "missing a; not in the DataShape z",
+            ),
+            (
+                "baseType=\"STRING\"",
+                "baseType=\"INTEGER\"",
+                "a baseType, ordinal",
+            ),
+            (
+                "description=\"A\"",
+                "description=\"Changed\"",
+                "a ordinal, description",
+            ),
+            (
+                "aspect.isPrimaryKey=\"true\"",
+                "aspect.isPrimaryKey=\"false\"",
+                "b key",
+            ),
+        ] {
+            let problems = check(
+                thing(&wrap(&reordered.replace(from, to)), ROW).as_bytes(),
+                &shapes,
+            );
+            let copy = problems
+                .iter()
+                .find(|p| p.rule == "config-table-copy-differs")
+                .unwrap();
+            assert!(!copy.blocks);
+            assert!(copy.message.contains(expected), "{}", copy.message);
+        }
     }
 
     #[test]

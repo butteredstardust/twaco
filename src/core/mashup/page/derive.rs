@@ -44,8 +44,9 @@ pub(crate) fn derive_exact(name: &str, content: &str) -> Result<Derived, Error> 
 }
 
 fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Result<Derived, Error> {
-    let content: Value =
+    let mut content: Value =
         serde_json::from_str(content).map_err(|e| Error::at(Location::UNKNOWN, e))?;
+    let migrated = widgets::migrate_content(&mut content);
     let exact = exact && content["twacoPageRules"] != "v1";
     let root = content
         .get("UI")
@@ -61,6 +62,7 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     }
     let mut run = Run::new(&content);
     run.notes.extend(widgets::configuration_warnings(&content));
+    run.notes.extend(migrated);
     run.carry_styles = carry_styles;
     run.exact = exact;
     let parameters = run.parameters(&root["Properties"]);
@@ -84,6 +86,7 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     let root_name = template_root
         .map(|w| prop(w, "Id").clone())
         .filter(|id| id.as_str() != fresh.get("Id").and_then(Value::as_str));
+    let mut root_styles = None;
     let (slot, page_root): (Vec<Value>, Option<Map<String, Value>>) = match template_root {
         Some(first) => {
             let direction = if prop(first, "flex-direction") == "column" {
@@ -92,6 +95,7 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
                 "row"
             };
             let page_root = run.root_props(first, &fresh);
+            root_styles = run.carried_styles(first);
             let mut slot: Vec<Value> = widgets_of(first)
                 .iter()
                 .map(|w| run.node(w, direction))
@@ -114,6 +118,9 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     };
     let mut page = Map::new();
     page.insert("name".into(), json!(name));
+    if content["mashupType"] == "mashupTemplate" {
+        page.insert("kind".into(), json!("template"));
+    }
     if content["mashupType"] == "targetmashup" {
         page.insert("kind".into(), json!("master"));
         let fresh = crate::core::mashup::templates::master_root();
@@ -204,13 +211,19 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
                 .insert(props["Id"].as_str().unwrap_or("mashup-root").into());
         }
     }
-    if root_name.is_some() || page_root.as_ref().is_some_and(|p| !p.is_empty()) {
+    if root_name.is_some()
+        || root_styles.is_some()
+        || page_root.as_ref().is_some_and(|p| !p.is_empty())
+    {
         let mut spec_root = Map::new();
         if let Some(id) = root_name {
             spec_root.insert("id".into(), id);
         }
         if let Some(page_root) = page_root.filter(|p| !p.is_empty()) {
             spec_root.insert("props".into(), json!(page_root));
+        }
+        if let Some((key, value)) = root_styles {
+            spec_root.insert(key.into(), value);
         }
         page.insert("root".into(), Value::Object(spec_root));
     }
@@ -221,6 +234,9 @@ fn derive_as(name: &str, content: &str, carry_styles: bool, exact: bool) -> Resu
     let bindings = run.remaining_bindings();
     if !data.is_empty() {
         page.insert("data".into(), Value::Object(data));
+    }
+    if !run.empty_sections.is_empty() {
+        page.insert("empty_sources".into(), json!(run.empty_sections));
     }
     page.insert("slots".into(), json!({"center": slot}));
     if !events.is_empty() {
@@ -464,6 +480,13 @@ fn widget_type<'a>(widget: &'a Value, id: &str) -> Option<&'a str> {
 
 /// Whether the catalogue types `key` of `type_id` as a number: by its default, or its contract.
 fn wants_number(type_id: &str, key: &str, default: Option<&Value>) -> bool {
+    if widgets::catalog()
+        .by_type(type_id)
+        .and_then(|widget| widget.property(key))
+        .is_some_and(|contract| contract.css_size)
+    {
+        return false;
+    }
     match default {
         Some(Value::Number(_)) => true,
         Some(_) => false,
@@ -518,6 +541,10 @@ struct Call {
     service: String,
     params: Map<String, Value>,
     refresh: u64,
+    /// The stored `APIMethod` when it is not the default `post`.
+    api_method: Option<String>,
+    /// The service's own name on the entity (`GetProperties`).
+    target: String,
     /// A dynamic source: the shape or template it runs on a Thing of, chosen at runtime.
     dynamic: bool,
 }
@@ -529,6 +556,11 @@ struct Link {
     consumed: bool,
     /// Reads the rows a widget selected rather than the whole result.
     selected: bool,
+    /// The stored base type and kind (`field`, `property`) of the source field, and the stored
+    /// base type of the target.
+    source_base: String,
+    source_kind: String,
+    target_base: String,
 }
 
 struct Run<'a> {
@@ -539,6 +571,8 @@ struct Run<'a> {
     exact: bool,
     content: &'a Value,
     calls: Vec<Call>,
+    /// Sections that name an entity and call none of its services.
+    empty_sections: Vec<String>,
     expressions: Map<String, Value>,
     navigations: HashMap<String, Value>,
     expression_names: HashMap<String, String>,
@@ -563,6 +597,7 @@ impl<'a> Run<'a> {
             exact: false,
             content,
             calls: vec![],
+            empty_sections: vec![],
             expressions: Map::new(),
             navigations: HashMap::new(),
             expression_names: HashMap::new(),
@@ -579,15 +614,15 @@ impl<'a> Run<'a> {
             unknown: BTreeSet::new(),
         };
         let mut aliases = BTreeSet::new();
-        let mut other = 0;
+        let mut unsupported = BTreeSet::new();
         for (section, entry) in content["Data"].as_object().into_iter().flatten() {
             let dynamic = matches!(
                 entry["EntityType"].as_str(),
                 Some("DynamicThingShapes" | "DynamicThingTemplates")
             );
             let named = entry["EntityName"].as_str().unwrap_or("");
-            // A dynamic section may name its shape only in its key.
-            let entity = if named.is_empty() && dynamic {
+            // Older sections may name their entity only in the section key.
+            let entity = if named.is_empty() {
                 section
                     .split_once('_')
                     .map(|(_, shape)| shape)
@@ -595,16 +630,25 @@ impl<'a> Run<'a> {
             } else {
                 named
             };
-            if !(entry["EntityType"] == "Things" || dynamic) || entity.is_empty() {
+            let collection = section.split_once('_').map(|(kind, _)| kind).unwrap_or("");
+            let static_kind = entry["EntityType"] == "Things"
+                || matches!(
+                    collection,
+                    "Things" | "ThingTemplates" | "ThingShapes" | "Networks"
+                );
+            if !(static_kind || dynamic) || entity.is_empty() {
                 if !entry["Services"].as_array().is_none_or(Vec::is_empty)
                     && !matches!(
                         entry["EntityType"].as_str(),
                         Some("Session" | "UserExtensions")
                     )
                 {
-                    other += 1;
+                    unsupported.insert(section.clone());
                 }
                 continue;
+            }
+            if entry["Services"].as_array().is_some_and(Vec::is_empty) {
+                run.empty_sections.push(section.clone());
             }
             for service in entry["Services"].as_array().into_iter().flatten() {
                 let (Some(name), Some(target)) =
@@ -633,14 +677,31 @@ impl<'a> Run<'a> {
                         .cloned()
                         .unwrap_or_default(),
                     refresh: service["RefreshInterval"].as_u64().unwrap_or(0),
+                    target: target.into(),
+                    api_method: service["APIMethod"]
+                        .as_str()
+                        .filter(|m| !m.is_empty() && *m != "post")
+                        .map(String::from),
                     dynamic,
                 });
             }
         }
-        if other > 0 {
-            run.notes.push(format!(
-                "{other} data entries that are not Thing services were left out"
-            ));
+        for section in &unsupported {
+            run.notes
+                .push(format!("unsupported data section left out: {section}"));
+            for binding in content["DataBindings"].as_array().into_iter().flatten() {
+                if binding["SourceSection"] == *section || binding["TargetSection"] == *section {
+                    for map in binding["PropertyMaps"].as_array().into_iter().flatten() {
+                        run.notes.push(format!(
+                            "binding lost with {section}: {}.{} -> {}.{}",
+                            binding["SourceId"].as_str().unwrap_or(""),
+                            map["SourceProperty"].as_str().unwrap_or(""),
+                            binding["TargetId"].as_str().unwrap_or(""),
+                            map["TargetProperty"].as_str().unwrap_or("")
+                        ));
+                    }
+                }
+            }
         }
         for binding in content["DataBindings"].as_array().into_iter().flatten() {
             let get = |k: &str| binding[k].as_str().unwrap_or("").to_string();
@@ -656,6 +717,9 @@ impl<'a> Run<'a> {
                     ),
                     consumed: false,
                     selected: binding["SourceDetails"] == "SelectedRows",
+                    source_base: prop("SourcePropertyBaseType"),
+                    source_kind: prop("SourcePropertyType").to_ascii_lowercase(),
+                    target_base: prop("TargetPropertyBaseType"),
                 });
                 let last = run.links.last_mut().expect("link");
                 let field = prop("SourceProperty");
@@ -749,6 +813,61 @@ impl<'a> Run<'a> {
     }
 
     /// The text of what a link reads from, with widget ids left as `@@id@@` for `resolve`.
+    /// The field types a call's bindings store, for a service whose result has no DataShape of
+    /// its own (a built-in's rows, `GetProperties`): the spec cannot look them up.
+    fn field_types(&self, call: &Call) -> Map<String, Value> {
+        let collection = match call.section.split_once('_').map(|(kind, _)| kind) {
+            Some("Things") => "Things",
+            Some("ThingTemplates" | "DynamicThingTemplates") => "ThingTemplates",
+            Some("ThingShapes" | "DynamicThingShapes") => "ThingShapes",
+            _ => return Map::new(),
+        };
+        let mut types = Map::new();
+        // `SetProperties` takes the Thing's own properties as parameters, which no table lists.
+        if call.target == "SetProperties" {
+            for link in &self.links {
+                if link.target.0 == "Data"
+                    && link.target.1 == call.name
+                    && link.target.2 == call.section
+                    && !link.target.3.is_empty()
+                    && !link.target_base.is_empty()
+                {
+                    types.insert(link.target.3.clone(), json!(link.target_base));
+                }
+            }
+            return types;
+        }
+        let unshaped = call.target == "GetProperties"
+            || crate::core::builtin_services::find(collection, &call.target).is_some_and(|s| {
+                s.result.base_type == "INFOTABLE" && s.result.data_shape.is_none()
+            });
+        if !unshaped {
+            return types;
+        }
+        // A property of a Thing is what `GetProperties` hands back; any other row is a field.
+        let usual = if call.target == "GetProperties" {
+            "property"
+        } else {
+            "field"
+        };
+        let prefix = format!("{}\u{1}", call.section);
+        for link in &self.links {
+            if link.source.0 == "Data" && link.source.1 == call.name {
+                if let Some(field) = link.source.2.strip_prefix(&prefix) {
+                    if !field.is_empty() && !link.source_base.is_empty() {
+                        let stored = if link.source_kind.is_empty() || link.source_kind == usual {
+                            link.source_base.clone()
+                        } else {
+                            format!("{}:{}", link.source_base, link.source_kind)
+                        };
+                        types.insert(field.into(), json!(stored));
+                    }
+                }
+            }
+        }
+        types
+    }
+
     fn source(&self, link: &Link) -> Option<String> {
         let (area, id, section) = &link.source;
         let (section, field) = section.split_once('\u{1}')?;
@@ -871,7 +990,14 @@ impl<'a> Run<'a> {
                 // Managed by the contained mashup; `embed` writes it.
                 continue;
             }
-            if !known_property(widget, key, data_bound) && !self.exact {
+            if !known_property(widget, key, data_bound)
+                && !self.exact
+                // A stale legacy name migrate_content left in place keeps its value.
+                && widgets::migrated_property(type_id, key).is_none()
+                && widgets::catalog()
+                    .by_type(type_id)
+                    .is_some_and(|w| w.has_contract())
+            {
                 self.unknown.insert((
                     prop(widget, "Id").as_str().unwrap_or("").into(),
                     key.clone(),
@@ -893,12 +1019,6 @@ impl<'a> Run<'a> {
                     }
                     continue;
                 }
-            }
-            if value.get("StateFormats").is_some() {
-                self.notes_once(
-                    "state formatting snapshots are not carried; use state: on a detail_pair or status: on a grid column",
-                );
-                continue;
             }
             if value.is_string() && value.as_str() == Some("") && !base.contains_key(key) {
                 continue;
@@ -1014,6 +1134,7 @@ impl<'a> Run<'a> {
             "ptcslink" | "ptcsimage" | "ptcsicon" | "ptcsdivider" | "ptcscheckbox"
             | "ptcsradio" | "ptcstogglebutton" | "ptcstextarea" | "ptcsvaluedisplay"
             | "ptcspagination" | "ptcskpidial" | "ptcsrte" | "statusmessage" => self.native(widget),
+            "shape" if self.shape_expressible(widget) => self.native(widget),
             "mashupcontainer" if text(widget, "Name").is_some_and(|s| !s.is_empty()) => {
                 self.embed(widget)
             }
@@ -1047,7 +1168,7 @@ impl<'a> Run<'a> {
             "ptcstabset" => self.tabs(widget),
             _ => self.other(widget),
         };
-        if self.exact {
+        {
             let id = prop(widget, "Id").as_str().unwrap_or("");
             let numeric = id
                 .rsplit_once('-')
@@ -1063,8 +1184,69 @@ impl<'a> Run<'a> {
                 }
             }
         }
-        if self.carry_styles {
+        if !widgets::catalog()
+            .by_type(kind(widget))
+            .is_some_and(|w| w.has_contract())
+        {
             let id = prop(widget, "Id").as_str().unwrap_or("");
+            let mut types = Map::new();
+            for binding in self.content["DataBindings"]
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                for (area, endpoint, property, base) in [
+                    (
+                        "SourceArea",
+                        "SourceId",
+                        "SourceProperty",
+                        "SourcePropertyBaseType",
+                    ),
+                    (
+                        "TargetArea",
+                        "TargetId",
+                        "TargetProperty",
+                        "TargetPropertyBaseType",
+                    ),
+                ] {
+                    if binding[area] == "UI" && binding[endpoint] == id {
+                        for map in binding["PropertyMaps"].as_array().into_iter().flatten() {
+                            if let (Some(property), Some(base)) =
+                                (map[property].as_str(), map[base].as_str())
+                            {
+                                types.insert(property.into(), json!(base));
+                            }
+                        }
+                    }
+                }
+            }
+            if !types.is_empty() {
+                if let Some(body) = node
+                    .as_object_mut()
+                    .and_then(|m| m.values_mut().next())
+                    .and_then(Value::as_object_mut)
+                {
+                    body.insert("binding_types".into(), json!(types));
+                }
+            }
+        }
+        if let Some((key, value)) = self.carried_styles(widget) {
+            if let Some(body) = node
+                .as_object_mut()
+                .and_then(|m| m.values_mut().next())
+                .and_then(Value::as_object_mut)
+            {
+                body.insert(key.into(), value);
+            }
+        }
+        node
+    }
+
+    /// The stored styles of a widget as the spec field that carries them: `style` (token specs) or
+    /// `styles` (stored parts, as built). Marks the widget as styled.
+    fn carried_styles(&mut self, widget: &Value) -> Option<(&'static str, Value)> {
+        let id = prop(widget, "Id").as_str().unwrap_or("");
+        if self.carry_styles {
             let parts = &self.content["UI"]["Properties"]["StyleProperties"]["data"][id]["parts"];
             let mut styles = vec![];
             let mut skipped = false;
@@ -1089,37 +1271,24 @@ impl<'a> Run<'a> {
                     "style properties partly not carried: widget {id}, non-text values"
                 ));
             }
-            if !styles.is_empty() {
-                if let Some(body) = node
-                    .as_object_mut()
-                    .and_then(|m| m.values_mut().next())
-                    .and_then(Value::as_object_mut)
-                {
-                    body.insert("style".into(), json!(styles));
-                    self.styled.insert(id.to_string());
-                }
+            if styles.is_empty() {
+                return None;
             }
-        } else {
-            // What `style:` cannot say stays verbatim, so the look survives a build.
-            let id = prop(widget, "Id").as_str().unwrap_or("");
-            let entry = &self.content["UI"]["Properties"]["StyleProperties"]["data"][id];
-            let parts = &entry["parts"];
-            // `widget` is the styler label Composer records; a build writes it back.
-            let others = entry
-                .as_object()
-                .is_some_and(|e| e.keys().any(|k| k != "parts" && k != "widget"));
-            if parts.as_object().is_some_and(|p| !p.is_empty()) && !others {
-                if let Some(body) = node
-                    .as_object_mut()
-                    .and_then(|m| m.values_mut().next())
-                    .and_then(Value::as_object_mut)
-                {
-                    body.insert("styles".into(), parts.clone());
-                    self.styled.insert(id.to_string());
-                }
-            }
+            self.styled.insert(id.to_string());
+            return Some(("style", json!(styles)));
         }
-        node
+        // What `style:` cannot say stays verbatim, so the look survives a build.
+        let entry = &self.content["UI"]["Properties"]["StyleProperties"]["data"][id];
+        let parts = &entry["parts"];
+        // `widget` is the styler label Composer records; a build writes it back.
+        let others = entry
+            .as_object()
+            .is_some_and(|e| e.keys().any(|k| k != "parts" && k != "widget"));
+        if parts.as_object().is_some_and(|p| !p.is_empty()) && !others {
+            self.styled.insert(id.to_string());
+            return Some(("styles", parts.clone()));
+        }
+        None
     }
 
     fn finish(
@@ -1140,7 +1309,7 @@ impl<'a> Run<'a> {
     fn other(&mut self, widget: &Value) -> Value {
         let type_id = kind(widget).to_string();
         let reason = match type_id.as_str() {
-            "shape" => "decorative shapes remain raw",
+            "shape" => "a shape needs a known outline and plain style names and numbers; other shapes remain raw",
             "googlemap" | "OpenStreetMap" | "openstreetmap" => "map extension contracts remain raw",
             "ptcscollection" => "collection needs a static cell, nonempty row map and a supported data feed; dynamic entity and mashup selection remain raw",
             "mashupcontainer" => "embed needs a static mashup; dynamic Name bindings remain raw",
@@ -1151,19 +1320,6 @@ impl<'a> Run<'a> {
             "ptcschartbar" | "ptcschartline" | "ptcschartpie" | "ptcschartpareto" | "ptcschartwaterfall" | "ptcschartcombo" => "chart needs a supported flat table feed and axis fields (pie: DataField and ValueField); unconfigured or dynamic feeds remain raw",
             _ => "no matching element contract; explicit widget properties are retained",
         };
-        let extension = matches!(
-            type_id.as_str(),
-            "googlemap" | "OpenStreetMap" | "openstreetmap"
-        );
-        if !self.exact && !extension && widgets::catalog().resolve(&type_id).is_err() {
-            // A page built by the layout rules refuses a widget the catalogue does not know;
-            // only a page built as found carries one verbatim.
-            self.notes.push(format!(
-                "widget left out: {type_id} {} (not in the widget catalogue; `mashup spec` on a mashup built by hand keeps it)",
-                self.id(widget)
-            ));
-            return Value::Null;
-        }
         self.notes_once(&format!("{type_id}: {reason}"));
         let mut body = Map::new();
         body.insert("type".into(), json!(type_id));
@@ -1175,7 +1331,7 @@ impl<'a> Run<'a> {
         if !props.is_empty() {
             body.insert("props".into(), Value::Object(props));
         }
-        if self.exact && !widgets_of(widget).is_empty() {
+        if !widgets_of(widget).is_empty() {
             body.insert(
                 "children".into(),
                 widgets_of(widget)
@@ -1183,12 +1339,6 @@ impl<'a> Run<'a> {
                     .map(|child| self.node(child, "column"))
                     .collect(),
             );
-        } else if !widgets_of(widget).is_empty() {
-            self.notes.push(format!(
-                "the children of {} {} were left out",
-                type_id,
-                self.id(widget)
-            ));
         }
         let id = self.id(widget);
         self.count("widget", Some(&type_id));
@@ -1265,6 +1415,28 @@ impl<'a> Run<'a> {
         self.finish("button", widget, body, props)
     }
 
+    /// A shape states its look as fields only when each is a plain value the element writes back:
+    /// a known outline, style names, numbers.
+    fn shape_expressible(&self, widget: &Value) -> bool {
+        let known =
+            |key: &str, ok: &dyn Fn(&Value) -> bool| widget["Properties"].get(key).is_none_or(ok);
+        known("ShapeType", &|v| {
+            v.as_str()
+                .is_some_and(|s| ["circle", "rectangle", "roundrect", "ellipse"].contains(&s))
+        }) && known("ShapeStyle", &|v| v.as_str().is_some_and(|s| !s.is_empty()))
+            && known("UnfilledBackgroundStyle", &|v| {
+                v.as_str().is_some_and(|s| !s.is_empty())
+            })
+            && known("RectangleCornerRadius", &Value::is_number)
+            && known("EnableDynamicFill", &Value::is_boolean)
+            && known("DynamicRangeMinimum", &Value::is_number)
+            && known("DynamicRangeMaximum", &Value::is_number)
+            && known("DynamicFillOrientation", &|v| {
+                v.as_str()
+                    .is_some_and(|s| s == "horizontal" || s == "vertical")
+            })
+    }
+
     fn native(&mut self, widget: &Value) -> Value {
         let (element, fields): (&str, &[(&str, &str)]) = match kind(widget) {
             "statusmessage" => (
@@ -1306,6 +1478,19 @@ impl<'a> Run<'a> {
                 ],
             ),
             "ptcsdivider" => ("divider", &[]),
+            "shape" => (
+                "shape",
+                &[
+                    ("ShapeType", "form"),
+                    ("ShapeStyle", "fill"),
+                    ("UnfilledBackgroundStyle", "unfilled"),
+                    ("RectangleCornerRadius", "radius"),
+                    ("EnableDynamicFill", "dynamic"),
+                    ("DynamicRangeMinimum", "min"),
+                    ("DynamicRangeMaximum", "max"),
+                    ("DynamicFillOrientation", "orientation"),
+                ],
+            ),
             "ptcscheckbox" => ("checkbox", &[("Label", "text"), ("State", "value")]),
             "ptcsradio" => (
                 "radio",
@@ -1624,6 +1809,13 @@ impl<'a> Run<'a> {
                 .map(|w| w.defaults.clone())
                 .unwrap_or_default();
             let mut props = Map::new();
+            // A function has no place on the page: a source that stores no position keeps none,
+            // where a build would write 0.
+            for key in ["Left", "Top"] {
+                if widget["Properties"].get(key).is_some_and(Value::is_null) {
+                    props.insert(key.into(), Value::Null);
+                }
+            }
             for (key, value) in widget["Properties"].as_object().into_iter().flatten() {
                 let named = key == "DisplayName" && !generated_name(widget, value);
                 if (noise(key) && !named)
@@ -1644,6 +1836,13 @@ impl<'a> Run<'a> {
                     continue;
                 }
                 props.insert(key.clone(), value.clone());
+            }
+            // A build writes a bare expression as `result = (...);`; the stored text stays.
+            if let Some(stored) = prop(widget, "Expression")
+                .as_str()
+                .filter(|script| !(script.contains(';') || script.contains('\n')))
+            {
+                props.insert("Expression".into(), json!(stored));
             }
             if !props.is_empty() {
                 entry.insert("props".into(), Value::Object(props));
@@ -1882,16 +2081,34 @@ impl<'a> Run<'a> {
             .iter()
             .zip(kids)
             .map(|(label, tab)| {
-                let own = if self.exact {
+                let mut own = if self.exact {
                     self.props(tab, &["DisplayName"])
                 } else {
                     Map::new()
                 };
+                // A chart straight in the pane makes the build raise the pane's minimum height;
+                // state the pane's own so the copy keeps it.
+                if widgets_of(tab).iter().any(|w| {
+                    matches!(
+                        kind(w),
+                        "ptcschartline"
+                            | "ptcschartbar"
+                            | "ptcschartpie"
+                            | "ptcschartcombo"
+                            | "ptcschartpareto"
+                            | "ptcschartwaterfall"
+                    )
+                }) {
+                    own.insert(
+                        "flex-min-height".into(),
+                        prop(tab, "flex-min-height").clone(),
+                    );
+                }
                 let content: Vec<Value> = widgets_of(tab)
                     .iter()
                     .map(|w| self.node(w, "column"))
                     .collect();
-                let mut entry = json!({"label": label});
+                let mut entry = json!({"label": label, "widget_id": prop(tab, "Id")});
                 if !own.is_empty() {
                     entry["props"] = Value::Object(own);
                 }
@@ -1961,7 +2178,15 @@ impl<'a> Run<'a> {
             );
             skip.push("flex-grow");
         }
-        let props = self.props(widget, &skip);
+        let mut props = self.props(widget, &skip);
+        // The build's rows and columns stretch their children unless told otherwise, and the
+        // catalogue's default is `flex-start`, so an unlisted value would come back as `stretch`.
+        for (key, built) in [("align-items", "stretch"), ("flex-wrap", "nowrap")] {
+            let value = prop(widget, key);
+            if !props.contains_key(key) && value.as_str().is_some_and(|v| v != built) {
+                props.insert(key.into(), value.clone());
+            }
+        }
         let kids: Vec<Value> = widgets_of(widget)
             .iter()
             .map(|w| self.node(w, direction))
@@ -2348,6 +2573,25 @@ impl<'a> Run<'a> {
         for call in &self.calls {
             let mut entry = Map::new();
             entry.insert("service".into(), json!(call.service));
+            if let Some(kind) = call
+                .section
+                .split_once('_')
+                .and_then(|(kind, _)| match kind {
+                    "ThingTemplates" => Some("template"),
+                    "ThingShapes" => Some("shape"),
+                    "Networks" => Some("network"),
+                    _ => None,
+                })
+            {
+                entry.insert("entity_type".into(), json!(kind));
+            }
+            let types = self.field_types(call);
+            if !types.is_empty() {
+                entry.insert("field_types".into(), Value::Object(types));
+            }
+            if let Some(method) = &call.api_method {
+                entry.insert("method".into(), json!(method));
+            }
             if loaded.contains(&call.alias) {
                 entry.insert("on".into(), json!("load"));
                 if call.refresh > 0 {
@@ -2432,7 +2676,11 @@ impl<'a> Run<'a> {
             let to = match area.as_str() {
                 "UI" if self.ids.contains_key(id) => format!("@@{id}@@.{property}"),
                 // The mashup root is no node; `page.<property>` names its properties.
-                "UI" if id == root && root == "mashup-root" => {
+                "UI" | "Mashup"
+                    if id == root
+                        && root == "mashup-root"
+                        && !self.parameters.contains(property) =>
+                {
                     format!("page.{property}")
                 }
                 "Data" => {

@@ -33,7 +33,7 @@ pub(crate) struct Ids {
     preserved: std::collections::BTreeMap<String, String>,
     used: BTreeSet<u64>,
     names: BTreeSet<String>,
-    explicit_numbers: BTreeSet<u64>,
+    probe: bool,
     allocated: Vec<(String, String, String)>,
 }
 
@@ -48,7 +48,7 @@ impl Ids {
                 .filter_map(|id| id.rsplit('-').next()?.parse().ok())
                 .collect(),
             names: reserved.into_iter().collect(),
-            explicit_numbers: BTreeSet::new(),
+            probe: false,
             allocated: Vec::new(),
         }
     }
@@ -57,6 +57,10 @@ impl Ids {
         &self.allocated
     }
     pub(crate) fn preserve(&mut self, node: &str, id: &str) {
+        self.probe = true;
+        if let Some(number) = id.rsplit('-').next().and_then(|n| n.parse().ok()) {
+            self.used.insert(number);
+        }
         self.preserved.insert(node.into(), id.into());
     }
     pub(crate) fn preserved(&self, node: &str) -> Option<String> {
@@ -74,9 +78,19 @@ impl Ids {
     }
     pub(crate) fn widget(&mut self, kind: &str, node: &str, role: &str) -> Result<String, String> {
         let digest = hash(node, role);
-        // Leave template numbers below 1000; refuse collisions instead of probing.
-        let number = 1000
+        // Authored pages keep their existing refusal policy. Source ids pin derived pages;
+        // only new generated roles may probe without moving any existing widget.
+        let mut number = 1000
             + u64::from(u32::from_be_bytes(digest[..4].try_into().expect("4 bytes"))) % 999_000;
+        if self.probe {
+            let first = number;
+            while self.used.contains(&number) {
+                number = 1000 + (number - 1000 + 1) % 999_000;
+                if number == first {
+                    return Err("no free stable widget ids".into());
+                }
+            }
+        }
         self.reserve(number)?;
         let id = format!("{kind}-{number}");
         self.names.insert(id.clone());
@@ -92,15 +106,8 @@ impl Ids {
         if !self.names.insert(node.into()) {
             return Err(format!("duplicate widget id {node}"));
         }
-        // Composer numbers a mashup's ids uniquely; two spec ids sharing a number would also
-        // share generated display names, so refuse rather than guess. (A template's own ids
-        // may share a number with a source id: they differ by type.)
+        self.probe = true;
         if let Some(number) = number {
-            if !self.explicit_numbers.insert(number) {
-                return Err(format!(
-                    "widget id {node} reuses number {number}, already taken by another widget id"
-                ));
-            }
             self.used.insert(number);
         }
         self.allocated.push((node.into(), role.into(), node.into()));
@@ -155,6 +162,21 @@ mod tests {
         ids.widget("ptcslabel", "title", "widget").unwrap();
         assert!(ids.widget("ptcslabel", "title", "widget").is_err());
         assert_eq!(uuid("Acme.Data.GetRows"), uuid("Acme.Data.GetRows"));
+    }
+    #[test]
+    fn pinned_pages_probe_hash_collisions_and_keep_distinct_explicit_ids() {
+        let mut ids = Ids::new(std::iter::empty());
+        ids.explicit("flexcontainer-48", "widget").unwrap();
+        ids.explicit("ptcscheckbox-48", "widget").unwrap();
+        assert!(ids.explicit("ptcscheckbox-48", "widget").is_err());
+        assert_eq!(
+            ids.widget("ptcslabel", "node-697", "widget").unwrap(),
+            "ptcslabel-576705"
+        );
+        assert_eq!(
+            ids.widget("ptcsbutton", "node-903", "widget").unwrap(),
+            "ptcsbutton-576706"
+        );
     }
     #[test]
     fn readable_ids_are_stable_and_real_hash_collisions_are_refused() {

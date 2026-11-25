@@ -116,7 +116,7 @@ line_width = 100000           # 40 to 100000
 quote_style = "double"        # "double" or "single"
 
 [lint]
-extends = ["house-v1"]        # checks-v1, traps-only-v1, or house-v1; later presets win
+extends = ["house-v1"]        # checks-v1, platform-v1, traps-only-v1, or house-v1; later presets win
 
 [lint.rules."traps.unbounded-loop"]
 severity = "warn"             # "error", "warn", or "off"
@@ -390,8 +390,20 @@ server until it is deployed.
 
 `[lint]` configures the formatting, script-trap, code-order and comment rules individually.
 Without the table, twaco uses `checks-v1`: every formatting, script-trap and code-order rule, as
-the gates have always run, and no comment rule. `house-v1`, which `twaco init` writes, adds the
-comment header, budget and prose rules below. `traps-only-v1` enables only script traps.
+the gates have always run, and no comment rule.
+
+| Preset | Rules |
+| --- | --- |
+| `checks-v1` | Formatting, script traps and code order; default without `[lint]`. |
+| `platform-v1` | Script traps and `format.will-not-parse`; written by `twaco init`, including `--from-server`. Formatting style, code order and comments are off so adopted code keeps its own style. |
+| `traps-only-v1` | Script traps only. |
+| `house-v1` | All `checks-v1` rules plus comment header, budget and prose rules below. |
+
+`platform-v1` keeps `format.will-not-parse` at error: a script that does not parse is broken,
+not unstyled. Script traps remain errors, except `traps.event-data`, which warns in every preset.
+To adopt the house style, change `extends` to `["house-v1"]`, run `twaco fmt --all`, and follow
+[the house-style adoption steps](USER_GUIDE.md#adopting-house-v1-in-an-existing-solution).
+
 `extends` is optional and defaults to `checks-v1`; when present it cannot be empty, and applies
 presets in order so later presets win.
 
@@ -547,7 +559,11 @@ Mashups, things a deploy runs (`[project.deploy]`) and anything that runs on eve
 
 ### `[call]`
 
-MCP `call` without `dry_run` runs a service known to only read and plans any other. twaco knows
+`twaco call` and MCP `call` (without `dry_run`) run a service that reads and plan any other; the
+CLI's `--apply` (MCP `dry_run: false`) calls it anyway. A read is, in this order: listed here; for
+`Resources/*`, on the built-in list (the name never counts there); a platform category READ or
+QUERY in the platform cache; on the built-in list; or named Get, Query, Is, Has, Search or Find
+when nothing else is known. twaco knows
 the platform's reads (InfoTableFunctions, SearchFunctions, `GetPropertyValues`,
 `QueryDataTableEntries` and the like, from the ThingWorx Javadoc), but never trusts that list for
 a service name the repository defines or overrides (or while any repository file cannot be read).
@@ -556,13 +572,15 @@ listed name is trusted too. List your own reads here:
 
 ```toml
 [call]
+read = ["P.Orders.Compute", "ThingTemplates/P.*.Summarise"]
 read_only = ["Things/P.Orders.GetOrders", "Things/P.*.GetSummary"]
 ```
 
-Each entry is `Collection/Name.Service`; the name may be a glob as in `[[server_owned]]`. A result
-that ran this way says `read_only: "platform"` or `"twaco.toml"`. `dry_run: true` still plans and
+`read` entries are `Entity.Service` or `Collection/Entity.Service`; the entity may be a glob as in
+`[[server_owned]]`. `read_only` (older) entries are strictly `Collection/Name.Service`. A result
+that ran this way says `read_only: "platform"`, `"category"`, `"name"` or `"twaco.toml"`. `dry_run: true` still plans and
 `dry_run: false` still calls; a call with `lang` always needs `dry_run: false`, because it sets the
-test user's language preference. The CLI's `twaco call` always calls.
+test user's language preference. `twaco call --read` calls a service you know only reads, once.
 
 ### `[adopt]`
 

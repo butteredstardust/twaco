@@ -9,7 +9,7 @@ use crate::core::entity::key::EntityKey;
 use crate::core::scan::{self, Kind};
 use crate::core::server::ServerError;
 use crate::core::splice::{self, Edit};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// For each Ready entity in a cycle through a THINGNAME default, its export without the
 /// defaults that close the cycle; the Thing's dependence on it is dropped, so the order puts the
@@ -70,6 +70,88 @@ pub(super) fn plan(
         entity.unlink = Some((export, stripped));
     }
     Ok(())
+}
+
+/// The `dependsOn` a Project is imported with so that nothing keeps it from being deleted.
+const NO_DEPENDENCIES: &str = r#"{"extensions":"","projects":""}"#;
+
+/// Projects of the set that depend on each other, in a ring or directly: the server refuses to
+/// delete either ("has other projects depending on it") whatever the order, and
+/// UpdateProjectDependencies does not clear it. Importing each one again with an empty
+/// `dependsOn` does (verified on a 10.2 server, 2026-11-25). `needed_by` maps a Project to the
+/// Projects of the set that depend on it.
+pub(super) fn plan_projects(
+    remote: &dyn Remote,
+    entities: &mut [EntityResult],
+    needed_by: &BTreeMap<String, Vec<String>>,
+) -> Result<(), (String, ServerError)> {
+    let in_cycle: BTreeSet<String> = needed_by
+        .keys()
+        .filter(|start| {
+            let mut seen = BTreeSet::new();
+            let mut next: Vec<&String> = needed_by[*start].iter().collect();
+            while let Some(name) = next.pop() {
+                if name == *start {
+                    return true;
+                }
+                if seen.insert(name) {
+                    next.extend(needed_by.get(name).into_iter().flatten());
+                }
+            }
+            false
+        })
+        .cloned()
+        .collect();
+    if in_cycle.is_empty() {
+        return Ok(());
+    }
+    let names: Vec<&str> = in_cycle.iter().map(String::as_str).collect();
+    for entity in entities.iter_mut() {
+        if entity.collection != "Projects"
+            || entity.status != Status::Ready
+            || !in_cycle.contains(&entity.name)
+        {
+            continue;
+        }
+        let key = entity.key();
+        let Some(export) = remote.export(&key).map_err(|why| (key.to_string(), why))? else {
+            continue;
+        };
+        let Some(stripped) = without_dependencies(&export) else {
+            continue;
+        };
+        // They no longer depend on each other, so the order no longer has to hold them apart.
+        entity.dependents.retain(|dependent| {
+            dependent.collection != "Projects" || !in_cycle.contains(&dependent.name)
+        });
+        entity.warnings.push(format!(
+            "clears the dependsOn of {} before deleting them, because they depend on each other",
+            names.join(", ")
+        ));
+        entity.unlink = Some((export, stripped));
+    }
+    Ok(())
+}
+
+/// A Project's export with its `dependsOn` emptied; `None` when it has none to empty.
+fn without_dependencies(xml: &[u8]) -> Option<Vec<u8>> {
+    let tokens = scan::tokenize(xml).ok()?;
+    let token = tokens.iter().find(|token| {
+        matches!(token.kind, Kind::Start | Kind::Empty) && token.name.of(xml) == b"Project"
+    })?;
+    let attribute = scan::attributes(xml, token)
+        .ok()?
+        .into_iter()
+        .find(|attribute| attribute.name.of(xml) == b"dependsOn")?;
+    let value = if xml[attribute.value.start - 1] == b'\'' {
+        NO_DEPENDENCIES.to_string()
+    } else {
+        scan::escape_attribute(NO_DEPENDENCIES).ok()?
+    };
+    if attribute.value.of(xml) == value.as_bytes() {
+        return None;
+    }
+    splice::splice(xml, &[Edit::new(attribute.value, value.into_bytes())]).ok()
 }
 
 /// Whether `thing` lists `key` among its dependents: `key` depends on `thing`.

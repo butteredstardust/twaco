@@ -16,6 +16,9 @@ pub(crate) enum CellSource {
     },
 }
 
+/// `(entity, service, parameter base types)` of a call kept as found.
+pub(crate) type UnknownService = (String, String, Vec<(String, String)>);
+
 pub(crate) struct Session {
     pub(crate) warnings: Vec<String>,
     pub(crate) tokens: Option<mashup::tokens::Tokens>,
@@ -24,6 +27,9 @@ pub(crate) struct Session {
     pub(crate) document: MashupDocument,
     pub(crate) entity: Vec<u8>,
     pub(crate) css: String,
+    /// Calls kept as found: `(entity, service, parameter base types)`, for a service the entity no
+    /// longer declares.
+    pub(crate) unknown_services: Vec<UnknownService>,
     name: String,
 }
 
@@ -39,6 +45,7 @@ impl Session {
             tokens: None,
             token_source: None,
             name: name.into(),
+            unknown_services: vec![],
             entity,
             document,
             css,
@@ -77,6 +84,47 @@ impl Session {
         theme: &str,
     ) -> Result<Self, AuthoringError> {
         Self::new_kind(name, project, template, theme, false)
+    }
+
+    /// A fixed dashboard gadget: its widgets sit directly in the mashup root, as in a gadget
+    /// made by `mashup new --gadget`. `columns` and `rows` are the entity's grid size.
+    pub(crate) fn new_gadget(
+        name: &str,
+        project: &str,
+        theme: &str,
+        columns: u32,
+        rows: u32,
+    ) -> Result<Self, AuthoringError> {
+        crate::core::entity::key::EntityKey::new("Mashups", name)
+            .map_err(|e| AuthoringError::Invalid(e.to_string()))?;
+        let mut document = mashup::edit::parse(include_str!("../templates/gadget.content.json"))
+            .map_err(AuthoringError::Edit)?;
+        let properties = document.root_properties_mut();
+        for (key, value) in [
+            ("Columns", columns),
+            ("Rows", rows),
+            ("Width", columns * 240 + columns.saturating_sub(1) * 10),
+            ("Height", rows * 240 + rows.saturating_sub(1) * 10),
+        ] {
+            properties.insert(key.into(), serde_json::json!(value));
+        }
+        properties.insert("StyleTheme".into(), serde_json::json!(theme));
+        document.set_uuid_generator(crate::core::mashup::page::ids::uuid);
+        let entity = mashup::templates::gadget_entity_xml(name, project, &[], columns, rows)
+            .map_err(|e| AuthoringError::Invalid(e.to_string()))?
+            .into_bytes();
+        let mut session = Self {
+            warnings: vec![],
+            tokens: None,
+            token_source: None,
+            document,
+            entity,
+            css: String::new(),
+            name: name.into(),
+            unknown_services: vec![],
+        };
+        session.sync()?;
+        Ok(session)
     }
 
     pub(crate) fn new_kind(
@@ -143,6 +191,7 @@ impl Session {
             entity,
             css: String::new(),
             name: name.into(),
+            unknown_services: vec![],
         };
         session.sync()?;
         Ok(session)
@@ -235,10 +284,14 @@ impl Session {
         self.entity = plan.entity_after;
         let assets = mashup::extract(&self.entity).map_err(AuthoringError::Mashup)?;
         let verbatim = self.document.verbatim();
+        let binding_types = self.document.binding_types.clone();
+        let source_types = self.document.source_types.clone();
         self.document = mashup::edit::parse(&assets.content).map_err(AuthoringError::Edit)?;
         self.document
             .set_uuid_generator(crate::core::mashup::page::ids::uuid);
         self.document.set_verbatim(verbatim);
+        self.document.binding_types = binding_types;
+        self.document.source_types = source_types;
         self.css = assets.css;
         Ok(())
     }
@@ -313,11 +366,30 @@ impl Session {
                 if definitions.iter().any(|definition| definition.name == *name) {
                     true
                 } else {
-                    let static_property = ["mashupcontainer", "ptcsmashupcontainer"].iter().any(|kind| {
-                        crate::core::widgets::catalog().by_type(kind).is_some_and(|widget| {
-                            widget.defaults.contains_key(name) || widget.property(name).is_some()
-                        })
-                    });
+                    // Properties of the container widget itself, whoever wrote them: its contract,
+                    // what the editor adds to every widget, and what twaco manages.
+                    let catalog = crate::core::widgets::catalog();
+                    let static_property = [
+                        "Id",
+                        "Type",
+                        "DisplayName",
+                        "__TypeDisplayName",
+                        "LastContainer",
+                        "ResponsiveLayout",
+                        "MashupParameters",
+                        "_currentParameterDefs",
+                        "id_index",
+                    ]
+                    .contains(&name.as_str())
+                        || catalog.base_properties.contains_key(name)
+                        || catalog.dropped.ptcs.contains_key(name)
+                        || catalog.dropped.flexcontainer.contains_key(name)
+                        || ["mashupcontainer", "ptcsmashupcontainer"].iter().any(|kind| {
+                            catalog.by_type(kind).is_some_and(|widget| {
+                                widget.defaults.contains_key(name)
+                                    || widget.property(name).is_some()
+                            })
+                        });
                     if !static_property {
                         self.warnings.push(format!("orphan contained-mashup parameter value {name}; not a parameter of {mashup}"));
                     }
@@ -364,13 +436,29 @@ impl Session {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(crate) fn source(
         &mut self,
         solution: &Solution,
         request: &super::SourceAddRequest,
     ) -> Result<(), AuthoringError> {
+        self.source_as(solution, request, None)
+    }
+
+    pub(crate) fn source_as(
+        &mut self,
+        solution: &Solution,
+        request: &super::SourceAddRequest,
+        entity_type: Option<&str>,
+    ) -> Result<(), AuthoringError> {
         self.sync()?;
-        let plan = super::source::plan_source_add_loaded(solution, request, self.loaded())?;
+        let plan = super::source::plan_source_add_loaded_as(
+            solution,
+            request,
+            self.loaded(),
+            entity_type,
+            &self.unknown_services,
+        )?;
         self.accept(plan.edit)
     }
 
@@ -389,6 +477,7 @@ impl Session {
             &request,
             self.loaded(),
             self.tokens.as_ref(),
+            true,
         )?;
         // Recipe notes describe what it made; only what could not be checked is a warning.
         self.warnings.extend(plan.warnings);
@@ -413,7 +502,11 @@ impl Session {
         match super::bind_in(&mut self.document, Some(solution), &context, from, to) {
             // A source can state a binding twice; as found, it is one.
             Err(AuthoringError::Exists(_)) if self.document.verbatim() => Ok(()),
-            result => result.map(|binding| self.warnings.extend(binding.warnings)),
+            result => {
+                self.warnings
+                    .extend(std::mem::take(&mut self.document.pending_warnings));
+                result.map(|binding| self.warnings.extend(binding.warnings))
+            }
         }
     }
 

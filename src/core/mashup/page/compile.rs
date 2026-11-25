@@ -188,14 +188,29 @@ fn compile_nested(
             },
         ));
     }
-    let mut session = Session::new_kind(
-        &page.name.value,
-        project,
-        &page.template.value,
-        theme,
-        page.is_master(),
-    )
+    let mut session = if page.is_gadget() {
+        let (columns, rows) = page.gadget_grid()?;
+        Session::new_gadget(&page.name.value, project, theme, columns, rows)
+    } else {
+        Session::new_kind(
+            &page.name.value,
+            project,
+            &page.template.value,
+            theme,
+            page.is_master(),
+        )
+    }
     .map_err(|e| Error::at(page.template.referenced, e))?;
+    if page
+        .kind
+        .as_ref()
+        .is_some_and(|k| k.value == schema::PageKind::Template)
+    {
+        session
+            .document
+            .root_mut()
+            .insert("mashupType".into(), json!("mashupTemplate"));
+    }
     spec.resolved_tokens
         .apply_page(&mut session.document)
         .map_err(|e| Error::at(page.name.referenced, e))?;
@@ -270,6 +285,27 @@ fn compile_nested(
     fn preserve_ids(node: &Node, allocator: &mut Ids) {
         if let Some(id) = &node.body().widget_id {
             allocator.preserve(&node.body().id.value, &id.value);
+        } else {
+            let id = &node.body().id.value;
+            if !id.contains("--")
+                && id.rsplit_once('-').is_some_and(|(_, suffix)| {
+                    !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+                })
+            {
+                allocator.preserve(id, id);
+            }
+        }
+        for tab in &node.body().tabs {
+            if let Some(id) = &tab.widget_id {
+                allocator.preserve(
+                    &format!(
+                        "{}--tab-container-{}",
+                        node.body().id.value,
+                        tab.label.value
+                    ),
+                    &id.value,
+                );
+            }
         }
         for child in descendants(node) {
             preserve_ids(child, allocator);
@@ -286,7 +322,11 @@ fn compile_nested(
             Err(_) => {
                 session
                     .document
-                    .find("center")
+                    .find(if page.is_gadget() {
+                        "mashup-root"
+                    } else {
+                        "center"
+                    })
                     .map_err(|e| Error::at(title.referenced, e))?
                     .id
             }
@@ -320,9 +360,14 @@ fn compile_nested(
         )?;
     }
     for (slot, nodes) in &page.slots {
+        // A gadget has no template container: its center is the mashup root.
         let parent = session
             .document
-            .find(slot)
+            .find(if page.is_gadget() && slot == "center" {
+                "mashup-root"
+            } else {
+                slot
+            })
             .map_err(|e| Error::at(nodes.referenced, e))?
             .id;
         let mut previous = None;
@@ -341,8 +386,37 @@ fn compile_nested(
             }
         }
     }
-    let (model, _) = types::load_model(solution);
+    let (mut model, _) = types::load_model(solution);
     let platform = types::cached_platform(solution);
+    for source in page.data.values() {
+        let (Some(service), false) = (
+            &source.value.service,
+            source.value.unknown_service.is_empty(),
+        ) else {
+            continue;
+        };
+        if page.layout.is_none() {
+            return Err(Error::at(
+                service.referenced,
+                "unknown_service keeps a call as found and needs layout: as-built; an authored page names a service its entity declares",
+            ));
+        }
+        let (entity, name) = service.value.rsplit_once('.').unwrap_or_default();
+        let parameters: Vec<(String, String)> = source
+            .value
+            .unknown_service
+            .iter()
+            .map(|(k, v)| (k.clone(), v.value.clone()))
+            .collect();
+        model.add_stub_service(entity, name, &parameters);
+        session
+            .unknown_services
+            .push((entity.into(), name.into(), parameters));
+        session.warnings.push(format!(
+            "{} is not a service {entity} declares; the call is kept as found",
+            service.value
+        ));
+    }
     for (alias, source) in entity_first(page) {
         let source = &source.value;
         if let Some(kind) = &source.session {
@@ -406,7 +480,7 @@ fn compile_nested(
             None => None,
         };
         session
-            .source(
+            .source_as(
                 solution,
                 &authoring::SourceAddRequest {
                     mashup: page.name.value.clone(),
@@ -423,8 +497,44 @@ fn compile_nested(
                     max_result_sets: None,
                     param_values: params,
                 },
+                source.entity_type.as_ref().map(|kind| kind.value.as_str()),
             )
             .map_err(|e| Error::at(service_spec.referenced, e))?;
+        if let Some(method) = &source.method {
+            set_api_method(&mut session, alias, method)?;
+        }
+        for (parameter, base) in &source.param_types {
+            if !crate::core::entity::edit::BASE_TYPES.contains(&base.value.as_str()) {
+                return Err(Error::at(
+                    base.referenced,
+                    "param_types needs a known base type",
+                ));
+            }
+            session.document.source_types.insert(
+                (alias.clone(), format!("param:{parameter}")),
+                base.value.clone(),
+            );
+        }
+        for (field, base) in &source.field_types {
+            let kind_free = base
+                .value
+                .split_once(':')
+                .map_or(base.value.as_str(), |(b, _)| b);
+            if field.is_empty() || !crate::core::entity::edit::BASE_TYPES.contains(&kind_free) {
+                return Err(Error::at(
+                    base.referenced,
+                    "field_types needs a field name and known base type",
+                ));
+            }
+            session
+                .document
+                .source_types
+                .insert((alias.clone(), field.clone()), base.value.clone());
+        }
+    }
+    for section in &page.empty_sources {
+        authoring::ensure_empty_section(&mut session.document, &section.value)
+            .map_err(|e| Error::at(section.referenced, e))?;
     }
     add_expressions(
         solution,
@@ -625,7 +735,7 @@ fn compile_nested(
         }
     }
     super::elements::finish_layout(&mut session, page, &ids)?;
-    apply_root(&mut session, page, &ids)?;
+    apply_root(solution, &mut session, page, &ids)?;
     let applied = apply_pins(
         &mut session,
         &mut ids,
@@ -664,6 +774,16 @@ fn compile_nested(
             }
         }
     }
+    for widget in session.document.widgets() {
+        // A mashup chosen at run time has no parameter contract to check; say which pages carry
+        // bindings that were taken as written.
+        if widget.type_id == "mashupcontainer"
+            && crate::core::widgets::property_bound(session.document.value(), &widget.id, "Name")
+            && touches_parameters(session.document.value(), &widget.id)
+        {
+            session.warnings.push(format!("{}: its mashup is set at run time, so the parameters bound on it cannot be checked offline", widget.id));
+        }
+    }
     session.warnings.sort();
     session.warnings.dedup();
     Ok(Artifacts {
@@ -681,6 +801,7 @@ fn compile_nested(
 /// The page's master and the template root container's own properties, stated as the spec has
 /// them. These come last so nothing the build placed overrides them.
 fn apply_root(
+    solution: &Solution,
     session: &mut Session,
     page: &Page,
     ids: &BTreeMap<String, String>,
@@ -759,8 +880,59 @@ fn apply_root(
                 format!("root props cannot set {key}"),
             ));
         }
+        // A binding is wired with the others, not stored as a value.
+        if binding(&value.value).is_some() {
+            continue;
+        }
         // An absent property is null here: remove it rather than store null.
         super::elements::set_or_remove(&mut session.document, &path, key, &value.value);
+    }
+    let id = session.document.at(&path)["Properties"]["Id"]
+        .as_str()
+        .unwrap_or_default()
+        .to_string();
+    if let Some(styles) = &root.value.styles {
+        if !styles.value.is_object() {
+            return Err(Error::at(
+                styles.referenced,
+                "root styles must be a map of part to state to property",
+            ));
+        }
+        // The same entry a widget's `styles:` writes, so the root container keeps its look.
+        let mut entry = json!({"parts": styles.value});
+        if let Some(styler) = crate::core::mashup::authoring::set::styler_name("flexcontainer") {
+            entry["widget"] = json!(styler);
+        }
+        let data = session
+            .document
+            .root_properties_mut()
+            .entry("StyleProperties")
+            .or_insert_with(|| json!({}));
+        if !data.is_object() {
+            *data = json!({});
+        }
+        let data = data.as_object_mut().expect("object");
+        data.entry("meta")
+            .or_insert_with(|| json!({"type": "WidgetStyler", "version": "1.0"}));
+        data.entry("data")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .ok_or_else(|| Error::at(styles.referenced, "StyleProperties.data is not a map"))?
+            .insert(id.clone(), entry);
+    }
+    if !root.value.style.is_empty() {
+        session
+            .set(
+                solution,
+                &authoring::SetRequest {
+                    mashup: page.name.value.clone(),
+                    widget: id,
+                    properties: vec![],
+                    style_from: None,
+                    styles: root.value.style.iter().map(|s| s.value.clone()).collect(),
+                },
+            )
+            .map_err(|e| Error::at(root.referenced, e))?;
     }
     Ok(())
 }
@@ -836,11 +1008,9 @@ fn apply_pins(
     Ok(applied)
 }
 
-/// A property's text for the add command. A number the platform writes for a pixel option (a font
-/// size of 14) is the option "14px", which the property then keeps as the spec spelled it.
-/// The type of a raw `widget:` node on an as-built page that the widget catalogue does not know.
-fn raw_unknown<'a>(page: &Page, node: &'a Node) -> Option<&'a str> {
-    if page.layout.is_none() || !matches!(node, Node::Widget(_)) {
+/// A raw widget the catalogue cannot construct; its properties and children are carried explicitly.
+fn raw_unknown(node: &Node) -> Option<&str> {
+    if !matches!(node, Node::Widget(_)) {
         return None;
     }
     let widget = node.widget().ok()?;
@@ -943,6 +1113,9 @@ pub(super) fn always_numeric(name: &str) -> bool {
         let Some(contract) = widget.property(name) else {
             continue;
         };
+        if contract.css_size {
+            return false;
+        }
         match contract.base_type.as_deref() {
             Some("NUMBER" | "INTEGER" | "LONG") => seen = true,
             None => {}
@@ -1082,7 +1255,13 @@ fn add(
         props.push(("LabelType".into(), "body".into()));
     }
     let (parent, previous) = position;
-    let placement = if page.layout.is_some() {
+    let raw_parent = session
+        .document
+        .find_exact(parent)
+        .map_err(|e| Error::at(loc, e))?
+        .type_id
+        != "flexcontainer";
+    let placement = if page.layout.is_some() || raw_parent {
         Placement::Append(parent.into())
     } else if let Some(anchor) = previous {
         let parent = session
@@ -1134,9 +1313,8 @@ fn add(
                 .map_err(|e| Error::at(loc, e))?;
         }
         id
-    } else if let Some(widget) = raw_unknown(page, node) {
-        // A widget the catalogue does not know (a legacy gauge) on a page built as it was found:
-        // carried verbatim, with its stored properties.
+    } else if let Some(widget) = raw_unknown(node) {
+        // Raw widgets without a catalogue entry retain their type and stored properties.
         let parent_path = session
             .document
             .find_exact(parent)
@@ -1354,6 +1532,23 @@ fn add(
                 false,
             );
             ids.insert(node, stable);
+        }
+    }
+    if !body.binding_types.is_empty() {
+        if crate::core::widgets::catalog()
+            .by_type(node.widget()?)
+            .is_some_and(|w| w.has_contract())
+        {
+            return Err(Error::at(
+                loc,
+                "binding_types is only for widgets without a catalogue contract",
+            ));
+        }
+        for (property, base) in &body.binding_types {
+            session
+                .document
+                .binding_types
+                .insert((id.clone(), property.clone()), base.value.clone());
         }
     }
     ids.insert(body.id.value.clone(), id.clone());
@@ -1956,7 +2151,7 @@ fn stabilize(
     } else {
         allocator.widget(&main.type_id, node, "widget")
     }
-    .map_err(|e| Error::at(loc, e))?;
+    .map_err(|e| Error::at(loc, format!("{e} (assigning {node})")))?;
     mapping.insert(placed.to_string(), id.clone());
     // Wrapper roles name the enclosed widget, so unrelated siblings cannot move their ids.
     for widget in new.iter().rev().filter(|w| w.id != placed) {
@@ -1967,8 +2162,14 @@ fn stabilize(
             .unwrap_or(placed);
         let child = mapping.get(child).map_or(child, String::as_str);
         let role = if let Some((_, tab)) = widget.display_name.rsplit_once(" #") {
-            let label = session.document.at(&main.path)["Properties"][format!("Tab{tab}Name")]
-                .as_str()
+            let properties = &session.document.at(&main.path)["Properties"];
+            let label = tab
+                .parse::<usize>()
+                .ok()
+                .and_then(|n| n.checked_sub(1))
+                .and_then(|n| properties["Items"].get(n))
+                .and_then(|item| item["name"].as_str())
+                .or_else(|| properties[format!("Tab{tab}Name")].as_str())
                 .unwrap_or(tab);
             format!("tab:{label}")
         } else {
@@ -2026,9 +2227,15 @@ fn stabilize(
                 format!("wrapper:{child}")
             }
         };
-        let stable = allocator
-            .widget(&widget.type_id, node, &role)
-            .map_err(|e| Error::at(loc, e))?;
+        let pinned = role
+            .strip_prefix("tab:")
+            .and_then(|label| allocator.preserved(&format!("{node}--tab-container-{label}")));
+        let stable = if let Some(pinned) = pinned {
+            allocator.explicit_as(node, &role, &pinned)
+        } else {
+            allocator.widget(&widget.type_id, node, &role)
+        }
+        .map_err(|e| Error::at(loc, format!("{e} (assigning {node}, role {role})")))?;
         mapping.insert(widget.id.clone(), stable);
     }
     rename_widgets(session, &mapping, false);
@@ -3674,6 +3881,91 @@ fn wire_nodes(
     wire_selections(solution, session, model, platform, page, allocator, ids)?;
     for node in page.slots.values().flat_map(|s| &s.value) {
         wire_values(solution, session, model, platform, page, ids, node)?;
+    }
+    // The root container is no node, so its bound props are wired here.
+    if let Some(root) = &page.root {
+        if root
+            .value
+            .props
+            .values()
+            .any(|v| binding(&v.value).is_some())
+        {
+            let id = session
+                .document
+                .find("center")
+                .map_err(|e| Error::at(root.referenced, e))
+                .map(|found| {
+                    session.document.at(&found.path)["Properties"]["Id"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string()
+                })?;
+            for (prop, value) in &root.value.props {
+                if let Some(from) = binding(&value.value) {
+                    let from = address(page, ids, from, value.referenced)?;
+                    session
+                        .bind(solution, model, platform, &from, &format!("ui:{id}.{prop}"))
+                        .map_err(|e| Error::at(value.referenced, e))?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Whether a binding reads or writes a property of the widget other than its `Name`.
+fn touches_parameters(content: &Value, id: &str) -> bool {
+    content["DataBindings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|binding| {
+            let ends = [
+                (
+                    &binding["SourceArea"],
+                    &binding["SourceId"],
+                    "SourceProperty",
+                ),
+                (
+                    &binding["TargetArea"],
+                    &binding["TargetId"],
+                    "TargetProperty",
+                ),
+            ];
+            ends.iter().any(|(area, widget, key)| {
+                *area == "UI"
+                    && *widget == id
+                    && binding["PropertyMaps"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .any(|map| map[*key].as_str().is_some_and(|name| name != "Name"))
+            })
+        })
+}
+
+/// Stores `method` as the `APIMethod` of the call named `alias`, which `source_as` just made.
+fn set_api_method(
+    session: &mut Session,
+    alias: &str,
+    method: &serde_saphyr::Spanned<String>,
+) -> Result<(), Error> {
+    if !matches!(
+        method.value.as_str(),
+        "get" | "post" | "put" | "delete" | "patch"
+    ) {
+        return Err(Error::at(
+            method.referenced,
+            "method is get, post, put, delete or patch",
+        ));
+    }
+    for section in session.document.data_mut().values_mut() {
+        let Some(services) = section["Services"].as_array_mut() else {
+            continue;
+        };
+        if let Some(call) = services.iter_mut().find(|call| call["Name"] == alias) {
+            call["APIMethod"] = serde_json::Value::String(method.value.clone());
+        }
     }
     Ok(())
 }

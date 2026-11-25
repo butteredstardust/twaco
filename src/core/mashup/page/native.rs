@@ -18,6 +18,16 @@ fn field(body: &mut Body, key: &str, value: Option<Spanned<Value>>) {
     }
 }
 
+/// A whole number is stored without a fraction, as Composer writes it.
+#[allow(clippy::cast_possible_truncation)]
+fn number(value: f64) -> Value {
+    if value.fract() == 0.0 && value.abs() < 1e15 {
+        json!(value as i64)
+    } else {
+        json!(value)
+    }
+}
+
 fn choice(value: &Spanned<String>, choices: &[&str], name: &str) -> Result<(), Error> {
     if !choices.contains(&value.value.as_str()) {
         return Err(Error::at(
@@ -42,6 +52,7 @@ pub(super) fn expand(node: &mut Node, tokens: &Tokens) -> Result<(), Error> {
         Node::Image(_) => ("image", "ptcsimage"),
         Node::Icon(_) => ("icon", "ptcsicon"),
         Node::Divider(_) => ("divider", "ptcsdivider"),
+        Node::Shape(_) => ("shape", "shape"),
         Node::Checkbox(_) => ("checkbox", "ptcscheckbox"),
         Node::Radio(_) => ("radio", "ptcsradio"),
         Node::Toggle(_) => ("toggle", "ptcstogglebutton"),
@@ -342,6 +353,42 @@ pub(super) fn expand(node: &mut Node, tokens: &Tokens) -> Result<(), Error> {
             if let Some(orientation) = b.orientation.take() {
                 choice(&orientation, &["horizontal", "vertical"], "orientation")?;
                 put(b, "VerticalDivider", json!(orientation.value == "vertical"));
+            }
+        }
+        "shape" => {
+            if let Some(form) = b.form.take() {
+                choice(
+                    &form,
+                    &["circle", "rectangle", "roundrect", "ellipse"],
+                    "form",
+                )?;
+                put(b, "ShapeType", json!(form.value));
+            }
+            for (key, value) in [
+                ("ShapeStyle", b.fill.take()),
+                ("UnfilledBackgroundStyle", b.unfilled.take()),
+            ] {
+                if let Some(style) = value {
+                    put(b, key, json!(style.value));
+                }
+            }
+            if let Some(radius) = b.radius.take() {
+                put(b, "RectangleCornerRadius", number(radius.value));
+            }
+            if let Some(dynamic) = b.dynamic.take() {
+                put(b, "EnableDynamicFill", json!(dynamic.value));
+            }
+            for (key, value) in [
+                ("DynamicRangeMinimum", b.min.take()),
+                ("DynamicRangeMaximum", b.max.take()),
+            ] {
+                if let Some(limit) = value {
+                    put(b, key, number(limit.value));
+                }
+            }
+            if let Some(orientation) = b.orientation.take() {
+                choice(&orientation, &["horizontal", "vertical"], "orientation")?;
+                put(b, "DynamicFillOrientation", json!(orientation.value));
             }
         }
         "checkbox" | "radio" | "toggle" => {

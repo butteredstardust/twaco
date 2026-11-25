@@ -2360,6 +2360,18 @@ mod tests {
         assert!(gate.prose[0].contains("config-table-copy-differs"));
         assert!(gate.prose[0].contains("evidence: local table copy"));
         assert!(gate.prose[0].contains("Acme.Settings"));
+        // With descriptions agreeing, the remaining ordinal difference is silent at the gate.
+        let file = root.join("Things/Acme.Settings.xml");
+        let xml = std::fs::read_to_string(&file)
+            .unwrap()
+            .replace("Stored copy", "Named shape");
+        std::fs::write(file, xml).unwrap();
+        let discovery = workspace::discover(&solution);
+        let gate = configuration_tables(&solution, &discovery, &model);
+        assert!(!gate.blocks());
+        assert!(gate.findings.is_empty());
+        assert!(gate.warnings.is_empty());
+        assert!(gate.prose.is_empty());
     }
 
     #[test]

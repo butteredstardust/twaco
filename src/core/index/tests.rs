@@ -481,7 +481,19 @@ fn the_index_agrees_with_the_model_walk_the_refactors_still_use_for_every_entity
             }
         }
         let (catalogued, _) = catalog::inheritance(&solution);
-        assert_eq!(catalogued.len(), model.entities.len());
+        // The model also holds Networks (a data source can call their services); the catalogue
+        // lists only what inherits.
+        let inheriting = model
+            .entities
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.collection.as_str(),
+                    "Things" | "ThingTemplates" | "ThingShapes"
+                )
+            })
+            .count();
+        assert_eq!(catalogued.len(), inheriting);
         if !root.ends_with("acme-orders") {}
     }
 }

@@ -9,8 +9,9 @@
 //! its own configuration (a KPI's thresholds, a collection's mashup parameters) are not in it.
 
 use crate::core::codes::{Coded, ErrorCode};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
@@ -79,21 +80,27 @@ pub struct Widget {
     /// Defined by one of the solution's extension projects, not shipped with the platform.
     #[serde(skip)]
     pub(crate) extension: bool,
+    /// Where a widget outside the embedded catalogue came from (the widget cache), for notes.
+    #[serde(skip)]
+    pub(crate) provenance: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub(crate) struct PropertyContract {
     pub(crate) base_type: Option<String>,
+    /// Runtime accepts CSS size text as well as Composer's numeric base type.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub(crate) css_size: bool,
     /// Can be bound from: the widget sets it.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub(crate) source: bool,
     /// Can be bound to: something else sets it.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub(crate) target: bool,
-    #[serde(default = "yes")]
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub(crate) editable: bool,
     /// The values a select property allows, when it lists them.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) options: Vec<Value>,
 }
 
@@ -101,10 +108,54 @@ const fn yes() -> bool {
     true
 }
 
+const fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+const fn is_true(value: &bool) -> bool {
+    *value
+}
+
+/// Widgets beyond the embedded catalogue: the legacy and extension widgets of the widget cache
+/// (`twaco widgets --platform`), consulted after the embedded entries. It is read when a solution
+/// is loaded, per thread, so a thread that has loaded none sees the embedded catalogue alone.
+#[derive(Debug, Default)]
+pub(crate) struct Ambient {
+    pub(crate) widgets: Vec<Widget>,
+}
+
+thread_local! {
+    static AMBIENT: RefCell<Option<&'static Ambient>> = const { RefCell::new(None) };
+}
+
+/// Make `ambient` (or nothing) the cache this thread's lookups consult after the embedded entries.
+pub(crate) fn set_ambient(ambient: Option<&'static Ambient>) {
+    AMBIENT.with(|slot| *slot.borrow_mut() = ambient);
+}
+
+fn ambient() -> Option<&'static Ambient> {
+    AMBIENT.with(|slot| *slot.borrow())
+}
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum CatalogError {
     #[error("no widget is called `{word}` in the ThingWorx {PLATFORM} catalogue{}{}", hint(.close), absent(.word))]
     Unknown { word: String, close: Vec<String> },
+    /// A widget type id the platform ships whose contract the catalogue lacks. It never resolves to
+    /// a modern widget: the two have different events and properties.
+    #[error("unknown (legacy widget `{word}`; not in the catalogue): twaco has no contract for it and cannot author it; one already on a page is carried as-is{}{}", modern(.close), absent(.word))]
+    Legacy { word: String, close: Vec<String> },
+}
+
+fn modern(close: &[String]) -> String {
+    if close.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ". Its modern counterparts have other events and properties: {}",
+            close.join(", ")
+        )
+    }
 }
 
 /// What the catalogue lacks on purpose (Gauge, Web Frame): the closest widget it has.
@@ -137,6 +188,91 @@ pub fn catalog() -> &'static Catalog {
     &PARSED
 }
 
+static MIGRATIONS: LazyLock<Value> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("widgets/migrations.json"))
+        .expect("widgets/migrations.json is valid JSON")
+});
+
+/// The name Composer renames the legacy property `name` of a `type_id` widget to when it opens
+/// the mashup (`CollapseByDefault` becomes `Collapsed`), read from its migrators.
+pub(crate) fn migrated_property(type_id: &str, name: &str) -> Option<&'static str> {
+    MIGRATIONS["renames"][type_id][name].as_str()
+}
+
+/// Whether the old and new names hold different kinds of value (a legacy `TargetWindow` is `new`,
+/// `replace` or `popup`; `TargetWindowType` is another list), so the value cannot move across.
+pub(crate) fn migration_changes_values(type_id: &str, name: &str) -> bool {
+    MIGRATIONS["values_differ"][type_id]
+        .as_array()
+        .is_some_and(|names| names.iter().any(|n| n == name))
+}
+
+/// Rename the legacy property names Composer migrates, in a mashup's content, as Composer does
+/// on open: a widget property whose new name is not set, and the bindings that name it. A legacy
+/// name whose new name is already set, or whose values differ, stays as it is (its value is never
+/// dropped). One note per rename.
+pub(crate) fn migrate_content(content: &mut Value) -> Vec<String> {
+    fn walk(
+        widget: &mut Value,
+        renamed: &mut BTreeMap<(String, String), String>,
+        notes: &mut Vec<String>,
+    ) {
+        let type_id = widget["Properties"]["Type"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let id = widget["Properties"]["Id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        if let Some(props) = widget["Properties"].as_object_mut() {
+            let olds: Vec<String> = props
+                .keys()
+                .filter(|name| migrated_property(&type_id, name).is_some())
+                .cloned()
+                .collect();
+            for old in olds {
+                let new = migrated_property(&type_id, &old).expect("listed above");
+                if props.contains_key(new) || migration_changes_values(&type_id, &old) {
+                    continue;
+                }
+                if let Some(value) = props.remove(&old) {
+                    props.insert(new.to_string(), value);
+                    renamed.insert((id.clone(), old.clone()), new.to_string());
+                    notes.push(format!("{id}: renamed property {old} to {new}, as Composer does when it opens the mashup"));
+                }
+            }
+        }
+        for child in widget["Widgets"].as_array_mut().into_iter().flatten() {
+            walk(child, renamed, notes);
+        }
+    }
+    let mut renamed = BTreeMap::new();
+    let mut notes = Vec::new();
+    walk(&mut content["UI"], &mut renamed, &mut notes);
+    if !renamed.is_empty() {
+        for binding in content["DataBindings"].as_array_mut().into_iter().flatten() {
+            let ends = [
+                ("SourceArea", "SourceId", "SourceProperty"),
+                ("TargetArea", "TargetId", "TargetProperty"),
+            ];
+            for (area, id, key) in ends {
+                if binding[area] != "UI" {
+                    continue;
+                }
+                let widget = binding[id].as_str().unwrap_or_default().to_string();
+                for map in binding["PropertyMaps"].as_array_mut().into_iter().flatten() {
+                    let old = map[key].as_str().unwrap_or_default().to_string();
+                    if let Some(new) = renamed.get(&(widget.clone(), old)) {
+                        map[key] = Value::String(new.clone());
+                    }
+                }
+            }
+        }
+    }
+    notes
+}
+
 /// Configuration-created properties use the same contract in commands, specs and validation.
 pub(crate) fn dynamic_property(
     type_id: &str,
@@ -165,6 +301,21 @@ pub(crate) fn dynamic_property(
     let base = if chart_source {
         "INFOTABLE".into()
     } else if type_id == "ptcscollection" {
+        // Composer gives a collection one `Event:<field>` source per field of its Data table (the
+        // value of that field in the last cell event), whatever the cell mashup is.
+        if name
+            .strip_prefix("Event:")
+            .is_some_and(|field| !field.is_empty())
+        {
+            return Some(PropertyContract {
+                base_type: None,
+                css_size: false,
+                source: true,
+                target: false,
+                editable: false,
+                options: Vec::new(),
+            });
+        }
         let globals = json_object(&props["MashupGlobalPropertyBinding"])?;
         globals.get(name)?.as_str()?.to_string()
     } else if type_id == "ptcsmenubutton" {
@@ -180,6 +331,7 @@ pub(crate) fn dynamic_property(
     };
     Some(PropertyContract {
         base_type: Some(base),
+        css_size: false,
         source: type_id == "ptcscollection",
         target: true,
         editable: !chart_source,
@@ -255,13 +407,43 @@ pub(crate) fn configuration_warnings(content: &Value) -> Vec<String> {
 }
 
 impl Catalog {
-    /// The widget with this exact `Type`.
+    /// The widget with this exact `Type`: an embedded entry, else one of the widget cache.
     pub fn by_type(&self, type_id: &str) -> Option<&Widget> {
-        self.widgets.iter().find(|widget| widget.type_id == type_id)
+        self.widgets
+            .iter()
+            .find(|widget| widget.type_id == type_id)
+            .or_else(|| {
+                ambient()?
+                    .widgets
+                    .iter()
+                    .find(|widget| widget.type_id == type_id)
+            })
     }
 
-    /// The widget a person names: its type or an alias, ignoring case.
+    /// The embedded widgets, then those of the widget cache.
+    pub(crate) fn all(&self) -> impl Iterator<Item = &Widget> {
+        self.widgets
+            .iter()
+            .chain(ambient().into_iter().flat_map(|a| a.widgets.iter()))
+    }
+
+    /// The widget a person names: its type or an alias, ignoring case. An embedded entry wins; the
+    /// widget cache adds the legacy and extension widgets the catalogue lacks.
     pub(crate) fn resolve(&self, word: &str) -> Result<&Widget, CatalogError> {
+        self.resolve_embedded(word).or_else(|error| {
+            let wanted = word.trim();
+            ambient()
+                .and_then(|a| {
+                    a.widgets
+                        .iter()
+                        .find(|widget| widget.names().any(|name| name.eq_ignore_ascii_case(wanted)))
+                })
+                .ok_or(error)
+        })
+    }
+
+    /// [`Catalog::resolve`] over the embedded entries alone.
+    fn resolve_embedded(&self, word: &str) -> Result<&Widget, CatalogError> {
         let wanted = word.trim().to_ascii_lowercase();
         self.widgets
             .iter()
@@ -278,22 +460,63 @@ impl Catalog {
                     .and_then(|replacement| self.by_type(replacement))
                     .unwrap_or(widget)
             })
-            .ok_or_else(|| CatalogError::Unknown {
-                word: word.to_string(),
-                close: self
+            .ok_or_else(|| {
+                let close = self
                     .search(&wanted)
                     .into_iter()
                     .take(5)
                     .map(|widget| widget.type_id.clone())
-                    .collect(),
+                    .collect();
+                if self.platform_types.contains(&wanted) {
+                    CatalogError::Legacy {
+                        word: wanted.clone(),
+                        close,
+                    }
+                } else {
+                    CatalogError::Unknown {
+                        word: word.to_string(),
+                        close,
+                    }
+                }
             })
+    }
+
+    /// The widget `mashup add` places for a word. Everyday words that are also legacy type ids
+    /// (`button`, `label`, `container`) add the modern widget, because twaco only ever authors
+    /// modern ones; they are accepted here and nowhere else, so describing or reading a page never
+    /// takes a legacy type for a modern one.
+    pub(crate) fn resolve_for_add(&self, word: &str) -> Result<&Widget, CatalogError> {
+        const EVERYDAY: &[(&str, &str)] = &[
+            ("button", "ptcsbutton"),
+            ("checkbox", "ptcscheckbox"),
+            ("container", "flexcontainer"),
+            ("panel", "flexcontainer"),
+            ("divider", "ptcsdivider"),
+            ("image", "ptcsimage"),
+            ("label", "ptcslabel"),
+            ("link", "ptcslink"),
+            ("slider", "ptcsslider"),
+            ("tabs", "ptcstabset"),
+            ("textarea", "ptcstextarea"),
+            ("tree", "ptcstreeselector"),
+            ("collection", "ptcscollection"),
+            ("navigation", "navigationfunction"),
+            ("autorefresh", "autorefreshfunction"),
+        ];
+        let wanted = word.trim().to_ascii_lowercase();
+        self.resolve_embedded(word).or_else(|error| {
+            EVERYDAY
+                .iter()
+                .find(|(name, _)| *name == wanted)
+                .and_then(|(_, type_id)| self.by_type(type_id))
+                .ok_or(error)
+        })
     }
 
     /// Widgets whose type, alias or label contains `text`, ignoring case; all of them for "".
     pub(crate) fn search(&self, text: &str) -> Vec<&Widget> {
         let wanted = text.trim().to_ascii_lowercase();
-        self.widgets
-            .iter()
+        self.all()
             .filter(|widget| {
                 widget
                     .names()
@@ -309,7 +532,28 @@ impl Widget {
     /// design-time service list (Composer-authored mashups wire events to it). Keep command
     /// authoring and derived event wiring in agreement.
     pub(crate) fn has_service(&self, name: &str) -> bool {
-        const RESETTABLE: &[&str] = &["ptcstogglebutton", "ptcsdatepicker"];
+        // The runtime/shared widget definitions opt these into the default reset service.
+        const RESETTABLE: &[&str] = &[
+            "ptcstogglebutton",
+            "ptcsdatepicker",
+            "ptcstextfield",
+            "ptcstextarea",
+            "ptcsdropdown",
+            "ptcscheckbox",
+            "ptcslist",
+            "ptcsrte",
+            "ptcskpidial",
+            "ptcsdynamicpanel",
+            "ptcsfileupload",
+            "ptcstoolbar",
+            "ptcschartline",
+            "ptcschartbar",
+            "ptcschartcombo",
+            "ptcschartpie",
+            "ptcschartwaterfall",
+            "ptcschartschedule",
+            "ptcschartpareto",
+        ];
         self.services
             .as_ref()
             .is_some_and(|services| services.iter().any(|s| s == name))
@@ -324,6 +568,7 @@ impl Widget {
         defaults: Map<String, Value>,
         properties: BTreeMap<String, PropertyContract>,
         events: Vec<String>,
+        services: Option<Vec<String>>,
     ) -> Widget {
         Widget {
             display_name: type_id.clone(),
@@ -336,11 +581,12 @@ impl Widget {
             defaults,
             properties: Some(properties),
             events: Some(events),
-            services: None,
+            services,
             function: false,
             replaced_by: None,
             legacy: false,
             extension: true,
+            provenance: None,
         }
     }
 
@@ -365,6 +611,11 @@ impl Widget {
     /// The refusal for a property `subject` (a widget id or type) does not have, naming close
     /// real ones or where to list them.
     pub(crate) fn no_property(&self, subject: &str, name: &str) -> String {
+        if let Some(new) = migrated_property(&self.type_id, name) {
+            return format!(
+                "{subject} has no property {name}; Composer renames it to {new} when it opens a mashup, so use {new}"
+            );
+        }
         let close = self.close_properties(name);
         if close.is_empty() {
             format!(
@@ -462,6 +713,36 @@ impl Widget {
             })
     }
 
+    /// ` did you mean ...?` for an event or service name the widget lacks, or nothing when no
+    /// real name is close.
+    pub(crate) fn did_you_mean(names: Option<&Vec<String>>, wanted: &str) -> String {
+        let wanted = wanted.to_ascii_lowercase();
+        let mut close: Vec<(usize, &String)> = names
+            .into_iter()
+            .flatten()
+            .filter_map(|name| {
+                let lower = name.to_ascii_lowercase();
+                let distance = strsim::levenshtein(&wanted, &lower);
+                (distance <= 2 || (wanted.len() > 3 && lower.contains(&wanted)))
+                    .then_some((distance, name))
+            })
+            .collect();
+        close.sort();
+        if close.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; did you mean {}?",
+                close
+                    .into_iter()
+                    .take(3)
+                    .map(|(_, name)| name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }
+    }
+
     pub(crate) fn has_event(&self, name: &str) -> bool {
         self.events
             .as_ref()
@@ -473,6 +754,43 @@ impl Widget {
 mod tests {
     use super::*;
     use std::collections::BTreeSet;
+
+    #[test]
+    fn native_reset_services_follow_the_runtime_widget_flags() {
+        for kind in [
+            "ptcscheckbox",
+            "ptcsdatepicker",
+            "ptcsdropdown",
+            "ptcstextfield",
+            "ptcstextarea",
+            "ptcstogglebutton",
+            "ptcsdynamicpanel",
+            "ptcsfileupload",
+            "ptcskpidial",
+            "ptcslist",
+            "ptcsrte",
+            "ptcstoolbar",
+            "ptcschartline",
+            "ptcschartbar",
+            "ptcschartcombo",
+            "ptcschartpie",
+            "ptcschartwaterfall",
+            "ptcschartschedule",
+            "ptcschartpareto",
+        ] {
+            assert!(
+                catalog()
+                    .by_type(kind)
+                    .unwrap()
+                    .has_service("ResetToDefaultValue"),
+                "{kind}"
+            );
+        }
+        assert!(!catalog()
+            .by_type("ptcsbutton")
+            .unwrap()
+            .has_service("ResetToDefaultValue"));
+    }
 
     #[test]
     fn a_misnamed_property_suggests_the_real_one() {
@@ -523,17 +841,55 @@ mod tests {
     }
 
     #[test]
+    fn a_legacy_type_id_never_resolves_to_a_modern_widget() {
+        let catalog = catalog();
+        for word in [
+            "tree",
+            "collection",
+            "container",
+            "panel",
+            "button",
+            "label",
+            "tabs",
+            "navigation",
+            "autorefresh",
+        ] {
+            let error = catalog.resolve(word).unwrap_err();
+            assert!(
+                matches!(error, CatalogError::Legacy { .. }),
+                "{word}: {error}"
+            );
+            assert!(
+                error.to_string().contains("legacy widget"),
+                "{word}: {error}"
+            );
+        }
+        // Friendly words that are not type ids keep working.
+        for (word, type_id) in [
+            ("tree-selector", "ptcstreeselector"),
+            ("text-field", "ptcstextfield"),
+            ("responsive-container", "flexcontainer"),
+            ("table", "ptcsgrid"),
+            ("input", "ptcstextfield"),
+        ] {
+            assert_eq!(catalog.resolve(word).unwrap().type_id, type_id);
+        }
+    }
+
+    #[test]
     fn a_widget_is_found_by_type_or_alias_and_an_unknown_one_suggests_others() {
         let catalog = catalog();
         assert_eq!(catalog.resolve("ptcsgrid").unwrap().type_id, "ptcsgrid");
         assert_eq!(catalog.resolve("Grid").unwrap().type_id, "ptcsgrid");
         assert_eq!(catalog.resolve(" table ").unwrap().type_id, "ptcsgrid");
         assert_eq!(
-            catalog.resolve("container").unwrap().type_id,
+            catalog.resolve("responsive-container").unwrap().type_id,
             "flexcontainer"
         );
         let error = catalog.resolve("chart").unwrap_err();
-        let CatalogError::Unknown { close, .. } = &error;
+        let CatalogError::Unknown { close, .. } = &error else {
+            panic!("{error}");
+        };
         assert!(close.iter().any(|c| c == "ptcschartbar"), "{close:?}");
         assert_eq!(error.code(), ErrorCode::InvalidArguments);
         assert!(catalog

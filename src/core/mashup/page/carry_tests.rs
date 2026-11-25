@@ -206,13 +206,13 @@ fn uncarried_whole_widget_styles_name_the_widget_in_words() {
     let (_dir, solution) = element_solution();
     let name = styled(&solution);
     let mut content = current(&solution, &name);
-    // The root's own styles are carried as page styles; a child's are not by plain derive.
+    // Style parts beside other stored keys cannot be said by `styles:`, so they are named.
     let id = content["UI"]["Widgets"][0]["Properties"]["Id"]
         .as_str()
         .unwrap()
         .to_string();
     content["UI"]["Properties"]["StyleProperties"]["data"][&id] =
-        serde_json::json!({"parts":{"$":{"$":{"background":"red"}}}});
+        serde_json::json!({"parts":{"$":{"$":{"background":"red"}}},"extra":{"k":1}});
     let derived = super::super::derive::derive(&name, &content.to_string()).unwrap();
     assert!(
         derived

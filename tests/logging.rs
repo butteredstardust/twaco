@@ -223,7 +223,7 @@ fn no_form_of_any_secret_reaches_a_log() {
     });
     let thing = format!("T-{PASSWORD}-{APP_KEY}-{TOKEN}");
     // The log file holds only log lines. Stderr also holds twaco's own error message.
-    let output = command(&root, &["call", &thing, "Do"])
+    let output = command(&root, &["call", &thing, "Do", "--apply"])
         .env("TWACO_LOG", "trace")
         .env("TWACO_LOG_FILE", "run.log")
         .output()
@@ -385,7 +385,7 @@ fn a_failed_connection_logs_no_form_of_any_secret() {
     )
     .unwrap();
     let thing = format!("T-{PASSWORD}-{APP_KEY}-{TOKEN}");
-    let output = command(&root, &["call", &thing, "Do"])
+    let output = command(&root, &["call", &thing, "Do", "--apply"])
         .env("TWACO_LOG", "trace")
         .env("TWACO_LOG_FILE", "run.log")
         .output()

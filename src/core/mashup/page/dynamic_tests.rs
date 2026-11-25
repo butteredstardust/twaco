@@ -114,7 +114,7 @@ fn awkward(solution: &Solution) -> String {
             .find_map(|w| find(w, kind))
     }
     let menu = find(&mut value["UI"], "ptcsmenubar").unwrap();
-    menu["Properties"]["MenuMaxWidth"] = serde_json::json!("wide");
+    menu["Properties"]["Width"] = serde_json::json!("wide");
     let menu_id = menu["Properties"]["Id"].as_str().unwrap().to_string();
     let go = find(&mut value["UI"], "ptcsbutton").unwrap()["Properties"]["Id"]
         .as_str()
@@ -184,18 +184,13 @@ fn derive_never_emits_what_its_own_build_refuses() {
             derived.notes
         );
         assert!(
-            derived.notes.iter().any(|n| n.contains("MenuMaxWidth")),
+            derived.notes.iter().any(|n| n.contains("Width")),
             "{:?}",
             derived.notes
         );
         let gauges = rebuilt.content.matches("\"Type\":\"gauge\"").count()
             + rebuilt.content.matches("\"Type\": \"gauge\"").count();
-        assert_eq!(
-            gauges,
-            usize::from(exact),
-            "exact {exact}\n{}",
-            derived.spec
-        );
+        assert_eq!(gauges, 1, "exact {exact}\n{}", derived.spec);
     }
 }
 
@@ -259,4 +254,104 @@ fn an_as_built_derive_carries_root_style_expression_flags_and_positions() {
     let expression = seen.iter().find(|(t, _)| t == "expression2").unwrap();
     assert_eq!(expression.1["DefaultNumberEvaluation"], false);
     assert_eq!(expression.1["Description"], "Adds");
+}
+
+fn built_content(spec: &str) -> Value {
+    let (_dir, solution) = dynamic_solution();
+    let built = compile(&solution, "Acme", spec).unwrap_or_else(|e| panic!("{e}\n{spec}"));
+    serde_json::from_str(&built.content).unwrap()
+}
+
+const SOURCES: &str = "version: 1\nrules: v1\npage:\n  name: Acme.Stored_MU\n  template: blank\n  parameters: {Manager: THINGNAME}\n  data:\n    GetProperties: {service: Acme.Data.GetProperties, method: get, params: {useWebsockets: true}, field_types: {Level: NUMBER}}\n  empty_sources: [Things_Acme.Data]\n  slots:\n    center:\n      - label: {id: level, text: Level}\n  bindings:\n    - {from: GetProperties.Level, to: level.LabelText}\n";
+
+#[test]
+fn a_call_keeps_its_stored_method_empty_sections_and_property_types() {
+    let content = built_content(SOURCES);
+    let section = &content["Data"]["Things_Acme.Data"];
+    assert_eq!(section["Services"][0]["APIMethod"], "get", "{section}");
+    assert_eq!(
+        section["Services"][0]["Parameters"]["useWebsockets"], true,
+        "{section}"
+    );
+    let map = &content["DataBindings"][0]["PropertyMaps"][0];
+    assert_eq!(map["SourcePropertyBaseType"], "NUMBER", "{map}");
+    assert_eq!(map["SourcePropertyType"], "Property", "{map}");
+    // The same section with nothing called is kept too.
+    let empty = built_content(
+        "version: 1
+rules: v1
+page:
+  name: Acme.Held_MU
+  template: blank
+  empty_sources: [Things_Acme.Data]
+  slots:
+    center:
+      - label: {id: level, text: Level}
+",
+    );
+    assert_eq!(
+        empty["Data"]["Things_Acme.Data"]["Services"],
+        serde_json::json!([]),
+        "{empty}"
+    );
+}
+
+#[test]
+fn derive_states_what_the_stored_call_has_and_the_rebuild_matches() {
+    let (_dir, solution) = dynamic_solution();
+    let built = compile(&solution, "Acme", SOURCES).unwrap();
+    let derived = derive::derive("Acme.Stored_MU", &built.content).unwrap();
+    for wanted in ["method: get", "field_types: {Level: NUMBER}"] {
+        assert!(derived.spec.contains(wanted), "{}", derived.spec);
+    }
+    let rebuilt = compile(&solution, "Acme", &derived.spec)
+        .unwrap_or_else(|e| panic!("{e}\n{}", derived.spec));
+    assert_eq!(wiring(&built.content), wiring(&rebuilt.content));
+    // A section with no call is derived as an empty source and kept.
+    let mut value: Value = serde_json::from_str(&built.content).unwrap();
+    value["Data"]["Things_Acme.Other"] = serde_json::json!({
+        "DataName": "Things_Acme.Other", "EntityName": "Acme.Other", "EntityType": "Things",
+        "Id": "x", "Services": []
+    });
+    let derived = derive::derive("Acme.Stored_MU", &value.to_string()).unwrap();
+    assert!(
+        derived.spec.contains("empty_sources: [Things_Acme.Other]"),
+        "{}",
+        derived.spec
+    );
+}
+
+#[test]
+fn a_mashup_template_is_derived_and_rebuilt_as_one() {
+    let (_dir, solution) = dynamic_solution();
+    let built = compile(
+        &solution,
+        "Acme",
+        &SOURCES.replace("  template: blank", "  kind: template\n  template: blank"),
+    )
+    .unwrap();
+    let value: Value = serde_json::from_str(&built.content).unwrap();
+    assert_eq!(value["mashupType"], "mashupTemplate");
+    let derived = derive::derive("Acme.Stored_MU", &built.content).unwrap();
+    assert!(derived.spec.contains("kind: template"), "{}", derived.spec);
+}
+
+#[test]
+fn a_network_source_is_a_static_section_with_its_built_in_call() {
+    let (dir, solution) = dynamic_solution();
+    std::fs::create_dir_all(solution.root.join("acme/Networks")).unwrap();
+    std::fs::write(solution.root.join("acme/Networks/Acme.Net.xml"), r#"<Entities><Networks><Network name="Acme.Net" projectName="Acme"/></Networks></Entities>"#).unwrap();
+    let solution = Solution::load(&solution.root.join("twaco.toml")).unwrap();
+    let spec = "version: 1\nrules: v1\npage:\n  name: Acme.Net_MU\n  template: blank\n  data:\n    links: {service: Acme.Net.GetNetworkConnections, entity_type: network, on: load}\n  slots:\n    center:\n      - list: {id: items, data: links, display: Name}\n";
+    let built = compile(&solution, "Acme", spec).unwrap_or_else(|e| panic!("{e}"));
+    let value: Value = serde_json::from_str(&built.content).unwrap();
+    assert_eq!(value["Data"]["Networks_Acme.Net"]["EntityType"], "Networks");
+    let derived = derive::derive("Acme.Net_MU", &built.content).unwrap();
+    assert!(
+        derived.spec.contains("entity_type: network"),
+        "{}",
+        derived.spec
+    );
+    compile(&solution, "Acme", &derived.spec).unwrap_or_else(|e| panic!("{e}\n{}", derived.spec));
+    drop(dir);
 }

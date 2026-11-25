@@ -34,7 +34,7 @@ fn invalid(message: impl ToString) -> AuthoringError {
     AuthoringError::Invalid(message.to_string())
 }
 
-const ELEMENTS: [&str; 46] = [
+const ELEMENTS: [&str; 47] = [
     "component",
     "grid",
     "label",
@@ -71,6 +71,7 @@ const ELEMENTS: [&str; 46] = [
     "image",
     "icon",
     "divider",
+    "shape",
     "checkbox",
     "radio",
     "toggle",
@@ -145,6 +146,61 @@ fn with_css(mut found: Extraction, directory: &std::path::Path) -> Extraction {
     found
 }
 
+/// Contained mashups and navigations store a copy of their target's parameter definitions. A
+/// source whose copies are stale gets the target's current ones from a build; say so, so the
+/// difference is explained.
+fn refreshed_definitions(source: &Value, built: &Value) -> Vec<String> {
+    fn collect<'a>(widget: &'a Value, out: &mut BTreeMap<&'a str, (&'a str, Vec<&'a str>)>) {
+        let properties = &widget["Properties"];
+        if let (Some(id), Some(entries)) = (
+            properties["Id"].as_str(),
+            properties["MashupParameters"].as_array(),
+        ) {
+            let target = properties["Name"]
+                .as_str()
+                .or_else(|| properties["Mashup"].as_str())
+                .unwrap_or("its mashup");
+            let mut names: Vec<_> = entries
+                .iter()
+                .filter_map(|e| e["ParameterName"].as_str())
+                .collect();
+            names.sort_unstable();
+            out.insert(id, (target, names));
+        }
+        for child in widget["Widgets"].as_array().into_iter().flatten() {
+            collect(child, out);
+        }
+    }
+    let (mut had, mut wrote) = (BTreeMap::new(), BTreeMap::new());
+    collect(&source["UI"], &mut had);
+    collect(&built["UI"], &mut wrote);
+    let mut notes = vec![];
+    for (id, (target, now)) in wrote {
+        let Some((_, before)) = had.get(id) else {
+            continue;
+        };
+        let added: Vec<_> = now.iter().filter(|n| !before.contains(n)).collect();
+        let removed: Vec<_> = before.iter().filter(|n| !now.contains(n)).collect();
+        if added.is_empty() && removed.is_empty() {
+            continue;
+        }
+        let list = |names: Vec<&&str>| names.iter().map(|n| **n).collect::<Vec<_>>().join(", ");
+        let mut note = format!("refreshed the stored parameter definitions of {id} from {target}");
+        if !added.is_empty() {
+            note.push_str(&format!(": added {}", list(added)));
+        }
+        if !removed.is_empty() {
+            note.push_str(&format!(
+                "{} removed {}",
+                if note.ends_with(target) { ":" } else { ";" },
+                list(removed)
+            ));
+        }
+        notes.push(note);
+    }
+    notes
+}
+
 fn count_widgets(content: &Value) -> usize {
     fn walk(widget: &Value) -> usize {
         widget["Widgets"]
@@ -178,6 +234,163 @@ fn hand_edits(current: &Value, baseline: &Baseline) -> Vec<String> {
         }
     }
     changed.into_iter().collect()
+}
+
+/// `<columns>x<rows>` when the entity is a dashboard gadget.
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn gadget_size(entity: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(entity);
+    let start = text.find("<Mashup ")?;
+    let tag = &text[start..start + text[start..].find('>')?];
+    let attribute = |name: &str| {
+        let (_, rest) = tag.split_once(&format!(" {name}=\""))?;
+        Some(rest.split_once('"')?.0.to_string())
+    };
+    if attribute("aspect.mashupType")? != "gadget" {
+        return None;
+    }
+    let count = |name: &str| {
+        attribute(name)?
+            .parse::<f64>()
+            .ok()
+            .map(|n| n.max(0.0) as u32)
+    };
+    Some(format!("{}x{}", count("columns")?, count("rows")?))
+}
+
+/// A gadget's widgets sit in its root, so a spec that claims a template container for the root
+/// cannot say it: that page stays an ordinary mashup.
+fn mark_gadget(derived: &mut derive::Derived, size: &str) {
+    let Some(page) = derived.value["page"].as_object_mut() else {
+        return;
+    };
+    if page.contains_key("root") || page.contains_key("kind") {
+        return;
+    }
+    let entries: Vec<_> = std::mem::take(page).into_iter().collect();
+    for (key, value) in entries {
+        page.insert(key.clone(), value);
+        if key == "name" {
+            page.insert("kind".into(), serde_json::json!("gadget"));
+            page.insert("gadget_size".into(), serde_json::json!(size));
+        }
+    }
+    derived.spec = derive::render(&derived.value);
+}
+
+/// A call to a service its entity no longer declares is carried as found, with the parameter
+/// types the mashup stores, and the spec says so.
+fn keep_unknown_services(
+    solution: &Solution,
+    content: &Value,
+    derived: &mut derive::Derived,
+) -> Vec<String> {
+    let (model, _) = crate::core::types::load_model(solution);
+    let platform = crate::core::types::cached_platform(solution);
+    let Some(data) = derived.value["page"]["data"].as_object().cloned() else {
+        return vec![];
+    };
+    let mut notes = vec![];
+    let mut changed = false;
+    for (alias, entry) in data {
+        let Some(service) = entry["service"].as_str() else {
+            continue;
+        };
+        if let Ok((entity, name)) =
+            authoring::session::source_target(&model, platform.as_ref(), service)
+        {
+            // A binding that stores another type than the service declares now keeps it.
+            let declared = model
+                .entities
+                .iter()
+                .find(|e| e.name == entity)
+                .and_then(|e| {
+                    crate::core::catalog::lookup_service(
+                        e,
+                        &model.entities,
+                        platform.as_ref(),
+                        &name,
+                    )
+                    .service
+                });
+            let Some(declared) = declared else { continue };
+            let mut differing = serde_json::Map::new();
+            for binding in content["DataBindings"].as_array().into_iter().flatten() {
+                if binding["TargetArea"] != "Data"
+                    || binding["TargetId"] != name.as_str()
+                    || !binding["TargetSection"]
+                        .as_str()
+                        .is_some_and(|s| s.ends_with(&format!("_{entity}")))
+                {
+                    continue;
+                }
+                for map in binding["PropertyMaps"].as_array().into_iter().flatten() {
+                    let (Some(parameter), Some(stored)) = (
+                        map["TargetProperty"].as_str(),
+                        map["TargetPropertyBaseType"].as_str(),
+                    ) else {
+                        continue;
+                    };
+                    if map["TargetPropertyType"] == "Parameter"
+                        && declared
+                            .parameters
+                            .iter()
+                            .find(|p| p.name == parameter)
+                            .is_some_and(|p| p.value.base_type != stored)
+                    {
+                        differing.insert(parameter.into(), stored.into());
+                    }
+                }
+            }
+            if !differing.is_empty() {
+                if let Some(target) = derived.value["page"]["data"][&alias].as_object_mut() {
+                    target.insert("param_types".into(), Value::Object(differing));
+                    changed = true;
+                }
+            }
+            continue;
+        }
+        let Some((entity, name)) = service.rsplit_once('.') else {
+            continue;
+        };
+        if !model.entities.iter().any(|e| e.name == entity) {
+            continue;
+        }
+        let mut parameters = serde_json::Map::new();
+        for binding in content["DataBindings"].as_array().into_iter().flatten() {
+            if binding["TargetArea"] != "Data"
+                || binding["TargetId"] != name
+                || !binding["TargetSection"]
+                    .as_str()
+                    .is_some_and(|s| s.ends_with(&format!("_{entity}")))
+            {
+                continue;
+            }
+            for map in binding["PropertyMaps"].as_array().into_iter().flatten() {
+                if map["TargetPropertyType"] == "Parameter" {
+                    if let Some(parameter) = map["TargetProperty"].as_str() {
+                        parameters.insert(
+                            parameter.into(),
+                            map["TargetPropertyBaseType"]
+                                .as_str()
+                                .unwrap_or("STRING")
+                                .into(),
+                        );
+                    }
+                }
+            }
+        }
+        if let Some(target) = derived.value["page"]["data"][&alias].as_object_mut() {
+            target.insert("unknown_service".into(), Value::Object(parameters));
+        }
+        notes.push(format!(
+            "{service} is not a service {entity} declares; the call is kept as found"
+        ));
+    }
+    if !notes.is_empty() || changed {
+        derived.spec = derive::render(&derived.value);
+    }
+    notes
 }
 
 /// The spec node with this id.
@@ -373,12 +586,17 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
         derive::derive_exact(name, &content)
     }
     .map_err(invalid)?;
+    if let Some(size) = gadget_size(&loaded.entity_before) {
+        mark_gadget(&mut derived, &size);
+    }
+    let kept = keep_unknown_services(solution, &value, &mut derived);
     let refined = if adopting {
         refine(solution, &project, &directory, &value, &mut derived)
     } else {
         None
     };
     let mut notes = derived.notes;
+    notes.extend(kept);
     if let Some(content) = refined {
         // The compiled page is the truth about what the spec writes: say what it does not.
         notes.retain(|n| {
@@ -386,6 +604,7 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
                 && !n.starts_with("unsupported wiring left out:")
         });
         notes.extend(align::lost_wiring(&value, &content));
+        notes.extend(refreshed_definitions(&value, &content));
         let left = align::remaining(&value, &content).len();
         if left > 0 {
             notes.push(format!(
@@ -520,4 +739,35 @@ pub(crate) fn derive_content(name: &str, content: &str) -> Result<Extraction, su
         notes: derived.notes,
         css: None,
     })
+}
+
+#[cfg(test)]
+mod refreshed_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn page(entries: Value) -> Value {
+        json!({"UI": {"Properties": {"Id": "root"}, "Widgets": [
+            {"Properties": {"Id": "box", "Name": "Acme.Child_MU", "MashupParameters": entries}}
+        ]}})
+    }
+
+    #[test]
+    fn stale_stored_definitions_are_named_with_what_a_build_adds() {
+        let stale = page(json!([{"ParameterName": "Old"}]));
+        let current =
+            page(json!([{"ParameterName": "Old"}, {"ParameterName": "A"}, {"ParameterName": "B"}]));
+        assert_eq!(
+            refreshed_definitions(&stale, &current),
+            vec![
+                "refreshed the stored parameter definitions of box from Acme.Child_MU: added A, B"
+            ]
+        );
+        assert!(refreshed_definitions(&current, &current).is_empty());
+        let notes = refreshed_definitions(&current, &page(json!([{"ParameterName": "A"}])));
+        assert_eq!(
+            notes,
+            vec!["refreshed the stored parameter definitions of box from Acme.Child_MU: removed B, Old"]
+        );
+    }
 }

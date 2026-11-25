@@ -518,6 +518,15 @@ fn plan_from(
         .collect();
     let mut problems = Vec::new();
     mashup::validate::check_content(&mashup::to_sidecar(&content), &mut problems);
+    // A page built as found keeps a binding the source made into a property Composer 10.2 does
+    // not list as a target: the platform accepted it, so it is advice here, not a refusal.
+    if spec.page.value.layout.is_some() {
+        for problem in &mut problems {
+            if problem.rule == "direction" {
+                problem.severity = mashup::validate::Severity::Advisory;
+            }
+        }
+    }
     if conflicts.is_empty()
         && problems
             .iter()
@@ -555,7 +564,10 @@ fn plan_from(
                 .map(|(kind, _)| kind.to_string())
         };
         let (was, now) = (kind(before), kind(&generated.entity));
-        if was != now {
+        // A gadget is an ordinary mashup with a size; a spec states no gadget kind, and a build
+        // leaves the entity's type alone.
+        let gadget_as_mashup = was.as_deref() == Some("gadget") && now.as_deref() == Some("mashup");
+        if was != now && !gadget_as_mashup {
             return Err(AuthoringError::Invalid(format!(
                 "{name} is a {} mashup and page.kind asks for {}; changing the kind of an existing \
                  mashup is not supported: create a new mashup with this spec instead",
@@ -640,12 +652,25 @@ fn plan_from(
                     _ => None,
                 }
             }
+            // A widget changed when its own properties or the order of its children did, not
+            // when a descendant changed.
+            fn own(widget: Option<&Value>) -> Option<Value> {
+                widget.map(|w| {
+                    let mut own = w.clone();
+                    if let Some(kids) = w["Widgets"].as_array() {
+                        own["Widgets"] = Value::Array(
+                            kids.iter().map(|k| k["Properties"]["Id"].clone()).collect(),
+                        );
+                    }
+                    own
+                })
+            }
             let previous = old.as_ref().and_then(|b| widget(&b.content, id));
             let status = if old.is_none() && existing.is_some() {
                 "unchanged"
             } else if previous.is_none() {
                 "created"
-            } else if previous == widget(&baseline.content, id) {
+            } else if own(previous) == own(widget(&baseline.content, id)) {
                 "unchanged"
             } else {
                 "changed"
@@ -662,8 +687,13 @@ fn plan_from(
     }
     // Digest the content as it lands in content.json: the next build reads it back from there.
     // A build that only keeps hand edits writes nothing, so it carries the old digest forward.
+    // When no hand edit is kept the page is what the spec builds, so the digest is refreshed even
+    // if nothing is written: spec and the next build must not see stale differences.
+    let hand_edits_kept = report.kept.iter().any(|p| p.starts_with("content"));
     let written = match &old {
-        Some(old) if content_before.as_deref() == Some(content_after.as_slice()) => {
+        Some(old)
+            if content_before.as_deref() == Some(content_after.as_slice()) && hand_edits_kept =>
+        {
             old.written.clone()
         }
         _ => text(&content_after)

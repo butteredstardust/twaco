@@ -81,6 +81,9 @@ pub(crate) struct PlatformMeta {
 pub(crate) struct PlatformService {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub(crate) description: String,
+    /// The service's category as the platform reports it (READ, WRITE, ...), if it has one.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub(crate) category: String,
     #[serde(default)]
     pub(crate) inputs: BTreeMap<String, PlatformInput>,
     pub(crate) result: PlatformValue,
@@ -322,7 +325,7 @@ pub(crate) fn fetch_platform_with_progress(
 
 /// The combined mashup-builder code of the server's extensions: `Builder/index.html` names it in
 /// `COMBINED_EXT_JS`, a file whose name changes with every extension installed.
-fn extension_widget_code(remote: &dyn Remote) -> Result<Option<String>, String> {
+pub(crate) fn extension_widget_code(remote: &dyn Remote) -> Result<Option<String>, String> {
     let Some(page) = remote
         .web_file("Builder/index.html")
         .map_err(|e| e.to_string())?
@@ -433,6 +436,7 @@ pub(super) fn trim_metadata(value: &Value) -> Result<PlatformMeta, TypesError> {
             name,
             PlatformService {
                 description: optional_string(raw.get("description")).unwrap_or_default(),
+                category: optional_string(raw.get("category")).unwrap_or_default(),
                 inputs,
                 result: PlatformValue {
                     base_type: required_string(outputs, "baseType")?,

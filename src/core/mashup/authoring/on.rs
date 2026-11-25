@@ -400,9 +400,10 @@ pub(super) fn resolve_trigger(
             )
         {
             return Err(AuthoringError::Invalid(format!(
-                "widget `{}` has no event {}; its events are {}",
+                "widget `{}` has no event {}{}; its events are {}",
                 found.id,
                 event,
+                widgets::Widget::did_you_mean(catalog.events.as_ref(), event),
                 catalog
                     .events
                     .as_ref()
@@ -462,14 +463,17 @@ pub(super) fn resolve_handler(
 ) -> Result<End, AuthoringError> {
     // The mashup's own services: a popup closing itself, a page reloading its data.
     if let Some(service) = raw.strip_prefix("mashup:") {
-        if matches!(service, "CloseIfPopup" | "Refresh") {
+        if matches!(
+            service,
+            "CloseIfPopup" | "Refresh" | "ResetInputsToDefaultValue"
+        ) {
             return Ok(End::Mashup {
                 parameter: service.into(),
                 base: String::new(),
             });
         }
         return Err(AuthoringError::Invalid(format!(
-            "a mashup's own services are mashup:CloseIfPopup and mashup:Refresh, not {raw}"
+            "a mashup's own services are mashup:CloseIfPopup, mashup:Refresh and mashup:ResetInputsToDefaultValue, not {raw}"
         )));
     }
     if let Some(rest) = raw.strip_prefix("ui:") {
@@ -499,8 +503,13 @@ pub(super) fn resolve_handler(
         let catalog = event_contract(&found.id, &found.type_id)?;
         if !catalog.has_service(service) {
             return Err(AuthoringError::Invalid(format!(
-                "widget `{}` has no service {service}",
-                found.id
+                "widget `{}` has no service {service}{}; its services are {}",
+                found.id,
+                widgets::Widget::did_you_mean(catalog.services.as_ref(), service),
+                catalog
+                    .services
+                    .as_ref()
+                    .map_or(String::new(), |services| services.join(", "))
             )));
         }
         return Ok(End::Ui {

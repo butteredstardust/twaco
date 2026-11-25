@@ -136,6 +136,12 @@ pub(crate) struct MashupDocument {
     /// Wiring of a widget the catalogue does not know is written as stated, not checked: set for
     /// a page built as it was found.
     verbatim: bool,
+    /// Imported contracts for raw endpoints, kept only in memory while compiling a page.
+    pub(crate) binding_types: std::collections::BTreeMap<(String, String), String>,
+    /// Warnings raised while an end was resolved, taken by the session that asked.
+    pub(crate) pending_warnings: Vec<String>,
+    /// Field types of an unshaped service result, by (call alias, field), kept like `binding_types`.
+    pub(crate) source_types: std::collections::BTreeMap<(String, String), String>,
 }
 
 /// Parse and check a `content.json`.
@@ -184,6 +190,9 @@ impl MashupDocument {
             value,
             uuid_generator: random_uuid,
             verbatim: false,
+            binding_types: Default::default(),
+            source_types: Default::default(),
+            pending_warnings: Vec::new(),
         };
         document.check()?;
         Ok(document)
@@ -2015,7 +2024,13 @@ impl MashupDocument {
 
     fn place_append(&mut self, widget: &Widget, target: &str) -> Result<Placed, EditError> {
         let target = self.find(target)?;
-        if !matches!(target.type_id.as_str(), "flexcontainer" | "container") {
+        if !matches!(
+            target.type_id.as_str(),
+            "flexcontainer" | "container" | "ptcsdynamicpanel"
+        ) && widgets::catalog()
+            .by_type(&target.type_id)
+            .is_some_and(|w| !w.container)
+        {
             return Err(EditError::Refused(format!(
                 "{} is a {}, not a responsive container",
                 target.id, target.type_id
@@ -3686,7 +3701,10 @@ mod tests {
 
     fn b1_place(document: &mut MashupDocument, kind: &str, placement: Placement) -> String {
         document
-            .place(widgets::catalog().resolve(kind).unwrap(), &placement)
+            .place(
+                widgets::catalog().resolve_for_add(kind).unwrap(),
+                &placement,
+            )
             .unwrap()
             .id
     }
@@ -3759,7 +3777,7 @@ mod tests {
         }
         let placed = doc
             .place(
-                widgets::catalog().resolve("container").unwrap(),
+                widgets::catalog().resolve_for_add("container").unwrap(),
                 &b1_beside(&left, Side::Below),
             )
             .unwrap();
@@ -5508,7 +5526,7 @@ mod tests {
         let mut document = document(&column, 2);
         let place = |document: &mut MashupDocument, name: &str, placement: Placement| {
             document
-                .place(catalog.resolve(name).unwrap(), &placement)
+                .place(catalog.resolve_for_add(name).unwrap(), &placement)
                 .unwrap()
                 .id
         };
@@ -5668,7 +5686,7 @@ mod tests {
         let catalog = widgets::catalog();
         let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
             document
-                .place(catalog.resolve(widget).unwrap(), &placement)
+                .place(catalog.resolve_for_add(widget).unwrap(), &placement)
                 .unwrap()
                 .id
         };
@@ -5786,7 +5804,7 @@ mod tests {
         document.set_property(&path, "flex-grow", Value::from(0));
         document
             .place(
-                catalog.resolve("container").unwrap(),
+                catalog.resolve_for_add("container").unwrap(),
                 &Placement::Beside {
                     anchor: "flexcontainer-3".into(),
                     side: Side::Right,
@@ -6081,14 +6099,14 @@ mod placement_walkthrough {
             let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
             let panel = document
                 .place(
-                    catalog.resolve("container").unwrap(),
+                    catalog.resolve_for_add("container").unwrap(),
                     &Placement::In("center".into()),
                 )
                 .unwrap()
                 .id;
             document
                 .place(
-                    catalog.resolve("label").unwrap(),
+                    catalog.resolve_for_add("label").unwrap(),
                     &Placement::In(panel.clone()),
                 )
                 .unwrap();
@@ -6129,7 +6147,7 @@ mod placement_walkthrough {
             .unwrap();
         document
             .place(
-                catalog.resolve("button").unwrap(),
+                catalog.resolve_for_add("button").unwrap(),
                 &Placement::Beside {
                     anchor: grid.id.clone(),
                     side: Side::Below,
@@ -6242,7 +6260,7 @@ mod placement_walkthrough {
             // A footer forces both the old and the new controls into generated rows.
             document
                 .place(
-                    catalog.resolve("button").unwrap(),
+                    catalog.resolve_for_add("button").unwrap(),
                     &Placement::Bottom("center".into()),
                 )
                 .unwrap();
@@ -6268,7 +6286,7 @@ mod placement_walkthrough {
         let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
         let mut add = |kind: &str, placement| {
             document
-                .place(catalog.resolve(kind).unwrap(), &placement)
+                .place(catalog.resolve_for_add(kind).unwrap(), &placement)
                 .unwrap()
                 .id
         };
@@ -6349,7 +6367,7 @@ mod placement_walkthrough {
             .unwrap();
         let textarea = document
             .place(
-                catalog.resolve("textarea").unwrap(),
+                catalog.resolve_for_add("textarea").unwrap(),
                 &Placement::BelowInColumn(left),
             )
             .unwrap()
@@ -6388,7 +6406,7 @@ mod placement_walkthrough {
             let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
             let panel = document
                 .place(
-                    catalog.resolve("container").unwrap(),
+                    catalog.resolve_for_add("container").unwrap(),
                     &Placement::In("center".into()),
                 )
                 .unwrap()
@@ -6402,7 +6420,7 @@ mod placement_walkthrough {
                 .id;
             let data = document
                 .place(
-                    catalog.resolve(kind).unwrap(),
+                    catalog.resolve_for_add(kind).unwrap(),
                     &Placement::BelowInColumn(field),
                 )
                 .unwrap()
@@ -6416,7 +6434,7 @@ mod placement_walkthrough {
             // A footer can take spare space below a form, but a data panel keeps filling.
             let save = document
                 .place(
-                    catalog.resolve("button").unwrap(),
+                    catalog.resolve_for_add("button").unwrap(),
                     &Placement::Bottom(panel),
                 )
                 .unwrap()
@@ -6435,13 +6453,16 @@ mod placement_walkthrough {
             let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
             let panel = document
                 .place(
-                    catalog.resolve("container").unwrap(),
+                    catalog.resolve_for_add("container").unwrap(),
                     &Placement::In("center".into()),
                 )
                 .unwrap()
                 .id;
             let data = document
-                .place(catalog.resolve(kind).unwrap(), &Placement::In(panel))
+                .place(
+                    catalog.resolve_for_add(kind).unwrap(),
+                    &Placement::In(panel),
+                )
                 .unwrap()
                 .id;
             let row = parent_of(&document, &data);
@@ -6460,7 +6481,7 @@ mod placement_walkthrough {
             let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
             let panel = document
                 .place(
-                    catalog.resolve("container").unwrap(),
+                    catalog.resolve_for_add("container").unwrap(),
                     &Placement::In("center".into()),
                 )
                 .unwrap()
@@ -6477,7 +6498,10 @@ mod placement_walkthrough {
                 }),
             );
             let textarea = document
-                .place(catalog.resolve("textarea").unwrap(), &Placement::In(panel))
+                .place(
+                    catalog.resolve_for_add("textarea").unwrap(),
+                    &Placement::In(panel),
+                )
                 .unwrap()
                 .id;
             let row = parent_of(&document, &textarea);
@@ -6499,7 +6523,7 @@ mod placement_walkthrough {
                 let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
                 let panel = document
                     .place(
-                        catalog.resolve("container").unwrap(),
+                        catalog.resolve_for_add("container").unwrap(),
                         &Placement::In("center".into()),
                     )
                     .unwrap()
@@ -6508,17 +6532,20 @@ mod placement_walkthrough {
                 // than merely turn the anchor's existing container into a column.
                 document
                     .place(
-                        catalog.resolve("label").unwrap(),
+                        catalog.resolve_for_add("label").unwrap(),
                         &Placement::In(panel.clone()),
                     )
                     .unwrap();
                 let first = document
-                    .place(catalog.resolve(kind).unwrap(), &Placement::In(panel))
+                    .place(
+                        catalog.resolve_for_add(kind).unwrap(),
+                        &Placement::In(panel),
+                    )
                     .unwrap()
                     .id;
                 let placed = document
                     .place(
-                        catalog.resolve(kind).unwrap(),
+                        catalog.resolve_for_add(kind).unwrap(),
                         &Placement::Beside {
                             anchor: first.clone(),
                             side,
@@ -6556,18 +6583,21 @@ mod placement_walkthrough {
         let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
         let panel = document
             .place(
-                catalog.resolve("container").unwrap(),
+                catalog.resolve_for_add("container").unwrap(),
                 &Placement::In("center".into()),
             )
             .unwrap()
             .id;
         let first = document
-            .place(catalog.resolve("textarea").unwrap(), &Placement::In(panel))
+            .place(
+                catalog.resolve_for_add("textarea").unwrap(),
+                &Placement::In(panel),
+            )
             .unwrap()
             .id;
         let divider = document
             .place(
-                catalog.resolve("divider").unwrap(),
+                catalog.resolve_for_add("divider").unwrap(),
                 &Placement::Beside {
                     anchor: first.clone(),
                     side: Side::Below,
@@ -6594,7 +6624,7 @@ mod placement_walkthrough {
         let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
         let panel = document
             .place(
-                catalog.resolve("container").unwrap(),
+                catalog.resolve_for_add("container").unwrap(),
                 &Placement::In("center".into()),
             )
             .unwrap()
@@ -6603,17 +6633,17 @@ mod placement_walkthrough {
         // A form column with existing leaves: splitting the textarea creates a new column
         // around it and the divider, and moves the Description label into a sibling row.
         let n = document.allocate();
-        let textarea = new_widget(catalog.resolve("textarea").unwrap(), n, true);
+        let textarea = new_widget(catalog.resolve_for_add("textarea").unwrap(), n, true);
         let id = widget_id(&textarea).to_string();
         document.push_child(&path, textarea);
         let n = document.allocate();
         document.push_child(
             &path,
-            new_widget(catalog.resolve("label").unwrap(), n, false),
+            new_widget(catalog.resolve_for_add("label").unwrap(), n, false),
         );
         let placed = document
             .place(
-                catalog.resolve("divider").unwrap(),
+                catalog.resolve_for_add("divider").unwrap(),
                 &Placement::Beside {
                     anchor: id.clone(),
                     side: Side::Below,
@@ -6648,14 +6678,14 @@ mod placement_walkthrough {
             let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
             let panel = document
                 .place(
-                    widgets::catalog().resolve("container").unwrap(),
+                    widgets::catalog().resolve_for_add("container").unwrap(),
                     &Placement::In("center".into()),
                 )
                 .unwrap()
                 .id;
             let title = document
                 .place(
-                    widgets::catalog().resolve("label").unwrap(),
+                    widgets::catalog().resolve_for_add("label").unwrap(),
                     &Placement::In(panel),
                 )
                 .unwrap()
@@ -6667,7 +6697,7 @@ mod placement_walkthrough {
             }
             document
                 .place(
-                    widgets::catalog().resolve("label").unwrap(),
+                    widgets::catalog().resolve_for_add("label").unwrap(),
                     &Placement::Beside {
                         anchor: title.clone(),
                         side: Side::Below,
@@ -6693,7 +6723,7 @@ mod placement_walkthrough {
         let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
         document
             .place(
-                catalog.resolve("label").unwrap(),
+                catalog.resolve_for_add("label").unwrap(),
                 &Placement::In("center".into()),
             )
             .unwrap();
@@ -6714,7 +6744,7 @@ mod placement_walkthrough {
         );
         let value = document
             .place(
-                catalog.resolve("label").unwrap(),
+                catalog.resolve_for_add("label").unwrap(),
                 &Placement::Beside {
                     anchor: name,
                     side: Side::End,
@@ -6753,7 +6783,7 @@ mod placement_walkthrough {
             }
             let value = document
                 .place(
-                    widgets::catalog().resolve("label").unwrap(),
+                    widgets::catalog().resolve_for_add("label").unwrap(),
                     &Placement::Beside {
                         anchor: name.clone(),
                         side: Side::End,
@@ -6813,7 +6843,7 @@ mod placement_walkthrough {
         let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
         let title = document
             .place(
-                catalog.resolve("label").unwrap(),
+                catalog.resolve_for_add("label").unwrap(),
                 &Placement::In("center".into()),
             )
             .unwrap()
@@ -6822,7 +6852,7 @@ mod placement_walkthrough {
         document.set_property(&path, "Height", Value::from(72));
         document
             .place(
-                catalog.resolve("label").unwrap(),
+                catalog.resolve_for_add("label").unwrap(),
                 &Placement::Beside {
                     anchor: title.clone(),
                     side: Side::Below,
@@ -6849,7 +6879,7 @@ mod placement_walkthrough {
             assert_eq!(document.at(row_path)["Properties"], before);
             document
                 .place(
-                    catalog.resolve("label").unwrap(),
+                    catalog.resolve_for_add("label").unwrap(),
                     &Placement::Beside {
                         anchor: title.clone(),
                         side: Side::Right,
@@ -7079,7 +7109,11 @@ mod placement_walkthrough {
                 );
             }
         }
-        let mut textarea = new_widget(widgets::catalog().resolve("textarea").unwrap(), 4, true);
+        let mut textarea = new_widget(
+            widgets::catalog().resolve_for_add("textarea").unwrap(),
+            4,
+            true,
+        );
         set_value_property(&mut textarea, "Height", Value::from(420));
         let row = serde_json::json!({"Properties": {"Id": "flexcontainer-3", "Type": "flexcontainer"}, "Widgets": [textarea]});
         assert_eq!(filler_floor(&row, &Value::Null), Some(420.0));
@@ -7144,7 +7178,7 @@ mod placement_walkthrough {
         let catalog = widgets::catalog();
         let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
             document
-                .place(catalog.resolve(widget).unwrap(), &placement)
+                .place(catalog.resolve_for_add(widget).unwrap(), &placement)
                 .unwrap()
                 .id
         };
@@ -7211,7 +7245,7 @@ mod placement_walkthrough {
     fn bottom_puts_buttons_in_a_footer_that_stays_last() {
         let catalog = widgets::catalog();
         let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
-            document.place(catalog.resolve(widget).unwrap(), &placement)
+            document.place(catalog.resolve_for_add(widget).unwrap(), &placement)
         };
         let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
         place(&mut document, "dropdown", Placement::In("center".into())).unwrap();
@@ -7282,7 +7316,7 @@ mod placement_walkthrough {
         let catalog = widgets::catalog();
         let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
             document
-                .place(catalog.resolve(widget).unwrap(), &placement)
+                .place(catalog.resolve_for_add(widget).unwrap(), &placement)
                 .unwrap()
                 .id
         };
@@ -7362,7 +7396,7 @@ mod placement_walkthrough {
         let catalog = widgets::catalog();
         let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
             document
-                .place(catalog.resolve(widget).unwrap(), &placement)
+                .place(catalog.resolve_for_add(widget).unwrap(), &placement)
                 .unwrap()
                 .id
         };
@@ -7673,7 +7707,7 @@ mod placement_walkthrough {
         let mut document = parse(crate::core::mashup::templates::BLANK).unwrap();
         let place = |document: &mut MashupDocument, widget: &str, placement: Placement| {
             document
-                .place(catalog.resolve(widget).unwrap(), &placement)
+                .place(catalog.resolve_for_add(widget).unwrap(), &placement)
                 .unwrap()
                 .id
         };

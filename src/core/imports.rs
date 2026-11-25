@@ -28,6 +28,11 @@ pub trait Remote: Sync {
         overwrite_tables: bool,
     ) -> Result<(), ServerError>;
     fn source_control(&self, service: &str, body: &Value) -> Result<Option<Value>, ServerError>;
+    /// The installed extension packages as (name, version), or `None` where the remote cannot
+    /// say, which leaves a Project's `dependsOn` extensions unchecked.
+    fn installed_extensions(&self) -> Result<Option<Vec<(String, String)>>, ServerError> {
+        Ok(None)
+    }
     /// Import-compatible Exporter XML for preserving server-owned parts.
     fn export_owned(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
         Err(ServerError::InvalidResponse {
@@ -79,6 +84,22 @@ impl Remote for Client {
 
     fn export_owned(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
         super::backup::Remote::export(self, key)
+    }
+
+    fn installed_extensions(&self) -> Result<Option<Vec<(String, String)>>, ServerError> {
+        match super::extensions::list(self) {
+            Ok(packages) => Ok(Some(
+                packages
+                    .into_iter()
+                    .map(|package| (package.name, package.version))
+                    .collect(),
+            )),
+            Err(super::extensions::ExtensionError::Remote(error)) => Err(error),
+            Err(other) => Err(ServerError::InvalidResponse {
+                url: "GetExtensionPackageList".into(),
+                why: other.to_string(),
+            }),
+        }
     }
 }
 
@@ -149,9 +170,32 @@ fn entities_within(
     bytes: &[u8],
     limit: u64,
 ) -> Result<Vec<EntityKey>, ImportError> {
+    let mut found = Vec::new();
+    for (entry, xml) in xml_documents(file_name, bytes, limit)? {
+        found.extend(entities_in_xml(&xml).map_err(|e| match &entry {
+            Some(entry) => ImportError::Invalid(format!("{file_name}/{entry}: {e}")),
+            None => ImportError::Invalid(format!("{file_name}: {e}")),
+        })?);
+    }
+    if found.is_empty() {
+        return Err(ImportError::Invalid(format!(
+            "{file_name}: a zip with no entity XML in it"
+        )));
+    }
+    Ok(found)
+}
+
+/// An XML document of an import file and, for a zip, the entry it came from.
+type XmlDocument = (Option<String>, Vec<u8>);
+
+/// The XML documents of an import file: the file itself, or each `.xml` entry of a zip (named).
+fn xml_documents(
+    file_name: &str,
+    bytes: &[u8],
+    limit: u64,
+) -> Result<Vec<XmlDocument>, ImportError> {
     if !bytes.starts_with(b"PK") {
-        return entities_in_xml(bytes)
-            .map_err(|e| ImportError::Invalid(format!("{file_name}: {e}")));
+        return Ok(vec![(None, bytes.to_vec())]);
     }
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))
         .map_err(|e| ImportError::Invalid(format!("{file_name}: not a readable zip ({e})")))?;
@@ -179,17 +223,161 @@ fn entities_within(
                 "{file_name}/{name} expands to more than {limit} bytes; nothing was imported",
             )));
         }
-        found.extend(
-            entities_in_xml(&xml)
-                .map_err(|e| ImportError::Invalid(format!("{file_name}/{name}: {e}")))?,
-        );
-    }
-    if found.is_empty() {
-        return Err(ImportError::Invalid(format!(
-            "{file_name}: a zip with no entity XML in it"
-        )));
+        found.push((Some(name), xml));
     }
     Ok(found)
+}
+
+/// What a Project of an import file says it depends on: `dependsOn` is JSON,
+/// `{"extensions":"Pkg:3.0.3,...","projects":"Other:1.0.0,..."}`. A Project whose `dependsOn`
+/// is empty or not JSON declares nothing here.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Declared {
+    project: String,
+    /// (package, required version)
+    extensions: Vec<(String, Option<String>)>,
+    projects: Vec<String>,
+}
+
+fn declared_dependencies(xml: &[u8]) -> Vec<Declared> {
+    use super::scan::Kind;
+    let Ok(tokens) = super::scan::tokenize(xml) else {
+        return Vec::new();
+    };
+    let mut depth = 0usize;
+    let mut collection = String::new();
+    let mut found = Vec::new();
+    for token in &tokens {
+        match token.kind {
+            Kind::Start | Kind::Empty => {
+                if depth == 1 {
+                    collection = String::from_utf8_lossy(token.name.of(xml)).into_owned();
+                } else if depth == 2 && collection == "Projects" {
+                    let text = |name: &str| {
+                        super::scan::attribute(xml, token, name)
+                            .ok()
+                            .flatten()
+                            .map(|value| {
+                                super::scan::decode_entities(&String::from_utf8_lossy(
+                                    value.of(xml),
+                                ))
+                            })
+                    };
+                    if let (Some(project), Some(depends)) = (text("name"), text("dependsOn")) {
+                        if let Ok(json) = serde_json::from_str::<Value>(&depends) {
+                            let list = |field: &str| -> Vec<String> {
+                                json[field]
+                                    .as_str()
+                                    .unwrap_or("")
+                                    .split(',')
+                                    .map(|item| item.trim().to_string())
+                                    .filter(|item| !item.is_empty())
+                                    .collect()
+                            };
+                            found.push(Declared {
+                                project,
+                                extensions: list("extensions")
+                                    .into_iter()
+                                    .map(|item| match item.split_once(':') {
+                                        Some((name, version)) => {
+                                            (name.to_string(), Some(version.to_string()))
+                                        }
+                                        None => (item, None),
+                                    })
+                                    .collect(),
+                                projects: list("projects")
+                                    .into_iter()
+                                    .map(|item| {
+                                        item.split(':').next().unwrap_or_default().to_string()
+                                    })
+                                    .collect(),
+                            });
+                        }
+                    }
+                }
+                if token.kind == Kind::Start {
+                    depth += 1;
+                }
+            }
+            Kind::End => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    found
+}
+
+/// Refuses an import whose Projects depend on extensions or projects the server lacks: the
+/// server answers HTTP 406 for each only at the end of an apply. Names every one.
+fn check_project_dependencies(
+    remote: &dyn Remote,
+    file_name: &str,
+    bytes: &[u8],
+    entities: &[EntityKey],
+) -> Result<(), ImportError> {
+    let mut declared = Vec::new();
+    for (_, xml) in xml_documents(file_name, bytes, MAX_ENTRY_BYTES)? {
+        declared.extend(declared_dependencies(&xml));
+    }
+    if declared.is_empty() {
+        return Ok(());
+    }
+    let mut problems = Vec::new();
+    let installed = if declared.iter().any(|d| !d.extensions.is_empty()) {
+        remote.installed_extensions().map_err(ImportError::Remote)?
+    } else {
+        None
+    };
+    for dependency in &declared {
+        for (name, required) in &dependency.extensions {
+            let Some(installed) = &installed else { break };
+            match installed.iter().find(|(have, _)| have == name) {
+                None => problems.push(format!(
+                    "{} depends on extension {name}, which is not installed",
+                    dependency.project
+                )),
+                Some((_, version)) => {
+                    let older = required.as_ref().is_some_and(|required| {
+                        super::extensions::version_order(name, version, required)
+                            .is_ok_and(std::cmp::Ordering::is_lt)
+                    });
+                    if older {
+                        problems.push(format!(
+                            "{} depends on extension {name} {}, and {version} is installed",
+                            dependency.project,
+                            required.as_deref().unwrap_or_default()
+                        ));
+                    }
+                }
+            }
+        }
+        for project in &dependency.projects {
+            let in_import = entities
+                .iter()
+                .any(|key| key.collection() == "Projects" && key.name() == project);
+            if in_import {
+                continue;
+            }
+            let on_server = match EntityKey::new("Projects", project.clone()) {
+                Ok(key) => remote.exists(&key).map_err(ImportError::Remote)?,
+                Err(_) => false,
+            };
+            if !on_server {
+                problems.push(format!(
+                    "{} depends on project {project}, which is neither in this import nor on the server",
+                    dependency.project
+                ));
+            }
+        }
+    }
+    if problems.is_empty() {
+        return Ok(());
+    }
+    problems.sort();
+    problems.dedup();
+    Err(ImportError::Invalid(format!(
+        "{file_name}: nothing was sent, because the server would refuse a Project here: {}; install the extension or import the project first",
+        problems.join("; ")
+    )))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -293,6 +481,7 @@ pub(crate) fn import_file_with_server_owned_progress(
             plan.new.push(entity.clone());
         }
     }
+    check_project_dependencies(remote, file_name, bytes, &entities)?;
     let owned: Vec<_> = plan
         .replaced
         .iter()
@@ -551,6 +740,7 @@ mod tests {
         export_failure: bool,
         diffs: Mutex<Vec<Value>>,
         swallow: bool,
+        packages: Vec<(String, String)>,
     }
 
     impl Fake {
@@ -564,6 +754,7 @@ mod tests {
                 export_failure: false,
                 diffs: Mutex::new(Vec::new()),
                 swallow: false,
+                packages: Vec::new(),
             }
         }
     }
@@ -602,6 +793,10 @@ mod tests {
                 }
                 other => panic!("unexpected {other}"),
             }
+        }
+
+        fn installed_extensions(&self) -> Result<Option<Vec<(String, String)>>, ServerError> {
+            Ok(Some(self.packages.clone()))
         }
 
         fn export_owned(&self, key: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
@@ -878,6 +1073,62 @@ mod tests {
         fake.swallow = true;
         let error = import_file(&fake, "e.xml", XML, false, false, true).unwrap_err();
         assert!(error.to_string().contains("are not there"), "{error}");
+    }
+
+    fn project_xml(name: &str, depends_on: &str) -> Vec<u8> {
+        format!(
+            "<Entities><Projects><Project name=\"{name}\" dependsOn='{depends_on}'/></Projects></Entities>"
+        )
+        .into_bytes()
+    }
+
+    #[test]
+    fn a_project_needing_a_missing_extension_or_project_is_refused_before_sending() {
+        let mut fake = Fake::with(&[]);
+        fake.packages = vec![("Acme.Old".to_string(), "1.0.0".to_string())];
+        let xml = project_xml(
+            "Acme.App",
+            r#"{"extensions":"Acme.Base:3.0.3,Acme.Old:2.0.0,Acme.Old2","projects":"Acme.Lib:1.0.0"}"#,
+        );
+        for apply in [false, true] {
+            let error = import_file(&fake, "p.xml", &xml, false, false, apply)
+                .unwrap_err()
+                .to_string();
+            assert!(
+                error.contains("extension Acme.Base, which is not installed"),
+                "{error}"
+            );
+            assert!(
+                error.contains("extension Acme.Old 2.0.0, and 1.0.0 is installed"),
+                "{error}"
+            );
+            assert!(
+                error.contains("extension Acme.Old2, which is not installed"),
+                "{error}"
+            );
+            assert!(
+                error.contains("project Acme.Lib, which is neither"),
+                "{error}"
+            );
+        }
+        assert_eq!(*fake.imported.lock().unwrap(), 0);
+
+        // Met: installed (newer or equal), the project is on the server.
+        let mut fake = Fake::with(&["Projects/Acme.Lib"]);
+        fake.packages = vec![("Acme.Base".to_string(), "3.1".to_string())];
+        let xml = project_xml(
+            "Acme.App",
+            r#"{"extensions":"Acme.Base:3.0.3","projects":"Acme.Lib:1.0.0"}"#,
+        );
+        import_file(&fake, "p.xml", &xml, false, false, true).unwrap();
+        assert_eq!(*fake.imported.lock().unwrap(), 1);
+    }
+
+    #[test]
+    fn a_project_depending_on_a_project_of_the_same_import_is_fine() {
+        let fake = Fake::with(&[]);
+        let xml = b"<Entities><Projects><Project name=\"A\" dependsOn='{\"projects\":\"B:1.0.0\"}'/><Project name=\"B\" dependsOn=''/></Projects></Entities>";
+        import_file(&fake, "p.xml", xml, false, false, false).unwrap();
     }
 
     #[test]

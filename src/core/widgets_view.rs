@@ -32,7 +32,7 @@ pub struct WidgetDetail {
     pub type_display_name: String,
     pub aliases: Vec<String>,
     pub(crate) container: bool,
-    pub(crate) bindable: bool,
+    pub bindable: bool,
     pub(crate) auto_resize: bool,
     pub properties: Vec<PropertyRow>,
     pub events: Vec<String>,
@@ -40,6 +40,8 @@ pub struct WidgetDetail {
     pub(crate) defaults_count: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+    /// What a `widget:` node of a page spec takes for this widget.
+    pub page_spec: String,
 }
 
 /// List the catalogue in Composer's order, optionally narrowing it by type, label, alias or discovery hint.
@@ -49,8 +51,7 @@ pub fn list(search: Option<&str>) -> Vec<WidgetSummary> {
             let wanted = text.to_ascii_lowercase().replace('-', " ");
             let words: Vec<_> = wanted.split_whitespace().collect();
             catalog()
-                .widgets
-                .iter()
+                .all()
                 .filter(|widget| {
                     widget
                         .names()
@@ -64,7 +65,7 @@ pub fn list(search: Option<&str>) -> Vec<WidgetSummary> {
                 .map(summary)
                 .collect()
         }
-        None => catalog().widgets.iter().map(summary).collect(),
+        None => catalog().all().map(summary).collect(),
     }
 }
 
@@ -97,12 +98,41 @@ pub fn detail(word: &str) -> Result<WidgetDetail, CatalogError> {
         events: widget.events.clone().unwrap_or_default(),
         services: widget.services.clone().unwrap_or_default(),
         defaults_count: widget.defaults.len(),
+        page_spec: page_spec(widget),
         note: if bindable {
-            schema_note(&widget.type_id).map(str::to_string)
+            schema_note(&widget.type_id)
+                .map(str::to_string)
+                .or_else(|| widget.provenance.clone())
         } else {
             Some("no binding contract in the catalogue: it can be placed but not bound".to_string())
         },
     })
+}
+
+/// The `widget:` node of a page spec for `widget`: its properties are the editable ones above
+/// (checked by name and base type), `events` name this widget's events, and `children` need a
+/// container.
+fn page_spec(widget: &Widget) -> String {
+    let mut text = format!("widget: {{id: <id>, type: {}", widget.type_id);
+    let property = properties(widget)
+        .into_iter()
+        .find(|p| p.direction != "out" && !p.base_type.is_empty());
+    if let Some(property) = &property {
+        text.push_str(&format!(
+            ", props: {{{}: <{}>}}",
+            property.name, property.base_type
+        ));
+    }
+    if let Some(event) = widget.events.as_ref().and_then(|e| e.first()) {
+        text.push_str(&format!(
+            ", events: [{{on: {event}, invoke: <data source or id.Service>}}]"
+        ));
+    }
+    if widget.container {
+        text.push_str(", children: [<nodes>]");
+    }
+    text.push('}');
+    text
 }
 
 /// Structure of a property the catalogue types only as a JSON value.
@@ -189,12 +219,12 @@ mod tests {
 
     #[test]
     fn the_tab_set_detail_documents_the_items_objects() {
-        let note = detail("tabs").unwrap().note.unwrap();
+        let note = detail("tab-set").unwrap().note.unwrap();
         assert!(
             note.contains(r#""name":"Orders""#) && note.contains("Tab <n>"),
             "{note}"
         );
-        assert!(detail("button").unwrap().note.is_none());
+        assert!(detail("ptcsbutton").unwrap().note.is_none());
     }
 
     #[test]
@@ -241,7 +271,7 @@ mod tests {
             .properties
             .iter()
             .any(|property| property.name == "Text" && property.direction == "in/out"));
-        let button = detail("button").unwrap();
+        let button = detail("ptcsbutton").unwrap();
         assert!(button.events.iter().any(|event| event == "Clicked"));
         assert!(button
             .services
@@ -251,7 +281,7 @@ mod tests {
             .properties
             .iter()
             .any(|property| property.name == "Visible"));
-        let container = detail("container").unwrap();
+        let container = detail("flexcontainer").unwrap();
         assert!(container.note.is_none());
         assert!(container
             .properties

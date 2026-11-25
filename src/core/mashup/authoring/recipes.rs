@@ -360,6 +360,7 @@ struct Work<'a> {
     wired: Vec<String>,
     notes: Vec<String>,
     warnings: Vec<String>,
+    lenient_fields: bool,
 }
 
 fn untriggered_calls(content: &Value, mashup: &str) -> Vec<String> {
@@ -769,7 +770,7 @@ impl Work<'_> {
                 ))
             })?;
         if let Some(status) = status {
-            self.field(
+            self.field_strict(
                 &Some(
                     shape
                         .fields
@@ -801,7 +802,7 @@ impl Work<'_> {
             let (name, caption) = field
                 .split_once(':')
                 .map_or((field.as_str(), None), |(n, c)| (n, Some(c)));
-            self.field(&known, name)?;
+            self.field_strict(&known, name)?;
             if caption.is_some_and(str::is_empty) || picked.iter().any(|(n, _)| n == name) {
                 return Err(AuthoringError::Invalid(format!(
                     "label-pairs: field {name} needs a non-empty caption and must be given once"
@@ -868,6 +869,7 @@ impl Work<'_> {
                     wired: Vec::new(),
                     notes: Vec::new(),
                     warnings: Vec::new(),
+                    lenient_fields: self.lenient_fields,
                 };
                 probe.label_pairs(
                     container,
@@ -1386,8 +1388,9 @@ impl Work<'_> {
         )
     }
 
-    /// Refuse a field the result's DataShape does not have, when the shape is known.
-    fn field(
+    /// Refuse a field the result's DataShape does not have, when the shape is known: for a
+    /// field list the caller names outright (label pairs), where a typo is the likely cause.
+    fn field_strict(
         &self,
         fields: &Option<Vec<(String, String)>>,
         name: &str,
@@ -1407,6 +1410,39 @@ impl Work<'_> {
                             .join(", ")
                     ))
                 }),
+            None => Ok(String::new()),
+        }
+    }
+
+    /// Warn about a field the result's DataShape does not have, when the shape is known. A
+    /// service can declare one shape and build rows with another field (the page works at run
+    /// time, and `check` reports the field as unknown-field-property), so the build goes on.
+    fn field(
+        &mut self,
+        fields: &Option<Vec<(String, String)>>,
+        name: &str,
+    ) -> Result<String, AuthoringError> {
+        if !self.lenient_fields {
+            return self.field_strict(fields, name);
+        }
+        match fields {
+            Some(fields) => match fields.iter().find(|(field, _)| field == name) {
+                Some((_, base)) => Ok(base.clone()),
+                None => {
+                    let warning = format!(
+                        "the result has no field {name}; its fields are {}; the page uses it anyway, `twaco check` reports it",
+                        fields
+                            .iter()
+                            .map(|(f, _)| f.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    );
+                    if !self.warnings.contains(&warning) {
+                        self.warnings.push(warning);
+                    }
+                    Ok(String::new())
+                }
+            },
             None => Ok(String::new()),
         }
     }
@@ -1592,7 +1628,7 @@ pub(crate) fn plan_recipe(
     request: &RecipeRequest,
 ) -> Result<RecipePlan, AuthoringError> {
     let loaded = load_existing(solution, &request.mashup)?;
-    plan_recipe_loaded(solution, request, loaded, None)
+    plan_recipe_loaded(solution, request, loaded, None, false)
 }
 
 pub(super) fn plan_recipe_loaded(
@@ -1600,6 +1636,8 @@ pub(super) fn plan_recipe_loaded(
     request: &RecipeRequest,
     loaded: super::ExistingMashup,
     tokens: Option<&mashup::tokens::Tokens>,
+    // A page build (true) warns about a field the declared result lacks; a command refuses.
+    lenient_fields: bool,
 ) -> Result<RecipePlan, AuthoringError> {
     if let Recipe::Component {
         container,
@@ -1643,6 +1681,7 @@ pub(super) fn plan_recipe_loaded(
         wired: Vec::new(),
         notes: Vec::new(),
         warnings: Vec::new(),
+        lenient_fields,
     };
     let mut css = None;
     match &request.recipe {

@@ -3734,7 +3734,7 @@ fn filter_controls_are_inset_and_their_footer_stays_at_the_bottom() {
     let catalog = crate::core::widgets::catalog();
     let place = |document: &mut crate::core::mashup::edit::MashupDocument, kind, placement| {
         document
-            .place(catalog.resolve(kind).unwrap(), &placement)
+            .place(catalog.resolve_for_add(kind).unwrap(), &placement)
             .unwrap()
             .id
     };
@@ -6005,7 +6005,8 @@ fn platform_services_resolve_through_the_cache_and_a_missing_cache_says_how_to_f
     .unwrap_err()
     .to_string();
     assert!(
-        error.contains("twaco types --platform") && error.contains("template chain"),
+        error.contains("twaco types --platform")
+            && error.contains("twaco cannot see ThingTemplates/GenericThing, ThingTemplates/Timer"),
         "{error}"
     );
     write(
@@ -9173,7 +9174,7 @@ fn tracker_recipe_new_sizes_its_row_beside_a_growing_grid() {
             .unwrap();
         document
             .place(
-                widgets::catalog().resolve("label").unwrap(),
+                widgets::catalog().resolve_for_add("label").unwrap(),
                 &Placement::Beside {
                     anchor: grid.id,
                     side: mashup::edit::Side::Above,
@@ -11772,7 +11773,7 @@ fn a_moved_button_keeps_its_width_and_margin_in_a_filters_footer() {
     let catalog = widgets::catalog();
     let button = document
         .place(
-            catalog.resolve("button").unwrap(),
+            catalog.resolve_for_add("button").unwrap(),
             &Placement::In("content".into()),
         )
         .unwrap()
@@ -11783,7 +11784,7 @@ fn a_moved_button_keeps_its_width_and_margin_in_a_filters_footer() {
     let (subtree, _) = document.detach_widget(&path).unwrap();
     let placed = document
         .place_existing(
-            catalog.resolve("button").unwrap(),
+            catalog.resolve_for_add("button").unwrap(),
             subtree,
             &Placement::Bottom("filters".into()),
         )
@@ -14062,7 +14063,7 @@ fn n5_list_page_cards_below_start_another_row() {
     let template = mashup::templates::layout("list-page").unwrap().unwrap();
     let mut doc = new_document(&template, false, DEFAULT_THEME).unwrap();
     let catalog = widgets::catalog();
-    let container = catalog.resolve("container").unwrap();
+    let container = catalog.resolve_for_add("container").unwrap();
     let first = doc
         .place(container, &Placement::In("body".into()))
         .unwrap()
@@ -15059,5 +15060,58 @@ fn disagreeing_mashup_sidecars_offer_complete_entity_commands() {
     assert!(
         error.contains("twaco extract Mashups/Acme.Reference_MU"),
         "{error}"
+    );
+}
+
+#[test]
+fn adding_a_legacy_word_names_the_modern_widget_it_placed() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Legacy_MU";
+    apply_new(
+        &solution,
+        &plan_new(&solution, &request(name)).unwrap(),
+        &lock(&solution),
+    )
+    .unwrap();
+    for (word, type_id) in [
+        ("tree", "ptcstreeselector"),
+        ("container", "flexcontainer"),
+        ("collection", "ptcscollection"),
+    ] {
+        let plan = plan_add(&solution, &add_request(name, word)).unwrap();
+        assert!(plan.placed.id.starts_with(type_id), "{}", plan.placed.id);
+        let mapped = format!("{word} -> {type_id}: the legacy `{word}` widget cannot be authored");
+        assert!(
+            plan.notes.iter().any(|note| note.starts_with(&mapped)),
+            "{:?}",
+            plan.notes
+        );
+    }
+    // A modern or friendly word maps to itself and says nothing.
+    let plan = plan_add(&solution, &add_request(name, "tree-selector")).unwrap();
+    assert!(
+        !plan.notes.iter().any(|note| note.contains("legacy")),
+        "{:?}",
+        plan.notes
+    );
+}
+
+#[test]
+fn copies_warn_about_design_time_access_a_permission_group_gives_the_source() {
+    let (dir, solution) = one_project();
+    let source = plan_new(&solution, &request("Acme.Reference_MU")).unwrap();
+    apply_new(&solution, &source, &lock(&solution)).unwrap();
+    write(
+        dir.path(),
+        "acme/PermissionGroups/Acme.Editors.xml",
+        r#"<Entities><PermissionGroups><PermissionGroup name="Acme.Editors" projectName="Acme"><EntityPermissions><EntityPermission entityType="Mashup" entityName="Acme.Reference_MU" permissionCategory="DesignTime" permissionName="Update" isPermitted="true" onInstances="false"/></EntityPermissions></PermissionGroup></PermissionGroups></Entities>"#,
+    );
+    let notes =
+        copy_visibility_notes(&solution, "Acme.Reference_MU", "Acme.Copy_MU", true).unwrap();
+    assert!(
+        notes
+            .iter()
+            .any(|n| n.contains("DesignTime access through PermissionGroup Acme.Editors")),
+        "{notes:?}"
     );
 }

@@ -160,9 +160,7 @@
     {
       "type": "flexcontainer",
       "aliases": [
-        "container",
-        "responsive-container",
-        "panel"
+        "responsive-container"
       ],
       "type_display_name": "Responsive Container",
       "display_name": "container",
@@ -207,11 +205,6 @@
         "Visible": true,
         "Z-index": 10
       },
-      "services": [
-        "ToggleExpandCollapse",
-        "Expand",
-        "Collapse"
-      ],
       "properties": {
         "ExpandCollapseTabLocation": {
           "base_type": "STRING",
@@ -269,7 +262,12 @@
           "base_type": "BOOLEAN"
         }
       },
-      "events": []
+      "events": [],
+      "services": [
+        "ToggleExpandCollapse",
+        "Expand",
+        "Collapse"
+      ]
     },
     {
       "type": "mashupcontainer",
@@ -454,9 +452,7 @@
     },
     {
       "type": "ptcsbutton",
-      "aliases": [
-        "button"
-      ],
+      "aliases": [],
       "type_display_name": "Button",
       "display_name": "ptcs-button",
       "container": false,
@@ -7393,9 +7389,7 @@
     },
     {
       "type": "ptcscheckbox",
-      "aliases": [
-        "checkbox"
-      ],
+      "aliases": [],
       "type_display_name": "Checkbox",
       "display_name": "ptcs-checkbox",
       "container": false,
@@ -8001,9 +7995,7 @@
     },
     {
       "type": "ptcscollection",
-      "aliases": [
-        "collection"
-      ],
+      "aliases": [],
       "type_display_name": "Collection",
       "display_name": "ptcs-collection",
       "container": false,
@@ -8933,9 +8925,7 @@
     },
     {
       "type": "ptcsdivider",
-      "aliases": [
-        "divider"
-      ],
+      "aliases": [],
       "type_display_name": "Divider",
       "display_name": "ptcs-divider",
       "container": false,
@@ -10654,9 +10644,7 @@
     },
     {
       "type": "ptcsimage",
-      "aliases": [
-        "image"
-      ],
+      "aliases": [],
       "type_display_name": "Image",
       "display_name": "ptcs-image",
       "container": false,
@@ -10955,7 +10943,6 @@
     {
       "type": "ptcslabel",
       "aliases": [
-        "label",
         "text"
       ],
       "type_display_name": "Label",
@@ -11070,7 +11057,6 @@
     {
       "type": "ptcslink",
       "aliases": [
-        "link",
         "hyperlink"
       ],
       "type_display_name": "Link",
@@ -12032,7 +12018,8 @@
           "target": true
         },
         "SubMenuMaxWidth": {
-          "base_type": "NUMBER"
+          "base_type": "NUMBER",
+          "css_size": true
         },
         "SubMenuMinWidth": {
           "base_type": "NUMBER"
@@ -12044,7 +12031,8 @@
           "base_type": "STRING"
         },
         "MaxWidth": {
-          "base_type": "NUMBER"
+          "base_type": "NUMBER",
+          "css_size": true
         },
         "MinWidth": {
           "base_type": "NUMBER"
@@ -12217,7 +12205,8 @@
           "base_type": "NUMBER"
         },
         "MenuMaxWidth": {
-          "base_type": "NUMBER"
+          "base_type": "NUMBER",
+          "css_size": true
         },
         "MenuMaxItems": {
           "base_type": "NUMBER",
@@ -12955,9 +12944,7 @@
     },
     {
       "type": "ptcsslider",
-      "aliases": [
-        "slider"
-      ],
+      "aliases": [],
       "type_display_name": "Slider",
       "display_name": "ptcs-slider",
       "container": false,
@@ -13304,7 +13291,6 @@
     {
       "type": "ptcstabset",
       "aliases": [
-        "tabs",
         "tab-set"
       ],
       "type_display_name": "Tabs",
@@ -13527,8 +13513,7 @@
     {
       "type": "ptcstextarea",
       "aliases": [
-        "text-area",
-        "textarea"
+        "text-area"
       ],
       "type_display_name": "Text Area",
       "display_name": "ptcs-textarea",
@@ -13819,10 +13804,6 @@
         "Z-index": 10
       },
       "properties": {
-        "Icon": {
-          "base_type": "IMAGELINK",
-          "target": true
-        },
         "Text": {
           "base_type": "STRING",
           "source": true,
@@ -13898,7 +13879,8 @@
           "base_type": "NUMBER"
         },
         "Icon": {
-          "base_type": "IMAGELINK"
+          "base_type": "IMAGELINK",
+          "target": true
         },
         "TooltipField": {
           "base_type": "STRING",
@@ -14538,8 +14520,7 @@
     {
       "type": "ptcstreeselector",
       "aliases": [
-        "tree-selector",
-        "tree"
+        "tree-selector"
       ],
       "type_display_name": "Tree Selector",
       "display_name": "ptcs-treeselector",
@@ -15475,7 +15456,6 @@
     {
       "type": "navigationfunction",
       "aliases": [
-        "navigation",
         "popup"
       ],
       "type_display_name": "Navigation",
@@ -15662,8 +15642,7 @@
     {
       "type": "autorefreshfunction",
       "aliases": [
-        "auto-refresh",
-        "autorefresh"
+        "auto-refresh"
       ],
       "type_display_name": "Auto Refresh",
       "display_name": "autorefreshfunction",

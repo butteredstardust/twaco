@@ -450,6 +450,7 @@ const ENTITY_COLLECTIONS: &[(&str, &str)] = &[
     ("Authenticators", "Authenticator"),
     ("Dashboards", "Dashboard"),
     ("DataShapes", "DataShape"),
+    ("DataTags", "DataTagVocabulary"),
     ("DirectoryServices", "DirectoryService"),
     ("ExtensionPackages", "ExtensionPackage"),
     ("Groups", "Group"),
@@ -461,6 +462,7 @@ const ENTITY_COLLECTIONS: &[(&str, &str)] = &[
     ("MCPNamespaces", "MCPNamespace"),
     ("MediaEntities", "MediaEntity"),
     ("Menus", "Menu"),
+    ("ModelTags", "ModelTagVocabulary"),
     ("Networks", "Network"),
     ("ThingGroups", "ThingGroup"),
     ("NotificationDefinitions", "NotificationDefinition"),
@@ -966,6 +968,8 @@ mod tests {
                 {"name": "P.Sub", "type": "Project"},
                 {"name": "P.Agent", "type": "AIAgent"},
                 {"name": "P.Shape", "type": "DataShape"},
+                {"name": "P.Data", "type": "DataTagVocabulary"},
+                {"name": "P.Model", "type": "ModelTagVocabulary"},
                 {"name": "P.Custom", "type": "CustomType"}
             ]}),
             fails: false,
@@ -998,10 +1002,13 @@ mod tests {
                 "Projects/P.Sub",
                 "AIAgents/P.Agent",
                 "DataShapes/P.Shape",
+                "DataTags/P.Data",
+                "ModelTags/P.Model",
                 "CustomType/P.Custom"
             ]
         );
-        assert!(outcome.server_only[3]
+        assert!(outcome.server_only[3].note.is_none());
+        assert!(outcome.server_only[5]
             .note
             .as_deref()
             .is_some_and(|note| note.contains("does not know")));

@@ -480,6 +480,7 @@ pub(crate) fn call_service_tool(
         as_user: arguments.as_user.as_ref().cloned(),
         lang: arguments.lang.as_ref().cloned(),
         run_if_read_only: arguments.dry_run.is_absent(),
+        force_read: false,
     };
     let mut notices = commands::Notices::default();
     let outcome = commands::call::execute(solution, &request, server::Client::new, &mut notices)
@@ -492,6 +493,10 @@ pub(crate) fn call_service_tool(
     } = outcome
     else {
         let target = outcome.target();
+        let reason = match &outcome {
+            commands::call::CallOutcome::Plan { reason, .. } => reason.clone(),
+            commands::call::CallOutcome::Applied { .. } => String::new(),
+        };
         let note = match (arguments.as_user.as_ref(), arguments.lang.as_ref()) {
             (Some(user), Some(lang)) => format!(
                 "nothing was sent; pass dry_run: false to call it as {user}, whose language \
@@ -503,7 +508,9 @@ pub(crate) fn call_service_tool(
             _ => "nothing was sent; pass dry_run: false to call it".to_string(),
         };
         return Ok(json!({
+            "called": false,
             "dry_run": true,
+            "reason": reason,
             "would_call": { "target": target.to_string(), "service": service, "parameters": parameters },
             "note": note,
         }));

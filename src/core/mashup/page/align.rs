@@ -380,6 +380,25 @@ fn is_unstated_default(difference: &merge::Difference, kinds: &BTreeMap<String, 
     {
         return true;
     }
+    // Older Composer versions store a root parameter without aspects; IN and not mandatory is
+    // what a spec generates for it.
+    if difference.path == "/UI/Properties/_currentParameterDefs" {
+        if let Some(current) = &difference.current {
+            if without_default_aspects(&difference.generated) == *current {
+                return true;
+            }
+        }
+    }
+    // Older Composer versions record neither the version a widget was made with nor the
+    // secure-expressions flag.
+    if difference.current.as_ref().is_none_or(Value::is_null)
+        && matches!(
+            segments.last(),
+            Some(&"_baseVersion") | Some(&"secureExpressionsOnly")
+        )
+    {
+        return true;
+    }
     // Composer records the numeric type it saw when the binding was made (NUMBER, INTEGER or
     // LONG); the runtime resolves the endpoint's own type, so the recorded one is no difference.
     if difference.path.ends_with("/PropertyMaps") {
@@ -424,10 +443,52 @@ fn is_unstated_default(difference: &merge::Difference, kinds: &BTreeMap<String, 
         .is_some_and(|widget| widget.defaults.get(*name) == Some(generated))
 }
 
-/// Property maps with every numeric base type written as NUMBER.
+/// Parameter definitions without the default `Aspects` (direction IN, not mandatory).
+fn without_default_aspects(defs: &Value) -> Value {
+    let mut defs = defs.clone();
+    for def in defs.as_array_mut().into_iter().flatten() {
+        let default = def["Aspects"].as_object().is_some_and(|a| {
+            a.len() == 2
+                && a.get("bindingDirection").and_then(Value::as_str) == Some("IN")
+                && a.get("isMandatory") == Some(&Value::Bool(false))
+        });
+        if default {
+            if let Some(def) = def.as_object_mut() {
+                def.remove("Aspects");
+            }
+        }
+    }
+    defs
+}
+
+/// Property maps with every numeric base type written as NUMBER, a name type as a string, and a
+/// source type an older Composer left out as `property`.
 fn numeric_types_alike(maps: &Value) -> Value {
     let mut maps = maps.clone();
     for map in maps.as_array_mut().into_iter().flatten() {
+        if map["SourcePropertyType"].is_null() {
+            map["SourcePropertyType"] = Value::String("property".into());
+        }
+        if let Some(kind) = map["SourcePropertyType"]
+            .as_str()
+            .map(str::to_ascii_lowercase)
+        {
+            map["SourcePropertyType"] = Value::String(kind);
+        }
+        if map["TargetPropertyType"].is_null() {
+            map["TargetPropertyType"] = Value::String("property".into());
+        }
+        if let Some(kind) = map["TargetPropertyType"]
+            .as_str()
+            .map(str::to_ascii_lowercase)
+        {
+            map["TargetPropertyType"] = Value::String(kind);
+        }
+        for key in ["SourcePropertyBaseType", "TargetPropertyBaseType"] {
+            if map[key].as_str().is_some_and(|t| t.ends_with("NAME")) {
+                map[key] = Value::String("STRING".into());
+            }
+        }
         for key in ["SourcePropertyBaseType", "TargetPropertyBaseType"] {
             if matches!(map[key].as_str(), Some("NUMBER" | "INTEGER" | "LONG")) {
                 map[key] = Value::String("NUMBER".into());

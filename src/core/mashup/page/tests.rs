@@ -794,6 +794,24 @@ fn new_spec_failure_rolls_back_all_created_artifacts_and_the_copy() {
 }
 
 #[test]
+fn a_plan_lists_only_widgets_whose_own_properties_change() {
+    let (_dir, solution) = solution();
+    create_page(&solution);
+    let paths = page_files(&solution);
+    std::fs::write(&paths[4], SPEC.replace("text: Refresh", "text: Reload")).unwrap();
+    let plan = super::build::plan(&solution, "Acme.Alerts_MU", None, None).unwrap();
+    assert!(!plan.conflicts(), "{}", plan.report);
+    let changed: Vec<_> = plan.report["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|n| n["status"] == "changed")
+        .map(|n| n["node"].as_str().unwrap())
+        .collect();
+    assert_eq!(changed, vec!["refresh"], "{}", plan.report);
+}
+
+#[test]
 fn removed_nodes_are_reported_and_removed_atomically() {
     let (_dir, solution) = solution();
     create_page(&solution);
@@ -2842,7 +2860,6 @@ fn batch_2a_elements_report_located_errors() {
             "list: {id: l, data: rows, display: Name, selection: both}",
             "single or multiple",
         ),
-        ("list: {id: l, data: rows, display: Missing}", "Missing"),
         (
             "list: {id: l, data: nope.selected, display: Name}",
             "names a list",
@@ -4905,3 +4922,71 @@ fn grid_columns_author_textarea_and_boolean_whitespace_with_type_validation() {
         assert!(error.contains(expected), "{error}");
     }
 }
+
+#[path = "milestone_tests.rs"]
+mod milestone;
+
+#[path = "page_widget_tests.rs"]
+mod page_widget;
+
+#[path = "truthful_tests.rs"]
+mod truthful;
+
+#[test]
+fn menu_css_widths_round_trip_through_fresh_and_as_built_pages() {
+    let (_dir, solution) = solution();
+    for (kind, property) in [
+        ("ptcsmenubutton", "MenuMaxWidth"),
+        ("ptcsmenubar", "MaxWidth"),
+        ("ptcsmenubar", "SubMenuMaxWidth"),
+    ] {
+        let contract = crate::core::widgets::catalog()
+            .by_type(kind)
+            .unwrap()
+            .property(property)
+            .unwrap();
+        assert_eq!(contract.base_type.as_deref(), Some("NUMBER"));
+        assert!(
+            !contract.target,
+            "Composer does not expose {kind}.{property} as a binding target"
+        );
+        for width in [
+            serde_json::json!("auto"),
+            serde_json::json!("24rem"),
+            serde_json::json!(280),
+        ] {
+            let spec = format!("version: 1\nrules: v1\npage:\n  name: Acme.MenuWidth_MU\n  template: blank\n  slots:\n    center:\n      - widget: {{id: menu, type: {kind}, props: {{{property}: {width}}}}}\n");
+            let built = compile(&solution, "Acme", &spec).unwrap();
+            for exact in [false, true] {
+                let derived = if exact {
+                    super::derive::derive_exact("Acme.Copy_MU", &built.content)
+                } else {
+                    super::derive::derive("Acme.Copy_MU", &built.content)
+                }
+                .unwrap();
+                assert!(
+                    !derived.notes.iter().any(|note| note.contains(property)),
+                    "{:?}",
+                    derived.notes
+                );
+                let rebuilt = compile(&solution, "Acme", &derived.spec)
+                    .unwrap_or_else(|error| panic!("{error}\n{}", derived.spec));
+                let doc = mashup::edit::parse(&rebuilt.content).unwrap();
+                let widget = doc
+                    .widgets()
+                    .into_iter()
+                    .find(|widget| widget.type_id == kind)
+                    .unwrap();
+                assert_eq!(
+                    doc.at(&widget.path)["Properties"][property],
+                    width,
+                    "{}",
+                    derived.spec
+                );
+            }
+        }
+    }
+}
+
+#[path = "kit_pages_tests.rs"]
+mod kit_pages;

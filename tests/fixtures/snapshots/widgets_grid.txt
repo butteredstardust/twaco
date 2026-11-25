@@ -161,5 +161,7 @@ properties:
   toolbarRightoverflowText setting (default "[[HyperlinkName]]")
 events: Filter, RowClicked, SelectedRowsChanged, LinkClicked, EditCellStarted, EditCellCompleted, EditCellCancelled, EditRowStarted, EditRowCompleted, EditRowCancelled, EditStarted, EditCompleted, EditCanceled, DeleteRowClicked, ResetButtonClicked, DoubleClicked
 services: Cancel, ConfirmDelete, Reset, Save
+in a page spec: widget: {id: <id>, type: ptcsgrid, props: {AddRowFormTitle: <STRING>}, events: [{on: Filter, invoke: <data source or id.Service>}]}
+  props take the properties above (name and base type are checked), events the events above, and services are targets of `invoke:` or `show:`
 --- stderr
 

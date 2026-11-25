@@ -641,8 +641,19 @@ fn lay_out(
         previous = doc.tokens[doc.end(child)?].span.end;
         // A missing comparison node is metadata or an empty permission kind the hash drops.
         // Retain its repository spelling when present; server-only fill-ins add no content.
+        // With no repository file to copy, the server's own `<Create/>`, `<Read/>`... of a
+        // permission block stay: without them the structure gate refuses the file.
+        let permission_kind = guide.is_none()
+            && matches!(
+                doc.name(at),
+                b"DesignTimePermissions"
+                    | b"InstanceDesignTimePermissions"
+                    | b"VisibilityPermissions"
+                    | b"InstanceVisibilityPermissions"
+            );
         if doc.comparison(child).is_none()
             && !property_stamp
+            && !permission_kind
             && !guide.is_some_and(|(d, _)| matched.is_some_and(|i| d.comparison(i).is_none()))
         {
             if !xml_space(source_gap) {
@@ -677,7 +688,7 @@ fn lay_out(
             };
         }
         let mut child_edits = Vec::new();
-        if (doc.comparison(child).is_none() && !property_stamp)
+        if (doc.comparison(child).is_none() && !property_stamp && !permission_kind)
             || (property_stamp && child_guide.is_some())
         {
             let (d, i) = child_guide.unwrap();

@@ -3,10 +3,12 @@
 How to change a ThingWorx solution kept in source control with twaco, in the order the work
 usually happens. `twaco mcp` serves the same work as MCP tools (`check`, `status`, `sync`,
 `deploy`, `call`, `logs`, `guide` and so on); `tools/list` names them. A command that writes to
-the server only plans unless given `--apply` (MCP: `dry_run: false`). The exception is `call`:
-the CLI runs the service you name, so know what a service does before you call it. MCP `call`
-without `dry_run` runs a service known to only read (a platform read the repository does not
-define, or one `[call] read_only` in twaco.toml lists) and plans any other.
+the server only plans unless given `--apply` (MCP: `dry_run: false`). That includes `call`
+(breaking change: `call` now needs `--apply` for writes; it runs a read at once, and prints "not
+called (dry run)" with the reason otherwise). A read is a service whose platform category is READ,
+one on the built-in platform list, one named Get, Query, Is, Has, Search or Find (not under
+`Resources/*`, where only the built-in list counts), one `[call] read` in twaco.toml lists, or one
+called with `--read`.
 
 ## Start here
 
@@ -67,7 +69,7 @@ which of its parts are fragile.
    calls: `deploy --only <mashups>` still runs them after import. A plan notes when a bundle
    contains no backend entity but still has project hooks. Review the planned calls before apply.
 5. **Call it, including the paths that should fail:**
-   `twaco call <Thing> <Service> '<json>' --with-logs`. That prints the result, then what the
+   `twaco call <Thing> <Service> '<json>' --apply --with-logs`. That prints the result, then what the
    call wrote to ScriptLog and ApplicationLog. Simple parameters can be bare pairs after the
    service (`twaco call <Thing>.<Service> Name=value`), typed by its signature; unknown names
    are refused; INFOTABLE and JSON need the JSON object.

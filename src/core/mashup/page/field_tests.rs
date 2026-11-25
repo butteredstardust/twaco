@@ -151,6 +151,36 @@ fn wiring_to_a_widget_the_catalogue_does_not_know_is_carried_on_an_as_built_page
 }
 
 #[test]
+fn a_legacy_tree_keeps_its_own_events_and_never_takes_the_modern_contract() {
+    let (_dir, solution) = element_solution();
+    let spec = HAND_SPEC
+        .replace(
+            "            - embed:",
+            "            - widget: {id: tree-34, type: tree, props: {Width: 200}}
+            - embed:",
+        )
+        .replace(
+            "  events:
+",
+            "  events:
+    - {on: tree-34.DoubleClicked, invoke: rows}
+",
+        );
+    let name = handmade(&solution, &spec, "Acme.Hand_MU");
+    let content = current(&solution, &name);
+    assert!(
+        content["Events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["EventTriggerId"] == "tree-34" && e["EventTriggerEvent"] == "DoubleClicked"),
+        "{content}"
+    );
+    assert!(content.to_string().contains("\"Type\":\"tree\""));
+    adopts_cleanly(&solution, &name);
+}
+
+#[test]
 fn a_binding_stated_twice_and_a_formatter_threshold_adopt_as_found() {
     let (_dir, solution) = element_solution();
     let spec = HAND_SPEC

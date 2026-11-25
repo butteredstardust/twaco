@@ -777,10 +777,170 @@ fn brief81_expression_bound_to_the_root_widget() {
         .unwrap()
         .push(serde_json::json!({
             "Id": "b-root", "SourceArea": "UI", "SourceId": "expression2-5", "SourceSection": "",
-            "SourceDetails": "", "TargetArea": "UI", "TargetId": root, "TargetSection": "",
+            "SourceDetails": "", "TargetArea": "Mashup", "TargetId": root, "TargetSection": "",
             "PropertyMaps": [{"SourceProperty": "Output", "SourcePropertyBaseType": "STRING",
                 "SourcePropertyType": "property", "TargetProperty": "CustomClass",
                 "TargetPropertyBaseType": "STRING", "TargetPropertyType": "property"}]
         }));
     brief81_copy(&solution, &before);
+}
+
+#[test]
+fn fresh_copy_keeps_the_stored_styles_of_the_root_container() {
+    let (_dir, solution) = element_solution();
+    let spec = "version: 1
+rules: v1
+page:
+  name: Acme.RootStyle_MU
+  template: blank
+  layout: as-built
+  root: {props: {DisplayName: page}, styles: {$: {$: {background: '#ffffff'}}}}
+  slots:
+    center:
+      - label: {id: out, text: Hello}
+";
+    let first = compile(&solution, "Acme", spec).unwrap();
+    let mut before: Value = serde_json::from_str(&first.content).unwrap();
+    before.as_object_mut().unwrap().remove("twacoPageRules");
+    let root_id = before["UI"]["Widgets"][0]["Properties"]["Id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_eq!(
+        before["UI"]["Properties"]["StyleProperties"]["data"][&root_id]["parts"]["$"]["$"]
+            ["background"],
+        "#ffffff"
+    );
+    for exact in [true, false] {
+        let derived = if exact {
+            derive::derive_exact("Acme.Copy_MU", &before.to_string())
+        } else {
+            derive::derive_with_styles("Acme.Copy_MU", &before.to_string(), true)
+        }
+        .unwrap();
+        assert!(
+            derived.notes.iter().all(|n| !n.contains("not carried")),
+            "{:?}",
+            derived.notes
+        );
+        let fresh = compile(&solution, "Acme", &derived.spec).unwrap();
+        let after: Value = serde_json::from_str(&fresh.content).unwrap();
+        let copy_id = after["UI"]["Widgets"][0]["Properties"]["Id"]
+            .as_str()
+            .unwrap();
+        assert_eq!(
+            after["UI"]["Properties"]["StyleProperties"]["data"][copy_id]["parts"]["$"]["$"]
+                ["background"],
+            "#ffffff",
+            "exact={exact}: {}",
+            derived.spec
+        );
+    }
+}
+
+#[test]
+fn a_binding_into_the_root_containers_props_is_written() {
+    let (_dir, solution) = element_solution();
+    let spec = "version: 1
+rules: v1
+page:
+  name: Acme.RootBind_MU
+  template: blank
+  layout: as-built
+  data:
+    cls: {expression: \"'acme-wide'\", output: STRING}
+  root: {props: {DisplayName: page, CustomClass: {bind: cls}}}
+  slots:
+    center:
+      - label: {id: out, text: Hello}
+";
+    let built = compile(&solution, "Acme", spec).unwrap();
+    let content: Value = serde_json::from_str(&built.content).unwrap();
+    let root = content["UI"]["Widgets"][0]["Properties"]["Id"]
+        .as_str()
+        .unwrap();
+    assert!(
+        content["DataBindings"].as_array().unwrap().iter().any(|b| {
+            b["TargetId"] == root
+                && b["PropertyMaps"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|m| m["TargetProperty"] == "CustomClass")
+        }),
+        "{}",
+        content["DataBindings"]
+    );
+    assert!(content["UI"]["Widgets"][0]["Properties"]["CustomClass"].is_null());
+    let derived = derive::derive_exact("Acme.Copy_MU", &built.content).unwrap();
+    let fresh = compile(&solution, "Acme", &derived.spec).unwrap();
+    let after: Value = serde_json::from_str(&fresh.content).unwrap();
+    assert!(
+        super::super::align::lost_wiring(&content, &after).is_empty(),
+        "{}",
+        derived.spec
+    );
+}
+
+#[test]
+fn an_extension_widgets_binding_keeps_the_target_base_type_through_derive() {
+    let (_dir, solution) = element_solution();
+    std::fs::write(solution.root.join("acme/Things/Acme.Logo.xml"), r#"<Entities><Things><Thing name="Acme.Logo" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="GetLogo"><ParameterDefinitions/><ResultType baseType="STRING"/></ServiceDefinition></ServiceDefinitions></ThingShape></Thing></Things></Entities>"#).unwrap();
+    let spec = "version: 1
+rules: v1
+page:
+  name: Acme.ExtBind_MU
+  template: blank
+  layout: as-built
+  parameters: {logo: STRING}
+  data:
+    link: {expression: \"'a.svg'\", output: STRING}
+    logo: {service: Acme.Logo.GetLogo, on: load}
+  slots:
+    center:
+      - widget: {id: viewer, widget_id: acmeviewer-7, type: acmeviewer, binding_types: {SVGFileUrl: IMAGELINK, Alt: IMAGELINK, Src: IMAGELINK}}
+  bindings:
+    - {from: param.logo, to: viewer.SVGFileUrl}
+    - {from: link, to: viewer.Alt}
+    - {from: logo.result, to: viewer.Src}
+";
+    let built = compile(&solution, "Acme", spec).unwrap();
+    let before: Value = serde_json::from_str(&built.content).unwrap();
+    let base = |content: &Value| {
+        let types: Vec<_> = content["DataBindings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|b| b["PropertyMaps"].as_array().unwrap().clone())
+            .filter(|m| {
+                ["SVGFileUrl", "Alt", "Src"].contains(&m["TargetProperty"].as_str().unwrap())
+            })
+            .map(|m| m["TargetPropertyBaseType"].clone())
+            .collect();
+        assert_eq!(types.len(), 3, "{}", content["DataBindings"]);
+        json!(types)
+    };
+    assert_eq!(
+        base(&before),
+        json!(["IMAGELINK", "IMAGELINK", "IMAGELINK"]),
+        "{}",
+        before["DataBindings"]
+    );
+    for exact in [true, false] {
+        let derived = if exact {
+            derive::derive_exact("Acme.Copy_MU", &built.content)
+        } else {
+            derive::derive_with_styles("Acme.Copy_MU", &built.content, true)
+        }
+        .unwrap();
+        assert!(derived.spec.contains("IMAGELINK"), "{}", derived.spec);
+        let fresh = compile(&solution, "Acme", &derived.spec).unwrap();
+        let after: Value = serde_json::from_str(&fresh.content).unwrap();
+        assert_eq!(
+            base(&after),
+            json!(["IMAGELINK", "IMAGELINK", "IMAGELINK"]),
+            "exact={exact}: {}",
+            derived.spec
+        );
+    }
 }

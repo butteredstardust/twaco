@@ -13171,7 +13171,7 @@
   },
   {
     "name": "call",
-    "description": "Call a ThingWorx service. Without dry_run, a service known to only read runs (a platform read such as InfoTableFunctions or GetPropertyValues that the repository does not define, or one twaco.toml [call] read_only lists; the result says read_only) and any other is a dry run; dry_run true always plans, false always calls. A bare target is a Thing; Collection/Name reaches templates, shapes, resources and subsystems.",
+    "description": "Call a ThingWorx service. Without dry_run, a service that reads runs (the platform's READ category, a built-in platform read, a name starting Get, Query, Is, Has, Search or Find, never under Resources/* where only the built-in list counts, or one twaco.toml [call] read lists; the result says read_only) and any other is a dry run that says why (called false, reason); dry_run true always plans, false always calls. A bare target is a Thing; Collection/Name reaches templates, shapes, resources and subsystems.",
     "inputSchema": {
       "required": [
         "target",
@@ -13239,6 +13239,20 @@
         "dry_run": {
           "type": "boolean"
         },
+        "called": {
+          "description": "false when nothing was sent.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "reason": {
+          "description": "A plan: why the service counts as a write, and how to say it reads.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "would_call": true,
         "note": {
           "type": [
@@ -13291,7 +13305,7 @@
           "description": "With with_logs: the entries logged during the call, or why they could not be read."
         },
         "read_only": {
-          "description": "Why a call without dry_run ran: \"platform\" (a built-in platform read) or \"twaco.toml\" (listed in [call] read_only).",
+          "description": "Why a call without dry_run ran: \"platform\" (a built-in platform read), \"category\", \"name\" or \"twaco.toml\" (listed in [call] read).",
           "type": [
             "string",
             "null"

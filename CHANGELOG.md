@@ -6,6 +6,134 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- **Page specs: the last offline kit pages copy executably, and `shape:` is an element.** A gadget
+  derives as `kind: gadget` with `gadget_size` and builds a gadget entity with its widgets in the
+  mashup root; a call to a service its entity dropped derives with `unknown_service` (parameter
+  base types) and is kept as found on an as-built page, with a note; a binding that stored another
+  parameter type than the service declares carries `param_types`. A function that stores no
+  position (`Left`/`Top` null) keeps none, a binding into the root widget is stored in the
+  `Mashup` area, and adoption reads a missing `TargetPropertyType` as `property`. The `shape:`
+  element covers the outline, fill and unfilled styles, corner radius and dynamic fill range;
+  `mashup spec` derives a raw shape as the element when each of those is a plain value (state
+  formatting and position stay in `props`).
+
+- **Page specs: copies of the offline kit pages lose less.** A call keeps a stored `APIMethod` other
+  than `post` (`method: get`); a section that names an entity and calls nothing is kept
+  (`empty_sources: [Things_Acme.Thing]`); a Network is a data source (`entity_type: network`, with
+  `GetNetworkConnections` built in) and a Wiki Thing knows `GetWikiPages`. `GetProperties` takes
+  `useWebsockets` and `showSubscriptionMsg`, and `SetProperties` is a known runtime service whose
+  parameters are the Thing's properties. The field types a binding reads from a built-in service's
+  unshaped rows are carried (`field_types: {Level: NUMBER}`, `NUMBER:field` when the stored kind
+  is not the usual one), and `GetProperties` fields are `Property` bindings. A bare expression
+  keeps its stored text, a mashup template derives as `kind: template`, a property the source
+  binds that Composer 10.2 does not list as a target is a warning on an as-built page, and
+  adopting a gadget no longer stops on its entity type. `mashup diff` reads a root parameter without
+  aspects, a mashup-parameter binding without a source type, `STRING` against a name type, and
+  legacy property names (`CollapseByDefault`) the way Composer does.
+- **Page specs: copies keep alignment and pane heights, state formatting is carried, `widget:`
+  nodes take events.** A derived spec now states `align-items` and `flex-wrap` on rows and columns
+  that differ from the build's `stretch` and `nowrap` (a copy of a `flex-start` header no longer
+  stretches), and a tab pane that holds a chart states its own `flex-min-height`, which the build
+  keeps instead of raising it to 240px. State formatting snapshots (`ShapeFormatter` and the like)
+  are carried verbatim in `props`: the 46 "state formatting snapshots are not carried" notes are
+  gone. A binding into a mashup-root property such as `StyleTheme` derives as `to: page.StyleTheme`.
+  `widget: {id, type, props, events, children}` takes the widget's events (`on: Changed`, checked
+  against its contract); a wrong event or service is refused with `did you mean`, so is a widget
+  type one letter from a catalogued one. `twaco widgets <type>` prints what its `widget:` node
+  takes, and PAGE_SPECS.md has a section on it.
+- **`widgets --platform` and `widgets --webapp <webapp folder>`: contracts for legacy and extension
+  widgets.** Both read the installation's widget files (`Common/mashup-common-widgets-shared.js`,
+  `-builder.js`, `widget-meta-values.json` and each extension's `*.ide.js`; `--platform` fetches
+  them by GET, `--webapp` reads a folder) with the JavaScript parser, without running them, and write
+  `.twaco/widgets.json` with the platform version and fetch time. The last `return` of each
+  definition function is read, a name bound to a literal stands for it, webpack dev-mode `eval`
+  modules are opened, and `translate("key")` is its key; a widget built any other way is listed as
+  unknown with the reason, never guessed. With a cache, `twaco widgets tree` describes the legacy
+  contract instead of "unknown (legacy widget ...)", and `mashup validate`, `check` and the page
+  specs judge such widgets' properties, events and services. The embedded catalogue still wins
+  for the widgets it has and is the offline default; without a cache nothing changes.
+- `scripts/generate_widget_catalog.mjs` reproduces the committed `catalog.json` again: the
+  progress tracker's removed `CurrentStepMashup` default moved into the overlay
+  (`remove_defaults`), and a duplicate `Icon` key the text field's entry carried is gone (its
+  `target` flag, which the overlay declares, now holds).
+- **Breaking: `call` now needs `--apply` for writes.** `twaco call` used to run anything at once
+  (`Resources/EntityServices DeleteDataTagVocabulary` deleted on the spot). It now runs only a read:
+  a service whose platform category is READ or QUERY, one on the built-in read list, one named
+  Get, Query, Is, Has, Search or Find, one `[call] read` in twaco.toml lists, or one called with
+  `--read`. Under `Resources/*` only the built-in list and `[call] read` count; the name prefix does
+  not. Any other call is a dry run: exit 0, nothing sent, `{"called": false, "dry_run": true,
+  "reason", "would_call", "params"}` with `--json`. `--apply` calls it. A real call's `--json`
+  output is unchanged (the bare result). MCP `call` shares the classification, says `called: false`
+  and the reason, and `read_only` can now be `category` or `name`.
+
+- `mashup spec` no longer calls a page "edited by hand" after a build that kept no hand edit and
+  wrote nothing: that build refreshes the digest the spec check compares against.
+- A contained mashup's own properties (`ResponsiveLayout`, the editor's and twaco's managed ones)
+  are no longer reported as orphan contained-mashup parameter values in `cell_notices`.
+- A page spec's `root:` carries the root container's stored styles (`styles:` or `style:`), so a
+  fresh copy keeps them and derive no longer says "style properties not carried" for it; a
+  `{bind: ...}` on a root prop is written as a binding like on any widget.
+- `mashup spec` names stored parameter definitions of contained mashups and navigations that a
+  build refreshes from the target mashup ("refreshed the stored parameter definitions of X from
+  Y: added A, B"). A copy also warns when a PermissionGroup gives the source design-time or
+  run-time access the copy lacks.
+- A build plan lists as `changed` only widgets whose own properties or child order change, not
+  their ancestors.
+- Services every Thing, ThingTemplate and ThingShape has (`GetProperties`, `GetPropertyValues`,
+  `GetImplementingThingsWithData`, `QueryImplementingThingsWithData`...) resolve for data sources
+  without `types --platform`, with the parameters and result types the 10.2 platform declares;
+  a dynamic source on a ThingShape or ThingTemplate resolves a service only an implementing Thing
+  declares. The "not visible" error now names the templates and shapes twaco could not see.
+- Page derive renames the legacy property names the Composer migrates on open (`CollapseByDefault`
+  to `Collapsed`, `Href` to `LinkURL`...) with a note, keeps a stale name whose new name is set,
+  and `mashup check` reports a binding to an old name as the advisory `migrated-property`.
+- A collection's `Event:<field>` source, a contained mashup chosen at run time, and a result
+  field the service's DataShape lacks no longer stop a page build: they warn instead.
+- Comment prose rules skip commented-out code: a comment or run of comment lines that parses as
+  JavaScript statements is no longer judged as prose (no more "one sentence, two instructions"
+  or "4 nouns in a row" on a disabled statement). Prose that only contains code words is still
+  checked.
+- `ext import --apply` compares the package version the server lists semantically, so a server
+  that normalises `1.1` to `1.1.0` no longer turns a successful import into an error.
+- `import` plans and applies check each imported Project's `dependsOn` first: an extension that
+  is not installed (or installed older than required) and a project that is neither in the
+  import nor on the server are refused before anything is sent, each one named, instead of
+  an HTTP 406 at the end of an apply.
+- `entity delete` retries a Project delete that fails with "contains N other entities" after
+  all other deletes, up to three times a few seconds apart, and says so if it still fails.
+  Projects that depend on each other (a cycle inside the delete set) have their `dependsOn`
+  cleared by an import before they are deleted; the plan says so and a project that was not
+  deleted gets its original `dependsOn` back. A project outside the set that depends on one
+  inside is still refused by the server, and the error is reported.
+- Data and model tag vocabularies (`DataTags`, `ModelTags`) are known to `entity status` (no
+  more "twaco does not know the collection"), so `init --from-server --missing` adopts them,
+  and `entity delete` removes them with `DeleteDataTagVocabulary` / `DeleteModelTagVocabulary`.
+- `init --from-server` reads the property values of each Thing that has any a second time
+  after a short pause. Things whose values moved between the reads (a timer or logger
+  simulates them) are proposed as `[[server_owned]]` with `parts = ["property-values"]`, so
+  they no longer read as server-changed minutes later.
+
+- `init` now selects the new `platform-v1` lint preset: adopted scripts keep their formatting,
+  code order and comments, while parse failures and script traps still block. Existing preset
+  behaviour and the `checks-v1` default without `[lint]` are unchanged.
+- Configuration-table copies with only different field ordinals no longer produce a note;
+  other metadata differences still report as before.
+- Menu button `MenuMaxWidth` and menu bar `MaxWidth`/`SubMenuMaxWidth` retain runtime CSS size
+  text such as `auto` through page derivation, builds and mashup property edits.
+
+- Page derivation keeps raw container subtrees, static template and shape services, reset
+  events and legacy binding types in fresh copies. Derived tabs retain their container ids;
+  pinned pages resolve generated id collisions and accept distinct ids sharing a number.
+  Mashup diff treats binding property-type casing consistently with adoption.
+- Legacy widget type ids (`tree`, `collection`, `container`, `label`, `button`...) are no longer
+  aliases of the modern widgets: `twaco widgets tree` says it is a legacy widget outside the
+  catalogue, and a legacy widget on a page keeps its own events. `mashup add` still takes the
+  everyday words (`button`, `label`, `container`), places the modern widget and says which.
+  `init --from-server` writes the permission kinds the server exported (`<Create/>`...) instead
+  of empty blocks, and leaves out the project dependency that would close a cycle (the edge whose
+  entities name the fewest of the other project's, with a comment and a note); the cycle error
+  names a real path and the edge to remove.
+
 ## [0.1.78] - 2026-11-25
 
 - Page builds name spec nodes and source lines in widget diagnostics, report retained edits to

@@ -83,6 +83,8 @@ fn master_derives_adopts_without_changes_and_builds_fresh_with_parity() {
     assert_eq!(files.len(), 1, "{}", plan.report);
     assert!(files[0].as_str().unwrap().ends_with(".page-baseline.json"));
     apply(&solution, &name);
+    let found = extract::extract(&solution, &name).unwrap();
+    assert!(found.exact, "{:?}", found.notes);
     assert_eq!(std::fs::read(path).unwrap(), xml);
     assert_eq!(current(&solution, &name), before);
     assert_eq!(

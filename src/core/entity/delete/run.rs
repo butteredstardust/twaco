@@ -26,7 +26,7 @@ pub(crate) fn run(
         .into_iter()
         .filter_map(|entity| EntityKey::new(entity.info.collection, entity.info.name).ok())
         .collect();
-    let project_dependents = project_dependents(remote, &targets)?;
+    let needed_by = project_dependents(remote, &targets)?;
     let mut entities = Vec::new();
     let mut gateways = BTreeSet::new();
     for target in targets {
@@ -85,7 +85,7 @@ pub(crate) fn run(
                 })
             }
         };
-        if let Some(needing) = project_dependents.get(key.name()) {
+        if let Some(needing) = needed_by.get(key.name()) {
             if key.collection() == "Projects" {
                 dependents.extend(needing.iter().map(|name| Dependent {
                     collection: "Projects".to_string(),
@@ -227,6 +227,8 @@ pub(crate) fn run(
     }
     super::cycle::plan(remote, &mut entities)
         .map_err(|(entity, why)| DeleteError::Remote { entity, why })?;
+    super::cycle::plan_projects(remote, &mut entities, &needed_by)
+        .map_err(|(entity, why)| DeleteError::Remote { entity, why })?;
     delete_dependents_first(&mut entities);
     let mut backup_dir = None;
     if apply {
@@ -263,34 +265,37 @@ pub(crate) fn run(
             }
         }
         for entity in &mut entities {
-            if entity.status != Status::Ready {
-                continue;
+            if entity.status == Status::Ready {
+                delete_one(remote, entity);
             }
-            let deleted = match &entity.method {
-                Method::Service { service } => remote.delete_service(service, &entity.name),
-                Method::RestDelete => remote.delete_rest(&entity.key()),
-                Method::Composer => unreachable!("unsupported methods are refused during planning"),
-            };
-            if let Err(error) = deleted {
-                entity.status = Status::Failed;
-                entity.error = Some(error.to_string());
-                continue;
+        }
+        // The server can count the entities it has only just deleted when a Project goes at
+        // the end of a batch, and answers "contains N other entities"; the same call a moment
+        // later succeeds. Retry those after every other delete, a few times.
+        for attempt in 1..=PROJECT_RETRIES {
+            let mut retried = false;
+            for entity in &mut entities {
+                if entity.status == Status::Failed
+                    && entity.collection == "Projects"
+                    && entity
+                        .error
+                        .as_deref()
+                        .is_some_and(|error| error.contains("other entities"))
+                {
+                    if !retried {
+                        std::thread::sleep(project_retry_delay());
+                        retried = true;
+                    }
+                    delete_one(remote, entity);
+                    if entity.status == Status::Failed {
+                        entity.error = entity.error.take().map(|error| {
+                            format!("{error} (retried {attempt} time(s) at the end of the batch)")
+                        });
+                    }
+                }
             }
-            match remote.exists(&entity.key()) {
-                Ok(false) => entity.status = Status::Deleted,
-                Ok(true) => {
-                    entity.status = Status::Failed;
-                    entity.error = Some(
-                        "delete answered success, but the confirming GET still found the entity"
-                            .to_string(),
-                    );
-                }
-                Err(error) => {
-                    entity.status = Status::Failed;
-                    entity.error = Some(format!(
-                        "delete was sent, but the confirming GET failed: {error}"
-                    ));
-                }
+            if !retried {
+                break;
             }
         }
         for index in unlinked {
@@ -341,6 +346,48 @@ pub(crate) fn run(
         backup: backup_dir,
         ledger_changed,
     })
+}
+
+/// How many more times a Project delete that fails with "contains N other entities" is sent.
+const PROJECT_RETRIES: usize = 3;
+
+fn project_retry_delay() -> std::time::Duration {
+    if cfg!(test) {
+        std::time::Duration::ZERO
+    } else {
+        std::time::Duration::from_secs(2)
+    }
+}
+
+/// Delete one Ready entity and confirm it is gone, recording the outcome on it.
+fn delete_one(remote: &dyn Remote, entity: &mut EntityResult) {
+    entity.error = None;
+    let deleted = match &entity.method {
+        Method::Service { service } => remote.delete_service(service, &entity.name),
+        Method::RestDelete => remote.delete_rest(&entity.key()),
+        Method::Composer => unreachable!("unsupported methods are refused during planning"),
+    };
+    if let Err(error) = deleted {
+        entity.status = Status::Failed;
+        entity.error = Some(error.to_string());
+        return;
+    }
+    match remote.exists(&entity.key()) {
+        Ok(false) => entity.status = Status::Deleted,
+        Ok(true) => {
+            entity.status = Status::Failed;
+            entity.error = Some(
+                "delete answered success, but the confirming GET still found the entity"
+                    .to_string(),
+            );
+        }
+        Err(error) => {
+            entity.status = Status::Failed;
+            entity.error = Some(format!(
+                "delete was sent, but the confirming GET failed: {error}"
+            ));
+        }
+    }
 }
 
 /// For each Project in the set, the Projects of the set whose `dependsOn` names it: the server

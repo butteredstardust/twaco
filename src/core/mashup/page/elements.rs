@@ -1231,6 +1231,30 @@ fn fields(node: &Node) -> Result<(), Error> {
 pub(super) fn validate(node: &Node, page: &Page) -> Result<(), Error> {
     let b = node.body();
     let fail = |s| Error::at(b.id.referenced, s);
+    if let (Node::Widget(_), Some(kind)) = (node, &b.kind) {
+        // A type neither catalogued nor shipped by the platform that is a typo away from one
+        // that is would build a widget Composer cannot draw; extensions are farther away.
+        let catalog = crate::core::widgets::catalog();
+        let wanted = kind.value.to_ascii_lowercase();
+        if catalog.by_type(&kind.value).is_none() && !catalog.platform_types.contains(&wanted) {
+            let close: Vec<&str> = catalog
+                .all()
+                .filter(|w| strsim::levenshtein(&wanted, &w.type_id) <= 1)
+                .map(|w| w.type_id.as_str())
+                .take(3)
+                .collect();
+            if !close.is_empty() {
+                return Err(Error::at(
+                    kind.referenced,
+                    format!(
+                        "no widget type {}; did you mean {}?",
+                        kind.value,
+                        close.join(", ")
+                    ),
+                ));
+            }
+        }
+    }
     match node {
         Node::Card(_) | Node::TrendTile(_) if b.title.is_none() => {
             return Err(fail("card needs title (tile needs label)"))
@@ -1664,6 +1688,18 @@ pub(super) fn finish_layout(
             .find_exact(&ids[&body.id.value])
             .map_err(|e| Error::at(body.id.referenced, e))?
             .path;
+        // The content has had its say (a chart raises its pane's minimum height); what the spec
+        // states for a pane has the last word.
+        for (i, tab) in body.tabs.iter().enumerate() {
+            for (key, value) in &tab.props {
+                set_or_remove(
+                    &mut session.document,
+                    &[path.as_slice(), &[i]].concat(),
+                    key,
+                    &value.value,
+                );
+            }
+        }
         if session.document.at(&path)["Properties"]["flex-direction"] == "row"
             && body.children.len() > 1
             && body.children.iter().all(|n| matches!(n, Node::Chart(_)))

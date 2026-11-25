@@ -196,6 +196,9 @@ fn dispatch(command: Command) -> u8 {
         Command::Guide(guide) => guide_cmd(&guide),
         Command::Url(args) => run(|solution| cli::info::url_cmd(solution, &args)),
         Command::Package(package) => run(|solution| package_cmd(solution, &package)),
+        Command::Widgets(widgets) if widgets.platform || widgets.from.is_some() => {
+            run(|solution| cli::widgets::refresh_cmd(solution, &widgets))
+        }
         Command::Widgets(widgets) => widgets_cmd(&widgets),
         Command::Catalog(catalog) => run(|solution| catalog_cmd(solution, &catalog)),
         Command::Contract(cli::contract::Contract::Diff(args)) => {

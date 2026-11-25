@@ -15,7 +15,7 @@ before changing code; it names the principles and where everything lives.
 - **Never re-serialise an entity file.** Change bytes through `core::scan` spans and
   `core::splice`. A no-op edit must be the identity, byte for byte; the corpus tests prove it.
 - **A server write plans by default.** CLI: nothing is sent without `--apply`. MCP: `dry_run`
-  defaults to `true`. Two exceptions, by design: `twaco call` on the CLI, and `db query`, which
+  defaults to `true`. One exception, by design: `db query`, which
   runs read-only SQL through a temporary Thing it deletes again.
 - **Credentials are never printed, logged, or written,** and `[[check]]` hooks do not receive
   them unless they declare `needs_credentials`.

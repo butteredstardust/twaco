@@ -1,0 +1,25 @@
+{
+  "source": "ThingWorx 10.2 Composer, scripts/twx-Builder-bundle: the property mappings of the widget migrators (getXxxMUs, and the same-type table keyed by widget). Only plain renames (old name to new name) are listed; value maps, deletions and creations are not. Names that are events or services of the new widget, and names the new widget still has, are left out.",
+  "renames": {
+    "ptcsbutton": {"Alignment": "LabelAlignment", "ContextId": "ContextID", "Text": "Label", "ToolTipField": "TooltipField"},
+    "ptcscheckbox": {"Prompt": "Label", "ToolTipField": "TooltipField"},
+    "ptcschartbar": {"ChartTitle": "Label", "LegendLocation": "LegendPosition", "SecondaryYAxisFormat": "SecondYAxisFormat", "SecondaryYAxisTitle": "SecondYAxisLabel", "XAxisLabelRotation": "HorizontalAxisLabelsRotation"},
+    "ptcschartline": {"ChartTitle": "Label", "LegendLocation": "LegendPosition", "SecondaryYAxisFormat": "SecondYAxisFormat", "SecondaryYAxisTitle": "SecondYAxisLabel", "XAxisLabelRotation": "HorizontalAxisLabelsRotation"},
+    "ptcschartpie": {"ChartTitle": "Label", "ColorFormat": "DataStyle", "LabelField": "DataField", "LegendLocation": "LegendPosition", "LegendWidth": "LegendMaxWidth"},
+    "ptcscollection": {"CellMashupSelectedField": "SelectedCellMashupField", "CellMenuStates": "CellMenu", "CellMenuStatesIconSize": "CellMenuIconSize", "EmptyMashupName": "EmptyMashup", "MashupHeight": "CellHeight"},
+    "ptcsdatepicker": {"DateDisplay": "MonthFormat", "DateFormatToken": "FormatToken", "ToolTipField": "TooltipField"},
+    "ptcsdropdown": {"TextIfNoSelection": "HintText"},
+    "ptcsdynamicpanel": {"CollapseByDefault": "Collapsed"},
+    "ptcsfileupload": {"DeleteAllButtonLabel": "RemoveAllButtonLabel", "DisplayPathTextBox": "ShowRepositoryPath", "DisplayRepositorySelector": "ShowRepositorySelector", "FileName": "FileNames", "FullPath": "FullPaths", "MaximumFileSize": "MaxFileSize", "ShowDeleteAllButton": "ShowRemoveAllButton"},
+    "ptcsgrid": {"CookiePersistence": "CacheRuntimeChanges", "DeletedTable": "DeletedData", "EditedTable": "EditedData", "RowHeight": "MinRowHeight"},
+    "ptcslabel": {"Alignment": "HorizontalAlignment", "Text": "LabelText", "ToolTipField": "TooltipField"},
+    "ptcslink": {"Href": "LinkURL", "SourceURL": "LinkURL"},
+    "ptcsslider": {"Step": "StepSize"},
+    "ptcstabset": {"CurrentTab": "SelectedTab", "DefaultTabAtRuntime": "DefaultTabNumber", "MaxTabWidth": "TabNameMaxWidth"},
+    "ptcstextarea": {"PlaceholderText": "HintText", "ToolTipField": "TooltipField"},
+    "ptcstextfield": {"AllowNegatives": "AllowNegativeValues", "FixedDigits": "DecimalPlaces", "Maximum": "MaxValue", "MaskInputCharacters": "Password", "Minimum": "MinValue", "PlaceholderText": "HintText", "TextAlign": "TextAlignment", "ToolTipField": "TooltipField", "ValueAlign": "TextAlignment"},
+    "ptcsvaluedisplay": {"Alignment": "HorizontalAlignment", "ToolTipField": "TooltipField"},
+    "navigationfunction": {"FixedPopupHeight": "PopupHeight", "FixedPopupWidth": "PopupWidth", "MashupName": "TargetMashup", "MessageToShow": "MissingMashupMessage", "PopupScrolling": "PopupScrollbar", "ShowCloseButton": "CloseButton", "TargetWindow": "TargetWindowType"}
+  },
+  "values_differ": {"navigationfunction": ["TargetWindow"]}
+}

@@ -907,6 +907,7 @@ fn generated_schemas_mean_what_the_hand_written_ones_did() {
                 && matches!(
                     name,
                     "fmt"
+                        | "call"
                         | "mashup_bind"
                         | "mashup_on"
                         | "mashup_recipe"
@@ -2637,6 +2638,29 @@ fn a_call_known_to_only_read_runs_without_dry_run_and_any_other_stays_a_plan() {
     }
 }
 
+#[test]
+fn a_write_call_plans_with_a_reason_by_default_and_calls_with_dry_run_false() {
+    let (_dir, root) = solution_with_unreachable_server();
+    let arguments = json!({
+        "target": "Resources/EntityServices",
+        "service": "DeleteDataTagVocabulary",
+        "parameters": {"name": "X"},
+    });
+    let result = call(&root, "call", arguments.clone());
+    assert_ne!(result["isError"], true, "{result}");
+    let body: Value = serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).unwrap();
+    assert_eq!(body["called"], false);
+    assert_eq!(body["dry_run"], true);
+    assert!(
+        body["reason"].as_str().unwrap().contains("[call] read"),
+        "{body}"
+    );
+    // dry_run false really calls: the unreachable server is then reached and fails.
+    let mut applied = arguments;
+    applied["dry_run"] = json!(false);
+    assert_eq!(call(&root, "call", applied)["isError"], true);
+}
+
 /// The `outputSchema` a tool publishes to the newest protocol revision.
 fn output_schema_of(name: &str) -> Value {
     registry::definitions(LATEST)
@@ -2755,7 +2779,7 @@ fn what_the_offline_tools_return_fits_the_output_schema_they_publish() {
         ("mashup_templates", json!({"name": "blank"})),
         ("widgets", json!({})),
         ("widgets", json!({"search": "grid"})),
-        ("widgets", json!({"widget": "button"})),
+        ("widgets", json!({"widget": "ptcsbutton"})),
         ("mashup_validate", json!({"all": true})),
         ("mashup_describe", json!({"mashup": "P.Board_MU"})),
         (
@@ -4135,7 +4159,7 @@ fn mashup_on_runs_a_service_after_creating_a_button() {
 #[test]
 fn widgets_returns_catalogue_details_and_refuses_two_selectors() {
     let (_dir, root) = solution_dir();
-    let button = call(&root, "widgets", json!({"widget": "button"}));
+    let button = call(&root, "widgets", json!({"widget": "ptcsbutton"}));
     assert_eq!(button["isError"], false, "{button}");
     assert!(button["structuredContent"]["events"]
         .as_array()
@@ -4629,6 +4653,13 @@ fn check_with_detail_gives_each_gate_its_notes() {
 #[test]
 fn lint_tool_returns_what_the_core_finds() {
     let (_dir, root) = solution_dir();
+    let config_path = root.join("twaco.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        config_path,
+        format!("{config}\n[lint]\nextends = [\"platform-v1\"]\n"),
+    )
+    .unwrap();
     let script = root.join("src/P.T/services/Run");
     std::fs::create_dir_all(&script).unwrap();
     std::fs::write(
@@ -4657,6 +4688,25 @@ for (var k in m) {
         serde_json::to_value(&core.findings).unwrap()
     );
     assert_eq!(body["errors"], 2, "{body}");
+
+    let (failed, configured) = call_tool(&root, "lint", json!({"print_config": true}));
+    assert!(!failed, "{configured}");
+    for (id, severity) in [
+        ("format.unformatted", "off"),
+        ("format.will-not-parse", "error"),
+        ("order.main-code-below-a-helper", "off"),
+        ("traps.for-in", "error"),
+        ("traps.event-data", "warn"),
+    ] {
+        let rule = configured["config"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|rule| rule["rule"] == id)
+            .unwrap();
+        assert_eq!(rule["severity"], severity, "{rule}");
+        assert_eq!(rule["origin"], "platform-v1", "{rule}");
+    }
 
     let (failed, refused) = call_tool(
         &root,

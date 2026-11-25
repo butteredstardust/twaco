@@ -52,6 +52,26 @@ name in `status`. The existing columns recipe validates fields and embeds state 
 Services, themes and StateDefinitions are resolved from the offline solution and its cached
 platform metadata, using the same contracts as authoring commands.
 
+### Static template and shape data
+
+A service declaration may set `entity_type: template` or `entity_type: shape` to keep a
+static `ThingTemplates_` or `ThingShapes_` data section. The entity must belong to that
+collection. For example, `rows: {service: Acme.Provider.GetRows, entity_type: template}`.
+Without this field the existing entity inference applies; `entity: {bind: ...}` continues
+to select a Thing at runtime for a dynamic template or shape source. Derive carries these
+sections and their bindings in both exact and layout-rule specs. Unsupported data sections
+produce warnings identifying each lost binding endpoint.
+
+Platform services need no cache to resolve. Every Thing, ThingTemplate and ThingShape has the
+services the platform declares on its own classes (`GetProperties`, `GetPropertyValues`,
+`GetImplementingThingsWithData`, `QueryImplementingThingsWithData`, ...), with their real
+parameters and result types; a template or shape data source also calls the Things' services,
+as a dynamic source does. A service the solution or the platform cache defines always wins.
+Rows that are the template's properties (`GetImplementingThingsWithData`, `GetProperties`) have
+no DataShape, so a field of them is not type-checked. A dynamic source on a ThingShape or
+ThingTemplate resolves a service that only a Thing implementing it declares. When a service is
+still not found, the error names the templates and shapes twaco could not see.
+
 Data triggers are `on: load`, `on: <node>.<event>` or `on: every Ns` (positive integer seconds).
 An omitted trigger permits an explicit event to invoke the call. Fixed `params` use the service's
 parameter types. Derive retains static call parameters too, including those in a dynamic
@@ -159,10 +179,13 @@ Session data is read-only. A service source or expression cannot share a declara
 
 ### Mashup events and services
 
-An event action can invoke `mashup.CloseIfPopup` or `mashup.Refresh`. A parameter's change
+An event action can invoke `mashup.CloseIfPopup`, `mashup.Refresh` or
+`mashup.ResetInputsToDefaultValue`. Widgets that expose the native reset service accept
+`<node>.ResetToDefaultValue`, including text fields, date pickers and dropdowns. A parameter's change
 event is `mashup.<parameter>Changed`, for example
 `{on: mashup.ManagerChanged, invoke: rows}`. The corresponding command addresses are
-`mashup:CloseIfPopup`, `mashup:Refresh` and `mashup:ManagerChanged`. `load` remains the short
+`mashup:CloseIfPopup`, `mashup:Refresh`, `mashup:ResetInputsToDefaultValue` and
+`mashup:ManagerChanged`. `load` remains the short
 form of `mashup.Loaded`. These names are checked by the shared command authoring operations.
 
 A binding can write a property of the mashup root widget (the one `page.props` sets) as
@@ -181,6 +204,14 @@ platform `MenuEntry` shape. A server-provided shape declared under `entities.Dat
 `requirements.toml` can also be used; without its fields the build warns that field types cannot
 be checked offline. An INFOTABLE result with no DataShape supports whole-table bindings and
 carries field bindings with the same warning.
+
+Raw `widget:` nodes retain ordered `children` on both derive paths, including both native
+panes of a dynamic panel. Children still become elements wherever their contracts match.
+For widgets without a catalogue contract, `binding_types: {MaxValue: NUMBER}` preserves
+stored binding endpoint base types; it is refused on widgets with known contracts. The
+source's endpoint type takes precedence over an inferred type from a starting value.
+Binding comparison ignores property-type casing and treats omitted `SourceDetails` as an
+empty string, matching adoption's normalization.
 
 Raw charts with `MultipleDataSources: true` accept `DataSource1` through
 `DataSource<NumberOfSeries>` as INFOTABLE binding targets (up to 100). With the series count
@@ -202,7 +233,11 @@ also default to v1; pass `--rules legacy` (MCP `rules: "legacy"`) to opt out. Ex
 mashups retain their `twacoPageRules` during add, set and recipe edits; no marker means legacy.
 Widget numeric suffixes derive from SHA-256 of the ID policy version, authored node ID and
 generated role, in the range 1000?999999 (four to six digits). Template numbers are reserved. A collision
-is an error and never causes renumbering. Wrapper roles name their enclosed widgets, and sources,
+is an error on ordinary authored pages and never renumbers existing widgets. Pages with
+explicit source ids probe the next available generated number deterministically; explicit ids
+stay pinned. Distinct explicit ids may share a numeric suffix. Derived tabs carry their native
+container id as `widget_id` beside `label`, and derive preserves source widget ids when their
+readable node ids differ. Wrapper roles name their enclosed widgets, and sources,
 bindings and events use semantic addresses for deterministic UUIDs. Ordinary authoring retains
 UUIDv4 through the document's injectable generator. Identical specs and offline metadata produce
 identical artifacts. Mapping declaration order does not affect output; node array order does.
@@ -682,6 +717,7 @@ v1 rule table; legacy rules are unchanged.
 | `image` | `source` (Media entity name, URL, or binding), `scaling` (`fit-x`, `fit-y`, `fit`, `contain`, `cover`, `auto`, `25%`, `50%`, `75%`), `position` (`top`, `center`, `bottom`), `alt` | `mashup add ... ptcsimage --prop SourceURL=/Thingworx/MediaEntities/Acme.Logo_MD --prop Scaling=contain --prop AlternateText=Logo` |
 | `icon` | `icon` (CDS name or shorthand), `source`, `alt`, `icon_size` (`small`, `medium`, `large`, `xlarge`, `custom`), `size: sm/md/lg/xl`, token `color` | `mashup add ... ptcsicon --prop SVGIcon=cds:icon_info --prop Size=large`; `mashup set ... --style color=ink` |
 | `divider` | `orientation` (`horizontal` or `vertical`), token `color` | `mashup add ... ptcsdivider --prop VerticalDivider=true`; `mashup set ... --style line:background=line` |
+| `shape` | `form` (`circle`, `rectangle`, `roundrect`, `ellipse`), `fill` and `unfilled` (style names), `radius`, `dynamic` (fill in proportion to a bound value), `min`, `max`, `orientation`; position, size and state formatting stay in `props` | `mashup add ... shape --prop ShapeType=circle --prop ShapeStyle=Acme_Green --prop EnableDynamicFill=true --prop DynamicRangeMaximum=100` |
 | `checkbox`, `toggle` | `label`/`text`, bindable boolean `value` | `mashup add ... ptcscheckbox` / `ptcstogglebutton --prop Label=Enabled --prop State=true` |
 | `radio` | `label`/`text`, bindable boolean `value`, bindable `group`; or static `options: [Open, Closed]` | `mashup add ... ptcsradio --prop Label=Open --prop Radiogroup=AcmeStatus`; bind `State` |
 | `textarea` | `label`/`text`, `hint`, bindable `value`, `max_length` | `mashup add ... ptcstextarea --prop Label=Notes --prop HintText=Enter --prop MaxNumberOfCharacters=500`; bind `Text` |
@@ -867,6 +903,23 @@ known field type). Both spec builds and command recipes check the same offline s
 contracts. Build application also refuses component files added, removed or changed after
 planning.
 
+**Legacy property names Composer migrates.** The 10.2 Composer renames old property names when it
+opens a mashup (`CollapseByDefault` becomes `Collapsed` on a dynamic panel, `Href` becomes `LinkURL`
+on a link, `ToolTipField` becomes `TooltipField`, `MashupName` becomes `TargetMashup` on a
+navigation function). The plain renames are listed in `src/core/widgets/migrations.json`, read from
+the Composer's Builder bundle. Derive renames a stale name whose new name is not set, and the
+bindings that name it, with a note per rename; a stale name whose new name is already set (or
+whose values differ in kind, like a navigation function's `TargetWindow`) keeps its value as
+written. `mashup check` reports a binding to an old name as the advisory `migrated-property`, not
+`unknown-property`. Writing an old name by hand is still refused, with the new name in the error.
+
+**Run-time and unchecked contracts.** A collection's `Event:<field>` is a source (one per field of
+its Data table, the field's value in the last cell event): bind from `ptcscollection-7.Event:Name`.
+A contained `mashupcontainer` whose `Name` is bound has no contract to check offline: a binding to
+a parameter the child lacks is taken as written and the build warns instead of refusing. A field a
+widget names that the service's DataShape lacks (a service that builds rows with another field)
+warns in the build; `check` reports it as `unknown-field-property`.
+
 ## Deriving a spec
 
 ```sh
@@ -944,7 +997,7 @@ one into a widget property a `props` entry with `{bind: ...}`, a service feeding
 element's `data`, and every other trigger an `events` entry. Node ids are the widget ids with
 anything but letters, digits, `_` and `-` replaced.
 
-Not carried: state formatting snapshots, bindings and events outside the supported function contracts and data that is not a Thing service. A value derive could not write so that its own build accepts is left out with a note naming it: text
+Not carried: bindings and events outside the supported function contracts and data that is not a Thing service. A widget property holding a state formatting snapshot (a shape's `ShapeFormatter`, a StateDefinition's `StateFormats`) is carried verbatim in the node's `props`, so the build writes it back unchanged. Row and column containers state `align-items` and `flex-wrap` when they are not the build's `stretch` and `nowrap`, and a tab pane that holds a chart states its own `flex-min-height` (a `props` entry of the tab), which the chart rule no longer raises; a binding whose target is a mashup-root property outside the parameters (`StyleTheme`) is written as `to: page.<Property>`. A value derive could not write so that its own build accepts is left out with a note naming it: text
 for a numeric property, an event on a service the catalogue does not list, a reference to a navigation
 function, or (on a page built by the layout rules) a widget the catalogue does not know. On an as-built page
 a `widget:` node of an unknown type is built verbatim with the properties it states.
@@ -994,6 +1047,41 @@ which the `pagination` element would duplicate.
 | Q4 | 50 | 45 | 4 (expression2 4) | 13595 |
 | S | 85 | 84 | 0 | 18513 |
 
+## `widget:` nodes
+
+`widget: {id, type, props, events, children}` places any widget in the catalogue (or in the cache of
+`twaco widgets --platform`), and `twaco widgets <type>` prints what its node takes: the properties
+with their base types, the events and the services, with a ready line to copy. Everything is
+checked against that contract when the page is read:
+
+- `type` must be a widget twaco knows or one the platform ships; a name one letter from a catalogued
+  type is refused with `did you mean`. Other types build verbatim with the properties they state.
+- `props` name properties the widget has (`did you mean` on a near miss) and take values of their base
+  type (`Disabled: maybe` is refused). A `{bind: ...}` value wires the property.
+- `events` is a list of the page's `events` entries without the widget: `on` is the bare event name
+  (`on: Changed`, not `field.Changed`), then `invoke:`, `navigate:` or `show:` as on the page. They are
+  the page's events under the node's id, so an event the widget lacks is refused with the widget's
+  events and a suggestion, a service it lacks the same. `events` belongs to `widget:` nodes alone.
+- `children` become the widget's own Widgets (a dynamic panel's panes, a legacy container); they
+  accept every element.
+
+```yaml
+- widget:
+    id: ptcsdynamicpanel-5
+    type: ptcsdynamicpanel
+    props: {Collapsed: true}
+    children:
+      - label: {id: note, text: Details}
+- widget:
+    id: city
+    type: ptcstextfield
+    props: {HintText: City}
+    events:
+      - {on: Changed, invoke: lookup}
+```
+
+Derive writes the same nodes, so a spec you read and one you write have one shape.
+
 ## Master mashups and page hosts
 
 `page.kind` is `page` by default. Set `kind: master` to build a target mashup:
@@ -1033,6 +1121,25 @@ Deriving and adopting a master keeps widget and wiring IDs and changes no existi
 sidecar bytes, just as for pages. A fresh build of the derived spec keeps the represented
 widgets and wiring and carries the master-root properties. This support is tested offline;
 no new Runtime validation is claimed.
+
+### Gadgets, services the entity dropped, and stored binding types
+
+A page whose entity is a dashboard gadget derives as `kind: gadget` with `gadget_size: 4x4` (the
+entity's columns and rows). The build writes the gadget entity and puts the `center` slot's nodes
+directly in the mashup root, as a gadget has no template container; the root's `Columns`, `Rows`,
+`Width` and `Height` are the usual `props`. A page whose first container stands for the root
+(`page.root`) stays an ordinary mashup.
+
+A data call whose service its entity no longer declares (a stale call in a copied mashup) derives
+with `unknown_service: {mashupName: STRING}`, the parameters the mashup stores with their base
+types, and a note. The build keeps the call and its parameter bindings as found. It needs
+`layout: as-built`; an authored page names a service its entity declares and is refused otherwise.
+
+A binding into a service parameter stores the parameter's declared type. When the mashup stored
+another (the declared type changed later), the call carries `param_types: {videoFilter: STRING}`;
+derive writes it only where the stored type differs from the declared one, and the build then
+stores that type. A binding into the root widget (a root property such as `StyleTheme`) is stored
+in the `Mashup` area, as Composer does.
 
 ## Adopting an existing mashup
 

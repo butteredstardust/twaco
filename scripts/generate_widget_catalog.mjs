@@ -103,6 +103,8 @@ const plain = (value) =>
 
 function property(definition) {
   const out = { base_type: typeof definition.baseType === "string" ? definition.baseType : null };
+  // The overlay records runtime CSS sizes where Composer declares a numeric base type.
+  if (definition.acceptsCssSize === true) out.css_size = true;
   // The widget API's default for both flags is false.
   if (definition.isBindingSource === true) out.source = true;
   if (definition.isBindingTarget === true) out.target = true;
@@ -134,10 +136,17 @@ for (const [type, extra] of Object.entries(overlay.widgets)) {
   // Composer translates `__tw.*` keys and resolves `$$...` markers when it drops a widget; the
   // overlay gives the value it writes, so none reaches a mashup untranslated.
   Object.assign(defaults, extra.overrides ?? {});
+  // A default Composer writes that a mashup is better without (an empty reference the editor fills).
+  for (const key of extra.remove_defaults ?? []) delete defaults[key];
   for (const [key, value] of Object.entries(defaults)) {
     if (typeof value === "string" && (value.startsWith("__tw.") || value.startsWith("$$"))) {
       throw new Error(`${type}.${key} is ${value}, which Composer translates; give its value in overrides`);
     }
+  }
+  for (const alias of extra.aliases ?? []) {
+    // A word that is itself a platform widget type id (legacy or modern) names that widget, never
+    // another one: an alias onto a different widget hands a legacy page the wrong contract.
+    if (meta[alias]) throw new Error(`alias ${alias} of ${type} is a platform widget type id`);
   }
   for (const word of [type, ...(extra.aliases ?? [])]) {
     if (named.has(word)) throw new Error(`${word} names both ${named.get(word)} and ${type}`);

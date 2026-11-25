@@ -39,12 +39,59 @@ pub(crate) fn ensure_session_source(
     Ok(())
 }
 
+/// A data section that names an entity and calls none of its services, as a page built as found
+/// keeps it. `key` is the section's name, `<EntityType>_<entity>`.
+pub(crate) fn ensure_empty_section(
+    document: &mut crate::core::mashup::edit::MashupDocument,
+    key: &str,
+) -> Result<(), AuthoringError> {
+    let Some((kind, entity)) = key.split_once('_') else {
+        return Err(AuthoringError::Invalid(format!(
+            "{key} is not a data section name: <EntityType>_<entity>"
+        )));
+    };
+    if !matches!(
+        kind,
+        "Things"
+            | "ThingTemplates"
+            | "ThingShapes"
+            | "DynamicThingTemplates"
+            | "DynamicThingShapes"
+            | "Networks"
+    ) || entity.is_empty()
+    {
+        return Err(AuthoringError::Invalid(format!(
+            "{key} is not a data section of a Thing, ThingTemplate, ThingShape or Network"
+        )));
+    }
+    if document.value()["Data"].get(key).is_some() {
+        return Ok(());
+    }
+    let mut section = Map::new();
+    insert(&mut section, "DataName", Value::String(key.into()));
+    insert(&mut section, "EntityName", Value::String(entity.into()));
+    insert(&mut section, "EntityType", Value::String(kind.into()));
+    insert(
+        &mut section,
+        "Id",
+        Value::String(document.uuid(&format!("source:{key}"))),
+    );
+    insert(&mut section, "RefreshInterval", Value::from(0));
+    insert(&mut section, "Services", Value::Array(Vec::new()));
+    document
+        .data_mut()
+        .insert(key.into(), Value::Object(section));
+    Ok(())
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SourceKind {
     Things,
     Template,
+    Shape,
     DynamicTemplate,
     DynamicShape,
+    Network,
 }
 
 impl SourceKind {
@@ -59,6 +106,10 @@ impl SourceKind {
             ("ThingTemplates", false) => Ok(Self::Template),
             ("ThingTemplates", true) => Ok(Self::DynamicTemplate),
             ("ThingShapes", _) => Ok(Self::DynamicShape),
+            ("Networks", false) => Ok(Self::Network),
+            ("Networks", true) => Err(AuthoringError::Refused(format!(
+                "{entity} is a Network: its source is static; leave out --dynamic"
+            ))),
             (other, _) => Err(AuthoringError::Refused(format!(
                 "{entity} is in {other}: a data source runs a Thing's, ThingTemplate's or ThingShape's service"
             ))),
@@ -68,8 +119,10 @@ impl SourceKind {
         match self {
             Self::Things => "Things",
             Self::Template => "ThingTemplates",
+            Self::Shape => "ThingShapes",
             Self::DynamicTemplate => "DynamicThingTemplates",
             Self::DynamicShape => "DynamicThingShapes",
+            Self::Network => "Networks",
         }
     }
     pub(crate) fn dynamic(&self) -> bool {
@@ -198,8 +251,21 @@ pub(super) fn plan_source_add_loaded(
     request: &SourceAddRequest,
     loaded: super::ExistingMashup,
 ) -> Result<SourceAddPlan, AuthoringError> {
+    plan_source_add_loaded_as(solution, request, loaded, None, &[])
+}
+
+pub(super) fn plan_source_add_loaded_as(
+    solution: &Solution,
+    request: &SourceAddRequest,
+    loaded: super::ExistingMashup,
+    entity_type: Option<&str>,
+    unknown_services: &[super::session::UnknownService],
+) -> Result<SourceAddPlan, AuthoringError> {
     let mut document = parse_loaded(&loaded)?;
-    let (model, _) = types::load_model(solution);
+    let (mut model, _) = types::load_model(solution);
+    for (entity, service, parameters) in unknown_services {
+        model.add_stub_service(entity, service, parameters);
+    }
     let platform = types::cached_platform(solution);
     let entity = model
         .entities
@@ -211,7 +277,24 @@ pub(super) fn plan_source_add_loaded(
                 crate::core::workspace::quoted_selector(&request.entity)
             ))
         })?;
-    let kind = SourceKind::of(&request.entity, &entity.collection, request.dynamic)?;
+    let kind = match entity_type {
+        Some("shape") if entity.collection == "ThingShapes" && !request.dynamic => {
+            SourceKind::Shape
+        }
+        Some("template") if entity.collection == "ThingTemplates" && !request.dynamic => {
+            SourceKind::Template
+        }
+        Some("network") if entity.collection == "Networks" && !request.dynamic => {
+            SourceKind::Network
+        }
+        None => SourceKind::of(&request.entity, &entity.collection, request.dynamic)?,
+        Some(kind) => {
+            return Err(AuthoringError::Invalid(format!(
+                "{}: entity_type {kind} does not match its collection or dynamic entity binding",
+                request.entity
+            )))
+        }
+    };
     if request.entity_from.is_some() && !kind.dynamic() {
         return Err(AuthoringError::Refused(format!(
             "--entity-from is for a dynamic source; {} runs on itself",
@@ -221,6 +304,7 @@ pub(super) fn plan_source_add_loaded(
     let lookup =
         catalog::lookup_service(entity, &model.entities, platform.as_ref(), &request.service);
     let complete = lookup.complete;
+    let lookup_unseen = lookup.unseen;
     let service = lookup.service.ok_or_else(|| {
         AuthoringError::Unknown(if complete {
             format!(
@@ -232,7 +316,7 @@ pub(super) fn plan_source_add_loaded(
                 "{}.{} is not a service twaco can see: {}",
                 request.entity,
                 request.service,
-                catalog::INCOMPLETE_CHAIN_HINT
+                catalog::incomplete_chain_hint(&lookup_unseen)
             )
         })
     })?;
@@ -505,8 +589,10 @@ pub(crate) fn list_sources(
         let kind = match entity_type {
             "Things" => "things",
             "ThingTemplates" => "template",
+            "ThingShapes" => "shape",
             "DynamicThingTemplates" => "dynamic-template",
             "DynamicThingShapes" => "dynamic-shape",
+            "Networks" => "network",
             _ => continue,
         };
         let entity = section_name

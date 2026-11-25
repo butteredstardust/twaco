@@ -20,6 +20,8 @@ pub(crate) struct Spec {
 pub(crate) struct Page {
     pub(crate) styles: Option<Spanned<Value>>,
     pub(crate) kind: Option<Spanned<PageKind>>,
+    /// `<columns>x<rows>` of a gadget, from the entity: 1 to 4 each.
+    pub(crate) gadget_size: Option<Spanned<String>>,
     #[serde(default)]
     pub(crate) props: BTreeMap<String, Spanned<Value>>,
     pub(crate) name: Spanned<String>,
@@ -43,6 +45,10 @@ pub(crate) struct Page {
     pub(crate) parameters: BTreeMap<String, Spanned<Parameter>>,
     #[serde(default)]
     pub(crate) data: BTreeMap<String, Spanned<Source>>,
+    /// Data sections that name an entity and run none of its services, by section name
+    /// (`Things_Acme.Thing`): a page built as found keeps them.
+    #[serde(default)]
+    pub(crate) empty_sources: Vec<Spanned<String>>,
     #[serde(default)]
     pub(crate) slots: BTreeMap<String, Spanned<Vec<Node>>>,
     #[serde(default)]
@@ -102,9 +108,36 @@ impl Parameter {
 pub(crate) enum PageKind {
     Page,
     Master,
+    /// A mashup template: an ordinary mashup whose content says `mashupTemplate`.
+    Template,
+    /// A fixed dashboard gadget (`aspect.mashupType="gadget"`); `gadget_size` is its grid.
+    Gadget,
 }
 
 impl Page {
+    pub(crate) fn is_gadget(&self) -> bool {
+        self.kind
+            .as_ref()
+            .is_some_and(|k| k.value == PageKind::Gadget)
+    }
+
+    /// The gadget's columns and rows, one by one when `gadget_size` is not stated.
+    pub(crate) fn gadget_grid(&self) -> Result<(u32, u32), Error> {
+        let Some(size) = &self.gadget_size else {
+            return Ok((1, 1));
+        };
+        size.value
+            .split_once('x')
+            .and_then(|(c, r)| Some((c.parse::<u32>().ok()?, r.parse::<u32>().ok()?)))
+            .filter(|(c, r)| (1..=12).contains(c) && (1..=12).contains(r))
+            .ok_or_else(|| {
+                Error::at(
+                    size.referenced,
+                    "gadget_size must be <columns>x<rows>, such as 2x2",
+                )
+            })
+    }
+
     pub(crate) fn is_master(&self) -> bool {
         self.kind
             .as_ref()
@@ -119,17 +152,38 @@ pub(crate) struct Root {
     pub(crate) id: Option<Spanned<String>>,
     #[serde(default)]
     pub(crate) props: BTreeMap<String, Spanned<Value>>,
+    /// Stored style parts of the root container, as a widget's `styles:`.
+    pub(crate) styles: Option<Spanned<Value>>,
+    /// Style tokens of the root container, as a widget's `style:`.
+    #[serde(default)]
+    pub(crate) style: Vec<Spanned<String>>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Source {
+    /// Static template/shape section; omission retains ordinary source inference.
+    pub(crate) entity_type: Option<Spanned<String>>,
     pub(crate) widget_id: Option<Spanned<String>>,
     /// Native Composer runtime data, rather than a Thing service.
     pub(crate) session: Option<Spanned<String>>,
     #[serde(default)]
     pub(crate) fields: BTreeMap<String, Spanned<String>>,
     pub(crate) service: Option<Spanned<String>>,
+    /// The stored `APIMethod` of the call (`get`, `post`, ...); `post` is the default.
+    pub(crate) method: Option<Spanned<String>>,
+    /// Base types of the fields of an unshaped result (a built-in service's rows) that bindings
+    /// read, as stored.
+    #[serde(default)]
+    pub(crate) field_types: BTreeMap<String, Spanned<String>>,
+    /// Base types a binding into a parameter stores when they differ from the type the service
+    /// declares (a type changed after the binding was made); the build otherwise computes it.
+    #[serde(default)]
+    pub(crate) param_types: BTreeMap<String, Spanned<String>>,
+    /// A call to a service its entity no longer declares, kept as found on a page built as-built:
+    /// the parameters it stores, with their base types.
+    #[serde(default)]
+    pub(crate) unknown_service: BTreeMap<String, Spanned<String>>,
     /// A ThingShape or ThingTemplate service runs on the Thing this `{bind: ...}` names at runtime.
     pub(crate) entity: Option<Spanned<Value>>,
     pub(crate) expression: Option<Spanned<String>>,
@@ -206,6 +260,7 @@ pub(crate) enum Node {
     Image(Body),
     Icon(Body),
     Divider(Body),
+    Shape(Body),
     Checkbox(Body),
     Radio(Body),
     Toggle(Body),
@@ -231,6 +286,7 @@ impl Node {
             | Self::Image(b)
             | Self::Icon(b)
             | Self::Divider(b)
+            | Self::Shape(b)
             | Self::Checkbox(b)
             | Self::Radio(b)
             | Self::Toggle(b)
@@ -283,6 +339,7 @@ impl Node {
             | Self::Image(b)
             | Self::Icon(b)
             | Self::Divider(b)
+            | Self::Shape(b)
             | Self::Checkbox(b)
             | Self::Radio(b)
             | Self::Toggle(b)
@@ -335,6 +392,7 @@ impl Node {
             | Self::Image(b)
             | Self::Icon(b)
             | Self::Divider(b)
+            | Self::Shape(b)
             | Self::Checkbox(b)
             | Self::Radio(b)
             | Self::Toggle(b)
@@ -402,6 +460,7 @@ impl Node {
             Self::Image(_) => "ptcsimage",
             Self::Icon(_) => "ptcsicon",
             Self::Divider(_) => "ptcsdivider",
+            Self::Shape(_) => "shape",
             Self::Checkbox(_) => "ptcscheckbox",
             Self::Radio(_) => "ptcsradio",
             Self::Toggle(_) => "ptcstogglebutton",
@@ -451,6 +510,9 @@ impl Node {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Body {
+    /// Stored endpoint types for widgets without a catalogue contract.
+    #[serde(default)]
+    pub(crate) binding_types: BTreeMap<String, Spanned<String>>,
     /// The source widget's exact id when its readable node id is not a Composer numeric id.
     pub(crate) widget_id: Option<Spanned<String>>,
     #[serde(skip)]
@@ -480,6 +542,15 @@ pub(crate) struct Body {
     pub(crate) position: Option<Spanned<String>>,
     pub(crate) alt: Option<Spanned<Value>>,
     pub(crate) orientation: Option<Spanned<String>>,
+    /// A shape's outline: circle, rectangle, roundrect or ellipse.
+    pub(crate) form: Option<Spanned<String>>,
+    /// A shape's fill style and the style of its unfilled part.
+    pub(crate) fill: Option<Spanned<String>>,
+    pub(crate) unfilled: Option<Spanned<String>>,
+    /// The corner radius of a rounded rectangle.
+    pub(crate) radius: Option<Spanned<f64>>,
+    /// Whether a shape fills in proportion to a bound value between `min` and `max`.
+    pub(crate) dynamic: Option<Spanned<bool>>,
     pub(crate) icon_size: Option<Spanned<String>>,
     pub(crate) group: Option<Spanned<Value>>,
     pub(crate) date_only: Option<bool>,
@@ -538,6 +609,10 @@ pub(crate) struct Body {
     /// The `name:TYPE` inputs of an expression or validator widget, which its wiring binds to.
     #[serde(default)]
     pub(crate) inputs: Vec<String>,
+    /// What a `widget:` node's own events trigger: `on` is the bare event name. Moved to
+    /// `page.events` under the node's id once the page is read.
+    #[serde(default)]
+    pub(crate) events: Vec<Spanned<Event>>,
 
     #[serde(alias = "label")]
     pub(crate) text: Option<Spanned<Value>>,
@@ -707,6 +782,7 @@ pub(crate) struct Sparkline {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Tab {
+    pub(crate) widget_id: Option<Spanned<String>>,
     pub(crate) label: Spanned<String>,
     pub(crate) mashup: Option<Spanned<String>>,
     pub(crate) content: Option<Vec<Node>>,
@@ -833,6 +909,42 @@ pub(crate) fn parse(text: &str) -> Result<Spec, Error> {
     })
 }
 
+/// Move each `widget:` node's `events:` to the page's, naming the node: `on: Changed` on node
+/// `field` is `on: field.Changed` there, so one syntax (and one check) serves both.
+fn hoist_events(nodes: &mut [Node], out: &mut Vec<Spanned<Event>>) -> Result<(), Error> {
+    for node in nodes {
+        let is_widget = matches!(node, Node::Widget(_));
+        let body = node.body_mut();
+        if !body.events.is_empty() {
+            if !is_widget {
+                return Err(Error::at(
+                    body.events[0].referenced,
+                    "events belong to widget nodes; other elements take page.events with `on: id.Event`",
+                ));
+            }
+            for mut event in std::mem::take(&mut body.events) {
+                if event.value.on.value.contains('.') {
+                    return Err(Error::at(
+                        event.value.on.referenced,
+                        "a node's event is the bare event name (`on: Changed`); the node's id is added",
+                    ));
+                }
+                event.value.on.value = format!("{}.{}", body.id.value, event.value.on.value);
+                out.push(event);
+            }
+        }
+        hoist_events(&mut body.children, out)?;
+        hoist_events(&mut body.fields, out)?;
+        hoist_events(&mut body.toolbar, out)?;
+        for tab in &mut body.tabs {
+            if let Some(content) = &mut tab.content {
+                hoist_events(content, out)?;
+            }
+        }
+    }
+    Ok(())
+}
+
 pub(crate) fn parse_solution(
     text: &str,
     solution: &crate::core::config::Solution,
@@ -891,6 +1003,14 @@ fn parse_nested(
         return Err(Error::at(spec.rules.referenced, "rules must be v1"));
     }
     registry.expand_page(&mut spec.page.value)?;
+    {
+        let page = &mut spec.page.value;
+        let mut hoisted = vec![];
+        for nodes in page.slots.values_mut() {
+            hoist_events(&mut nodes.value, &mut hoisted)?;
+        }
+        page.events.extend(hoisted);
+    }
     let tokens = if let Some(source) = &spec.tokens {
         crate::core::mashup::tokens::Tokens::load(&source.value, base)
             .map_err(|e| Error::at(source.referenced, e))?
@@ -904,6 +1024,17 @@ fn parse_nested(
     spec.resolved_tokens = tokens;
     for source in spec.page.value.data.values() {
         let s = &source.value;
+        if let Some(kind) = &s.entity_type {
+            if s.service.is_none()
+                || !matches!(kind.value.as_str(), "template" | "shape" | "network")
+            {
+                return Err(Error::at(
+                    kind.referenced,
+                    "entity_type needs a service and must be template, shape or network",
+                ));
+            }
+        }
+
         if s.widget_id.is_some() && s.expression.is_none() {
             return Err(Error::at(
                 source.referenced,
@@ -1019,6 +1150,17 @@ fn parse_nested(
                 ));
             }
             node.widget()?;
+            for (property, base) in &b.binding_types {
+                if property.is_empty()
+                    || !crate::core::entity::edit::BASE_TYPES.contains(&base.value.as_str())
+                {
+                    return Err(Error::at(
+                        base.referenced,
+                        "binding_types needs a property name and known base type",
+                    ));
+                }
+            }
+
             if b.text.as_ref().is_some_and(|v| !v.value.is_string()) {
                 return Err(Error::at(
                     b.id.referenced,
