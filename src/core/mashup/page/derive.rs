@@ -464,6 +464,13 @@ fn widget_type<'a>(widget: &'a Value, id: &str) -> Option<&'a str> {
 
 /// Whether the catalogue types `key` of `type_id` as a number: by its default, or its contract.
 fn wants_number(type_id: &str, key: &str, default: Option<&Value>) -> bool {
+    if widgets::catalog()
+        .by_type(type_id)
+        .and_then(|widget| widget.property(key))
+        .is_some_and(|contract| contract.css_size)
+    {
+        return false;
+    }
     match default {
         Some(Value::Number(_)) => true,
         Some(_) => false,

@@ -3103,3 +3103,71 @@ fn entity_push_prints_each_gate_finding_once_and_ends_with_the_summary() {
     assert!(stdout.contains("(advisory)"), "{stdout}");
     assert_eq!(stdout.lines().last(), Some("16 gate(s) passed"));
 }
+
+#[test]
+fn init_platform_v1_accepts_adopted_style_but_house_v1_and_real_bugs_fail() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::create_dir_all(root.join("Things")).unwrap();
+    let script = "function helper(){return 1;}\nresult=helper();";
+    let entity = |script: &str| {
+        format!(
+            r#"<Entities><Things><Thing name="Acme.Adopted" projectName="Acme"><ThingShape><ServiceDefinitions><ServiceDefinition name="Run"/></ServiceDefinitions><ServiceImplementations><ServiceImplementation name="Run" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[{script}]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>"#
+        )
+    };
+    let file = root.join("Things/Acme.Adopted.xml");
+    std::fs::write(&file, entity(script)).unwrap();
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .envs(
+                ["TEMP", "TMP"]
+                    .into_iter()
+                    .filter_map(|name| std::env::var_os(name).map(|value| (name, value))),
+            )
+            .output()
+            .unwrap()
+    };
+    let init = run(&["init", "--write"]);
+    assert!(init.status.success(), "{init:?}");
+    assert!(String::from_utf8_lossy(&init.stderr).contains("lint preset: platform-v1"));
+    let config = std::fs::read_to_string(root.join("twaco.toml")).unwrap();
+    assert!(config.contains("extends = [\"platform-v1\"]"), "{config}");
+    let extracted = run(&["extract", "--all"]);
+    assert!(extracted.status.success(), "{extracted:?}");
+    let check = run(&["check", "--detail"]);
+    assert!(check.status.success(), "{check:?}");
+    std::fs::write(
+        root.join("twaco.toml"),
+        config.replace("platform-v1", "house-v1"),
+    )
+    .unwrap();
+    let house = run(&["check", "--detail"]);
+    assert!(!house.status.success(), "{house:?}");
+    let output = format!(
+        "{}{}",
+        String::from_utf8_lossy(&house.stdout),
+        String::from_utf8_lossy(&house.stderr)
+    );
+    assert!(output.contains("unformatted"), "{output}");
+    assert!(output.contains("main-code-below-a-helper"), "{output}");
+    std::fs::write(root.join("twaco.toml"), config).unwrap();
+    for (script, rule) in [
+        ("var broken = ;", "will-not-parse"),
+        ("for (var key in me) { result = key; }", "for-in"),
+    ] {
+        std::fs::write(&file, entity(script)).unwrap();
+        let extracted = run(&["extract", "--all"]);
+        assert!(extracted.status.success(), "{extracted:?}");
+        let check = run(&["check", "--detail"]);
+        assert!(!check.status.success(), "{rule}: {check:?}");
+        let output = format!(
+            "{}{}",
+            String::from_utf8_lossy(&check.stdout),
+            String::from_utf8_lossy(&check.stderr)
+        );
+        assert!(output.contains(rule), "{output}");
+    }
+}

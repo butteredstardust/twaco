@@ -343,13 +343,29 @@
         "menu-bar",
         "sidebar-menu"
       ],
-      "type_display_name": "Menu Bar (Preview)"
+      "type_display_name": "Menu Bar (Preview)",
+      "properties": {
+        "MaxWidth": {
+          "baseType": "NUMBER",
+          "acceptsCssSize": true
+        },
+        "SubMenuMaxWidth": {
+          "baseType": "NUMBER",
+          "acceptsCssSize": true
+        }
+      }
     },
     "ptcsmenubutton": {
       "aliases": [
         "menu-button"
       ],
-      "type_display_name": "Menu Button"
+      "type_display_name": "Menu Button",
+      "properties": {
+        "MenuMaxWidth": {
+          "baseType": "NUMBER",
+          "acceptsCssSize": true
+        }
+      }
     },
     "ptcspagination": {
       "aliases": [

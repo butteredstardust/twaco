@@ -6,6 +6,14 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- `init` now selects the new `platform-v1` lint preset: adopted scripts keep their formatting,
+  code order and comments, while parse failures and script traps still block. Existing preset
+  behaviour and the `checks-v1` default without `[lint]` are unchanged.
+- Configuration-table copies with only different field ordinals no longer produce a note;
+  other metadata differences still report as before.
+- Menu button `MenuMaxWidth` and menu bar `MaxWidth`/`SubMenuMaxWidth` retain runtime CSS size
+  text such as `auto` through page derivation, builds and mashup property edits.
+
 - Page derivation keeps raw container subtrees, static template and shape services, reset
   events and legacy binding types in fresh copies. Derived tabs retain their container ids;
   pinned pages resolve generated id collisions and accept distinct ids sharing a number.

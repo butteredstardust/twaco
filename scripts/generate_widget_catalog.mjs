@@ -108,6 +108,8 @@ const plain = (value) =>
 
 function property(definition) {
   const out = { base_type: typeof definition.baseType === "string" ? definition.baseType : null };
+  // The overlay records runtime CSS sizes where Composer declares a numeric base type.
+  if (definition.acceptsCssSize === true) out.css_size = true;
   // The widget API's default for both flags is false.
   if (definition.isBindingSource === true) out.source = true;
   if (definition.isBindingTarget === true) out.target = true;

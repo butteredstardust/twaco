@@ -84,6 +84,9 @@ pub struct Widget {
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub(crate) struct PropertyContract {
     pub(crate) base_type: Option<String>,
+    /// Runtime accepts CSS size text as well as Composer's numeric base type.
+    #[serde(default)]
+    pub(crate) css_size: bool,
     /// Can be bound from: the widget sets it.
     #[serde(default)]
     pub(crate) source: bool,
@@ -195,6 +198,7 @@ pub(crate) fn dynamic_property(
     };
     Some(PropertyContract {
         base_type: Some(base),
+        css_size: false,
         source: type_id == "ptcscollection",
         target: true,
         editable: !chart_source,

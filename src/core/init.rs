@@ -159,12 +159,12 @@ pub(crate) fn propose_files(root: &Path, files: Vec<(PathBuf, Vec<u8>)>) -> Prop
             .to_string(),
     );
     proposal.notes.push(
-        "lint preset: house-v1, the full house style; an existing twaco.toml without [lint] keeps checks-v1, today's gates".to_string(),
+        "lint preset: platform-v1, today's gates without formatting and code order (adopted code keeps its own style); opt into the house style with `extends = [\"house-v1\"]` and `twaco fmt`".to_string(),
     );
 
     let name = projects.keys().next().cloned().unwrap_or_default();
     let mut toml = format!(
-        "# Proposed by `twaco init`. Read it before committing it.\n\n[solution]\nname = {}\nsrc = {}\n\n[format]\nindent_cdata_payload = {indent}\n\n[format.script]\nindent_width = {script_indent}\nquote_style = \"{}\"\n\n[lint]\nextends = [\"house-v1\"]\n",
+        "# Proposed by `twaco init`. Read it before committing it.\n\n[solution]\nname = {}\nsrc = {}\n\n[format]\nindent_cdata_payload = {indent}\n\n[format.script]\nindent_width = {script_indent}\nquote_style = \"{}\"\n\n[lint]\nextends = [\"platform-v1\"]\n",
         quote(&name),
         quote(&src),
         fmt::quote_name(script_quote)
@@ -607,11 +607,13 @@ mod tests {
         assert!(proposal
             .toml
             .contains("[format.script]\nindent_width = 4\nquote_style = \"double\""));
-        assert!(proposal.toml.contains("[lint]\nextends = [\"house-v1\"]"));
+        assert!(proposal
+            .toml
+            .contains("[lint]\nextends = [\"platform-v1\"]"));
         assert!(proposal
             .notes
             .iter()
-            .any(|note| note.contains("lint preset: house-v1")));
+            .any(|note| note.contains("lint preset: platform-v1")));
         assert!(
             proposal.toml.contains("depends_on"),
             "a multi-project solution is told about deploy order"

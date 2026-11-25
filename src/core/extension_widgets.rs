@@ -476,6 +476,7 @@ impl Parts {
                 name,
                 PropertyContract {
                     base_type: declared.base_type,
+                    css_size: false,
                     source: declared.source,
                     target: declared.target,
                     editable: declared.editable,

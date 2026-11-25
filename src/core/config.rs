@@ -1095,7 +1095,7 @@ impl Solution {
 
     pub(crate) fn lint_doctor_detail(&self) -> String {
         let Some(lint) = &self.lint else {
-            return "checks-v1 (default: no [lint]); house-v1 adds the comment rules".to_string();
+            return "checks-v1 (default: no [lint]); platform-v1 keeps adopted style; house-v1 adds the comment rules".to_string();
         };
         let presets = lint
             .extends

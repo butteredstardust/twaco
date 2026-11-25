@@ -963,6 +963,9 @@ pub(super) fn always_numeric(name: &str) -> bool {
         let Some(contract) = widget.property(name) else {
             continue;
         };
+        if contract.css_size {
+            return false;
+        }
         match contract.base_type.as_deref() {
             Some("NUMBER" | "INTEGER" | "LONG") => seen = true,
             None => {}

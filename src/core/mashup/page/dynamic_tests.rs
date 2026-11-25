@@ -114,7 +114,7 @@ fn awkward(solution: &Solution) -> String {
             .find_map(|w| find(w, kind))
     }
     let menu = find(&mut value["UI"], "ptcsmenubar").unwrap();
-    menu["Properties"]["MenuMaxWidth"] = serde_json::json!("wide");
+    menu["Properties"]["Width"] = serde_json::json!("wide");
     let menu_id = menu["Properties"]["Id"].as_str().unwrap().to_string();
     let go = find(&mut value["UI"], "ptcsbutton").unwrap()["Properties"]["Id"]
         .as_str()
@@ -184,7 +184,7 @@ fn derive_never_emits_what_its_own_build_refuses() {
             derived.notes
         );
         assert!(
-            derived.notes.iter().any(|n| n.contains("MenuMaxWidth")),
+            derived.notes.iter().any(|n| n.contains("Width")),
             "{:?}",
             derived.notes
         );

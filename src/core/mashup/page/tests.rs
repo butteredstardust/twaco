@@ -4908,3 +4908,59 @@ fn grid_columns_author_textarea_and_boolean_whitespace_with_type_validation() {
 
 #[path = "milestone_tests.rs"]
 mod milestone;
+
+#[test]
+fn menu_css_widths_round_trip_through_fresh_and_as_built_pages() {
+    let (_dir, solution) = solution();
+    for (kind, property) in [
+        ("ptcsmenubutton", "MenuMaxWidth"),
+        ("ptcsmenubar", "MaxWidth"),
+        ("ptcsmenubar", "SubMenuMaxWidth"),
+    ] {
+        let contract = crate::core::widgets::catalog()
+            .by_type(kind)
+            .unwrap()
+            .property(property)
+            .unwrap();
+        assert_eq!(contract.base_type.as_deref(), Some("NUMBER"));
+        assert!(
+            !contract.target,
+            "Composer does not expose {kind}.{property} as a binding target"
+        );
+        for width in [
+            serde_json::json!("auto"),
+            serde_json::json!("24rem"),
+            serde_json::json!(280),
+        ] {
+            let spec = format!("version: 1\nrules: v1\npage:\n  name: Acme.MenuWidth_MU\n  template: blank\n  slots:\n    center:\n      - widget: {{id: menu, type: {kind}, props: {{{property}: {width}}}}}\n");
+            let built = compile(&solution, "Acme", &spec).unwrap();
+            for exact in [false, true] {
+                let derived = if exact {
+                    super::derive::derive_exact("Acme.Copy_MU", &built.content)
+                } else {
+                    super::derive::derive("Acme.Copy_MU", &built.content)
+                }
+                .unwrap();
+                assert!(
+                    !derived.notes.iter().any(|note| note.contains(property)),
+                    "{:?}",
+                    derived.notes
+                );
+                let rebuilt = compile(&solution, "Acme", &derived.spec)
+                    .unwrap_or_else(|error| panic!("{error}\n{}", derived.spec));
+                let doc = mashup::edit::parse(&rebuilt.content).unwrap();
+                let widget = doc
+                    .widgets()
+                    .into_iter()
+                    .find(|widget| widget.type_id == kind)
+                    .unwrap();
+                assert_eq!(
+                    doc.at(&widget.path)["Properties"][property],
+                    width,
+                    "{}",
+                    derived.spec
+                );
+            }
+        }
+    }
+}

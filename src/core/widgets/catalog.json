@@ -12018,7 +12018,8 @@
           "target": true
         },
         "SubMenuMaxWidth": {
-          "base_type": "NUMBER"
+          "base_type": "NUMBER",
+          "css_size": true
         },
         "SubMenuMinWidth": {
           "base_type": "NUMBER"
@@ -12030,7 +12031,8 @@
           "base_type": "STRING"
         },
         "MaxWidth": {
-          "base_type": "NUMBER"
+          "base_type": "NUMBER",
+          "css_size": true
         },
         "MinWidth": {
           "base_type": "NUMBER"
@@ -12203,7 +12205,8 @@
           "base_type": "NUMBER"
         },
         "MenuMaxWidth": {
-          "base_type": "NUMBER"
+          "base_type": "NUMBER",
+          "css_size": true
         },
         "MenuMaxItems": {
           "base_type": "NUMBER",

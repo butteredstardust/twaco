@@ -1817,6 +1817,11 @@ mod tests {
             },
         )
         .unwrap();
+        let toml = std::fs::read_to_string(temp.path().join("twaco.toml")).unwrap();
+        assert!(
+            toml.contains("[lint]\nextends = [\"platform-v1\"]"),
+            "{toml}"
+        );
         assert!(temp.path().join("A/Things/A.T.xml").exists());
         assert!(temp.path().join("B/Things/B.T.xml").exists());
         assert!(temp.path().join("src/A.T/services/S/script.js").exists());

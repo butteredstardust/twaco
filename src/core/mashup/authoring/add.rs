@@ -961,6 +961,9 @@ fn checked_property_value(
             ))),
         };
     }
+    if contract.is_some_and(|contract| contract.css_size) && text.parse::<f64>().is_err() {
+        return Ok(Value::String(text));
+    }
     // The default's own type decides first; the contract's base type only when there is none.
     let boolean =
         matches!(default, Some(Value::Bool(_))) || (default.is_none() && base == Some("BOOLEAN"));

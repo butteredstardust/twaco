@@ -4629,6 +4629,13 @@ fn check_with_detail_gives_each_gate_its_notes() {
 #[test]
 fn lint_tool_returns_what_the_core_finds() {
     let (_dir, root) = solution_dir();
+    let config_path = root.join("twaco.toml");
+    let config = std::fs::read_to_string(&config_path).unwrap();
+    std::fs::write(
+        config_path,
+        format!("{config}\n[lint]\nextends = [\"platform-v1\"]\n"),
+    )
+    .unwrap();
     let script = root.join("src/P.T/services/Run");
     std::fs::create_dir_all(&script).unwrap();
     std::fs::write(
@@ -4657,6 +4664,25 @@ for (var k in m) {
         serde_json::to_value(&core.findings).unwrap()
     );
     assert_eq!(body["errors"], 2, "{body}");
+
+    let (failed, configured) = call_tool(&root, "lint", json!({"print_config": true}));
+    assert!(!failed, "{configured}");
+    for (id, severity) in [
+        ("format.unformatted", "off"),
+        ("format.will-not-parse", "error"),
+        ("order.main-code-below-a-helper", "off"),
+        ("traps.for-in", "error"),
+        ("traps.event-data", "warn"),
+    ] {
+        let rule = configured["config"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|rule| rule["rule"] == id)
+            .unwrap();
+        assert_eq!(rule["severity"], severity, "{rule}");
+        assert_eq!(rule["origin"], "platform-v1", "{rule}");
+    }
 
     let (failed, refused) = call_tool(
         &root,

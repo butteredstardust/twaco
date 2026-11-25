@@ -258,6 +258,16 @@ pub(crate) fn preset(name: &str, rule: &Rule) -> Option<Severity> {
         } else {
             Severity::Error
         }),
+        "platform-v1" => Some(
+            if rule.id == "format.unformatted"
+                || rule.id.starts_with("order.")
+                || rule.id.starts_with("comments.")
+            {
+                Severity::Off
+            } else {
+                Severity::Error
+            },
+        ),
         "traps-only-v1" => Some(if rule.id.starts_with("traps.") {
             Severity::Error
         } else {
@@ -278,7 +288,7 @@ pub(crate) fn preset(name: &str, rule: &Rule) -> Option<Severity> {
     }
 }
 
-pub(crate) const PRESETS: &[&str] = &["checks-v1", "traps-only-v1", "house-v1"];
+pub(crate) const PRESETS: &[&str] = &["checks-v1", "platform-v1", "traps-only-v1", "house-v1"];
 
 #[cfg(test)]
 mod tests {
@@ -291,6 +301,23 @@ mod tests {
             assert_eq!(preset(preset_name, rule), Some(Severity::Error));
         }
         assert!(by_id("traps.indexed-rows").is_none());
+    }
+
+    #[test]
+    fn platform_v1_keeps_bug_checks_without_imposing_style() {
+        for rule in RULES {
+            let expected = if rule.id == "traps.event-data" {
+                Severity::Warn
+            } else if rule.id == "format.unformatted"
+                || rule.id.starts_with("order.")
+                || rule.id.starts_with("comments.")
+            {
+                Severity::Off
+            } else {
+                Severity::Error
+            };
+            assert_eq!(preset("platform-v1", rule), Some(expected), "{}", rule.id);
+        }
     }
 
     #[test]
