@@ -1339,7 +1339,7 @@ parameters need a DataShape and are added with `mashup param add --data-shape`.
 Widget searches match all query words in any order and treat alias hyphens as spaces:
 `twaco widgets --search "date picker"` and `--search "picker date"` both find `ptcsdatepicker`.
 
-`twaco widgets --platform` (or `--from <webapp folder>`) reads the installation's widget files
+`twaco widgets --platform` (or `--webapp <webapp folder>`) reads the installation's widget files
 into `.twaco/widgets.json`: legacy widgets (`tree`, `collection`, `gauge`, ...) and installed
 extensions then have contracts, so `twaco widgets tree` lists their properties, events and
 services and `mashup validate`, `check` and page specs judge them. Contracts are read statically

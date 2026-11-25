@@ -706,7 +706,7 @@ pub(crate) const USAGE: &[Usage] = &[
         text: r#"  widgets [<widget>] [--search <text>] [--json]
                               --search html finds display-only HTML; collapsible finds its recipe
   widgets --icons [<filter>] [--json]
-  widgets (--platform [--profile <name>] | --from <webapp folder>) [--json]
+  widgets (--platform [--profile <name>] | --webapp <webapp folder>) [--json]
                               the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
                               aliases, containers and editable or bindable properties with defaults, events and services
       --icons                 the 215 CDS icon names a cds: value may take; twaco refuses any other
@@ -714,7 +714,7 @@ pub(crate) const USAGE: &[Usage] = &[
                               contracts of legacy widgets (tree, collection, ...) and of installed
                               extensions, read without running them; widgets, check, mashup validate
                               and page specs then use them after the embedded catalogue, which wins
-      --from <folder>         the same from a Thingworx webapp folder on disk (the one holding Common/)"#,
+      --webapp <folder>       the same from a Thingworx webapp folder on disk (the one holding Common/)"#,
     },
     Usage {
         path: "mashup validate",

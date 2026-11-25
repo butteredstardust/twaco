@@ -1,5 +1,5 @@
 //! The widget cache: the contracts of the legacy and extension widgets an installation ships,
-//! read from its widget files without running them (`twaco widgets --platform` or `--from`).
+//! read from its widget files without running them (`twaco widgets --platform` or `--webapp`).
 //!
 //! The embedded catalogue stays the offline default and always wins for the widgets it has. The
 //! cache, `.twaco/widgets.json`, adds the rest: legacy platform widgets (`tree`, `collection`,
@@ -195,10 +195,10 @@ fn from_remote(remote: &dyn Remote) -> Result<Inputs, WidgetCacheError> {
             Ok(Some(bytes)) => String::from_utf8(bytes)
                 .map_err(|_| WidgetCacheError::Source(format!("{path} is not UTF-8"))),
             Ok(None) => Err(WidgetCacheError::Source(format!(
-                "this server connection cannot fetch {path}; use --from <webapp folder>"
+                "this server connection cannot fetch {path}; use --webapp <webapp folder>"
             ))),
             Err(error) => Err(WidgetCacheError::Source(format!(
-                "cannot fetch {path}: {error}; use --from <webapp folder> for an installation on disk"
+                "cannot fetch {path}: {error}; use --webapp <webapp folder> for an installation on disk"
             ))),
         }
     };
@@ -399,7 +399,7 @@ pub(crate) fn refresh(
         (None, Some(remote)) => from_remote(remote)?,
         (None, None) => {
             return Err(WidgetCacheError::Source(
-                "give a server profile or --from <webapp folder>".into(),
+                "give a server profile or --webapp <webapp folder>".into(),
             ))
         }
     };
@@ -764,7 +764,7 @@ TW.IDE.Widgets.acmeext = function () {
             requested: Default::default(),
         };
         let error = refresh(&solution, Some(&empty), None, &held).unwrap_err();
-        assert!(error.to_string().contains("--from"), "{error}");
+        assert!(error.to_string().contains("--webapp"), "{error}");
         let error = refresh(&solution, None, Some(guard.path()), &held).unwrap_err();
         assert!(error.to_string().contains("Common"), "{error}");
         assert!(!solution.root.join(FILE).exists());

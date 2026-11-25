@@ -1,4 +1,4 @@
-//! The command policy around the widget cache: `widgets --platform` and `widgets --from`.
+//! The command policy around the widget cache: `widgets --platform` and `widgets --webapp`.
 
 use super::{lock_workspace, Notices};
 use crate::core::codes::{Coded, ErrorCode};

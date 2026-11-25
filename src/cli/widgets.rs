@@ -7,7 +7,7 @@ use twaco::core::widget_cache::Outcome;
 use twaco::core::widgets_view::{self, WidgetDetail, WidgetSummary};
 use twaco::core::{cds_icons, commands, server};
 
-/// `twaco widgets [<widget>] [--search <text>] [--json]`, and `widgets --platform|--from`.
+/// `twaco widgets [<widget>] [--search <text>] [--json]`, and `widgets --platform|--webapp`.
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct Widgets {
@@ -17,7 +17,7 @@ pub(crate) struct Widgets {
     pub(crate) icons: bool,
     #[arg(long = "platform")]
     pub(crate) platform: bool,
-    #[arg(long = "from", value_name = "webapp folder")]
+    #[arg(long = "webapp", value_name = "webapp folder")]
     pub(crate) from: Option<PathBuf>,
     #[command(flatten)]
     pub(crate) profile: Profile,
@@ -27,16 +27,16 @@ pub(crate) struct Widgets {
     pub(crate) operands: Vec<String>,
 }
 
-/// `twaco widgets --platform` or `--from <folder>`: read the installation's widget files into
+/// `twaco widgets --platform` or `--webapp <folder>`: read the installation's widget files into
 /// `.twaco/widgets.json`.
 pub(crate) fn refresh_cmd(solution: &Solution, args: &Widgets) -> u8 {
     if args.platform && args.from.is_some() {
-        eprintln!("{} give --platform or --from, not both", style::prefix());
+        eprintln!("{} give --platform or --webapp, not both", style::prefix());
         return FAILED;
     }
     if args.icons || args.search.is_some() || !args.operands.is_empty() {
         eprintln!(
-            "{} --platform and --from rebuild the widget cache and take no widget, --search or --icons",
+            "{} --platform and --webapp rebuild the widget cache and take no widget, --search or --icons",
             style::prefix()
         );
         return FAILED;

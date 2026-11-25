@@ -41,10 +41,10 @@ All notable changes to twaco are recorded here. The format follows
   against its contract); a wrong event or service is refused with `did you mean`, so is a widget
   type one letter from a catalogued one. `twaco widgets <type>` prints what its `widget:` node
   takes, and PAGE_SPECS.md has a section on it.
-- **`widgets --platform` and `widgets --from <webapp folder>`: contracts for legacy and extension
+- **`widgets --platform` and `widgets --webapp <webapp folder>`: contracts for legacy and extension
   widgets.** Both read the installation's widget files (`Common/mashup-common-widgets-shared.js`,
   `-builder.js`, `widget-meta-values.json` and each extension's `*.ide.js`; `--platform` fetches
-  them by GET, `--from` reads a folder) with the JavaScript parser, without running them, and write
+  them by GET, `--webapp` reads a folder) with the JavaScript parser, without running them, and write
   `.twaco/widgets.json` with the platform version and fetch time. The last `return` of each
   definition function is read, a name bound to a literal stands for it, webpack dev-mode `eval`
   modules are opened, and `translate("key")` is its key; a widget built any other way is listed as
