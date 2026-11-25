@@ -105,6 +105,21 @@ const fn yes() -> bool {
 pub enum CatalogError {
     #[error("no widget is called `{word}` in the ThingWorx {PLATFORM} catalogue{}{}", hint(.close), absent(.word))]
     Unknown { word: String, close: Vec<String> },
+    /// A widget type id the platform ships whose contract the catalogue lacks. It never resolves to
+    /// a modern widget: the two have different events and properties.
+    #[error("unknown (legacy widget `{word}`; not in the catalogue): twaco has no contract for it and cannot author it; one already on a page is carried as-is{}{}", modern(.close), absent(.word))]
+    Legacy { word: String, close: Vec<String> },
+}
+
+fn modern(close: &[String]) -> String {
+    if close.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ". Its modern counterparts have other events and properties: {}",
+            close.join(", ")
+        )
+    }
 }
 
 /// What the catalogue lacks on purpose (Gauge, Web Frame): the closest widget it has.
@@ -278,15 +293,57 @@ impl Catalog {
                     .and_then(|replacement| self.by_type(replacement))
                     .unwrap_or(widget)
             })
-            .ok_or_else(|| CatalogError::Unknown {
-                word: word.to_string(),
-                close: self
+            .ok_or_else(|| {
+                let close = self
                     .search(&wanted)
                     .into_iter()
                     .take(5)
                     .map(|widget| widget.type_id.clone())
-                    .collect(),
+                    .collect();
+                if self.platform_types.contains(&wanted) {
+                    CatalogError::Legacy {
+                        word: wanted.clone(),
+                        close,
+                    }
+                } else {
+                    CatalogError::Unknown {
+                        word: word.to_string(),
+                        close,
+                    }
+                }
             })
+    }
+
+    /// The widget `mashup add` places for a word. Everyday words that are also legacy type ids
+    /// (`button`, `label`, `container`) add the modern widget, because twaco only ever authors
+    /// modern ones; they are accepted here and nowhere else, so describing or reading a page never
+    /// takes a legacy type for a modern one.
+    pub(crate) fn resolve_for_add(&self, word: &str) -> Result<&Widget, CatalogError> {
+        const EVERYDAY: &[(&str, &str)] = &[
+            ("button", "ptcsbutton"),
+            ("checkbox", "ptcscheckbox"),
+            ("container", "flexcontainer"),
+            ("panel", "flexcontainer"),
+            ("divider", "ptcsdivider"),
+            ("image", "ptcsimage"),
+            ("label", "ptcslabel"),
+            ("link", "ptcslink"),
+            ("slider", "ptcsslider"),
+            ("tabs", "ptcstabset"),
+            ("textarea", "ptcstextarea"),
+            ("tree", "ptcstreeselector"),
+            ("collection", "ptcscollection"),
+            ("navigation", "navigationfunction"),
+            ("autorefresh", "autorefreshfunction"),
+        ];
+        let wanted = word.trim().to_ascii_lowercase();
+        self.resolve(word).or_else(|error| {
+            EVERYDAY
+                .iter()
+                .find(|(name, _)| *name == wanted)
+                .and_then(|(_, type_id)| self.by_type(type_id))
+                .ok_or(error)
+        })
     }
 
     /// Widgets whose type, alias or label contains `text`, ignoring case; all of them for "".
@@ -581,17 +638,55 @@ mod tests {
     }
 
     #[test]
+    fn a_legacy_type_id_never_resolves_to_a_modern_widget() {
+        let catalog = catalog();
+        for word in [
+            "tree",
+            "collection",
+            "container",
+            "panel",
+            "button",
+            "label",
+            "tabs",
+            "navigation",
+            "autorefresh",
+        ] {
+            let error = catalog.resolve(word).unwrap_err();
+            assert!(
+                matches!(error, CatalogError::Legacy { .. }),
+                "{word}: {error}"
+            );
+            assert!(
+                error.to_string().contains("legacy widget"),
+                "{word}: {error}"
+            );
+        }
+        // Friendly words that are not type ids keep working.
+        for (word, type_id) in [
+            ("tree-selector", "ptcstreeselector"),
+            ("text-field", "ptcstextfield"),
+            ("responsive-container", "flexcontainer"),
+            ("table", "ptcsgrid"),
+            ("input", "ptcstextfield"),
+        ] {
+            assert_eq!(catalog.resolve(word).unwrap().type_id, type_id);
+        }
+    }
+
+    #[test]
     fn a_widget_is_found_by_type_or_alias_and_an_unknown_one_suggests_others() {
         let catalog = catalog();
         assert_eq!(catalog.resolve("ptcsgrid").unwrap().type_id, "ptcsgrid");
         assert_eq!(catalog.resolve("Grid").unwrap().type_id, "ptcsgrid");
         assert_eq!(catalog.resolve(" table ").unwrap().type_id, "ptcsgrid");
         assert_eq!(
-            catalog.resolve("container").unwrap().type_id,
+            catalog.resolve("responsive-container").unwrap().type_id,
             "flexcontainer"
         );
         let error = catalog.resolve("chart").unwrap_err();
-        let CatalogError::Unknown { close, .. } = &error;
+        let CatalogError::Unknown { close, .. } = &error else {
+            panic!("{error}");
+        };
         assert!(close.iter().any(|c| c == "ptcschartbar"), "{close:?}");
         assert_eq!(error.code(), ErrorCode::InvalidArguments);
         assert!(catalog

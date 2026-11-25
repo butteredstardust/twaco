@@ -763,6 +763,59 @@ mod tests {
         );
     }
 
+    /// A server whose Importer never removes a grant: it takes the file, then puts back the
+    /// instance permission block it held.
+    struct KeepsGrants {
+        held: RefCell<Vec<u8>>,
+        grants: String,
+    }
+    impl Remote for KeepsGrants {
+        fn project_exists(&self, _: &str) -> Result<bool, ServerError> {
+            Ok(true)
+        }
+        fn fetch(&self, _: &EntityKey) -> Result<Option<Vec<u8>>, ServerError> {
+            Ok(Some(self.held.borrow().clone()))
+        }
+        fn import(&self, _: &str, xml: &[u8]) -> Result<(), ServerError> {
+            let text = String::from_utf8_lossy(xml).into_owned();
+            let kept = text
+                .replace(
+                    "<Create/><Read/>",
+                    &format!("<Create>{}</Create><Read/>", self.grants),
+                )
+                .into_bytes();
+            *self.held.borrow_mut() = kept;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn pushing_a_file_with_empty_instance_permission_kinds_never_wipes_the_grants() {
+        let (_dir, root) = temp();
+        let grants = "<Principal name=\"Acme.Users\" type=\"Group\" isPermitted=\"true\"/>";
+        let file = |create: &str, script: &str| {
+            format!(
+                "<Entities><Things><Thing name=\"T\" projectName=\"P\"><code><![CDATA[{script}]]></code><InstanceDesignTimePermissions><Create{create}<Read/><Update/><Delete/><Metadata/></InstanceDesignTimePermissions></Thing></Things></Entities>"
+            )
+            .into_bytes()
+        };
+        let server = file(&format!(">{grants}</Create>"), "a();");
+        let fake = KeepsGrants {
+            held: RefCell::new(server),
+            grants: grants.to_string(),
+        };
+        let local = file("/>", "b();");
+        // A plan sends nothing.
+        let before = fake.held.borrow().clone();
+        let _ = push(&fake, &root, &target(&local), false, false);
+        assert_eq!(*fake.held.borrow(), before);
+        // An apply sends the file, and the grants are still on the server afterwards.
+        let _ = push(&fake, &root, &target(&local), true, true);
+        let held = String::from_utf8(fake.held.borrow().clone()).unwrap();
+        assert!(held.contains("Acme.Users"), "{held}");
+        assert!(held.contains("<Metadata/>"), "{held}");
+    }
+
     #[test]
     fn a_dry_run_imports_nothing_and_writes_no_baseline() {
         let (_dir, root) = temp();

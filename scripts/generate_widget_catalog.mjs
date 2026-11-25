@@ -2,6 +2,11 @@
 //
 //   node scripts/generate_widget_catalog.mjs <path to the Thingworx webapp folder>
 //
+// DO NOT regenerate the committed catalog.json until backlog item #149 is done: the committed file
+// carries hand edits this script does not reproduce yet (the progress tracker's CurrentStepMashup
+// default is left out, an Icon property's `target`), and regenerating loses them. Edit catalog.json
+// by hand, exactly as this script would, until those edits live in the overlay.
+//
 // Reads Common/widget-meta-values.json (defaults) and Common/mashup-common-widgets-shared.js (each
 // `widgetWrapper.config(...)` literal, evaluated in isolation), plus widget_catalog_overlay.json.
 // Function widgets (expressions, validators, navigation...) are older Composer widgets: their
@@ -138,6 +143,11 @@ for (const [type, extra] of Object.entries(overlay.widgets)) {
     if (typeof value === "string" && (value.startsWith("__tw.") || value.startsWith("$$"))) {
       throw new Error(`${type}.${key} is ${value}, which Composer translates; give its value in overrides`);
     }
+  }
+  for (const alias of extra.aliases ?? []) {
+    // A word that is itself a platform widget type id (legacy or modern) names that widget, never
+    // another one: an alias onto a different widget hands a legacy page the wrong contract.
+    if (meta[alias]) throw new Error(`alias ${alias} of ${type} is a platform widget type id`);
   }
   for (const word of [type, ...(extra.aliases ?? [])]) {
     if (named.has(word)) throw new Error(`${word} names both ${named.get(word)} and ${type}`);

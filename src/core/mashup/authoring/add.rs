@@ -258,7 +258,7 @@ pub(super) fn plan_add_loaded(
             .by_type("flexcontainer")
             .expect("the catalogue has flexcontainer")
     } else {
-        match widgets::catalog().resolve(&request.widget) {
+        match widgets::catalog().resolve_for_add(&request.widget) {
             Ok(widget) => widget,
             Err(error) => match extension_widgets::find(solution, &request.widget) {
                 (Some(found), _) => {
@@ -570,6 +570,26 @@ pub(super) fn plan_add_loaded(
             .insert("twacoLayoutAuthored".into(), Value::Bool(true));
     }
     let mut notes = notes;
+    if !separator
+        && widgets::catalog().resolve(&request.widget).is_err()
+        && widgets::catalog().resolve_for_add(&request.widget).is_ok()
+    {
+        // An everyday word that is also a legacy type id: say which widget was used, because
+        // a legacy one already on a page has other events.
+        let events = widget
+            .events
+            .as_deref()
+            .filter(|events| !events.is_empty())
+            .map(|events| format!("; its events are {}", events.join(", ")))
+            .unwrap_or_default();
+        notes.push(format!(
+            "{} -> {}: the legacy `{}` widget cannot be authored, so its modern counterpart was added; it has other events and properties than a legacy `{}` already on a page{events}",
+            request.widget.trim(),
+            widget.type_id,
+            request.widget.trim().to_ascii_lowercase(),
+            request.widget.trim().to_ascii_lowercase(),
+        ));
+    }
     for (name, value) in &request.properties {
         if let Some(note) = crate::core::repo::git_bash_path_note(&Value::String(value.clone())) {
             notes.push(format!("{name}: {note}"));

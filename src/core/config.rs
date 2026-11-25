@@ -655,7 +655,15 @@ impl fmt::Display for ConfigError {
                 "project {project} depends on {missing}, which this solution does not declare"
             ),
             ConfigError::DependencyCycle { names } => {
-                write!(f, "projects depend on each other in a cycle: {}", names.join(" -> "))
+                write!(f, "projects depend on each other in a cycle: {}", names.join(" -> "))?;
+                // The path ends where it began; the last step is the edge that closes it.
+                if let [.., last, first] = names.as_slice() {
+                    write!(
+                        f,
+                        ". Remove one of these depends_on entries to break it, for example {first:?} from the depends_on of {last:?} (a project may only depend on one that deploys before it)"
+                    )?;
+                }
+                Ok(())
             }
         }
     }
@@ -1208,9 +1216,9 @@ impl Solution {
                 .map(|(name, _)| *name)
                 .collect();
             if ready.is_empty() {
-                let mut names: Vec<String> = pending.keys().map(|n| n.to_string()).collect();
-                names.sort();
-                return Err(ConfigError::DependencyCycle { names });
+                return Err(ConfigError::DependencyCycle {
+                    names: cycle_among(&pending, &done),
+                });
             }
             for name in ready {
                 let project = pending.remove(name).expect("name came from pending");
@@ -1220,6 +1228,63 @@ impl Solution {
         }
         Ok(order)
     }
+}
+
+/// A real cycle among the projects that could not be placed: each step depends on the next, and
+/// the last on the first, which ends the path. Every pending project has a dependency that is
+/// not placed yet, so walking those from the first must come back to a project already seen.
+fn cycle_among(pending: &BTreeMap<&str, &Project>, done: &BTreeSet<&str>) -> Vec<String> {
+    let mut walk: Vec<&str> = Vec::new();
+    let mut at = match pending.keys().next() {
+        Some(first) => *first,
+        None => return Vec::new(),
+    };
+    loop {
+        if let Some(seen) = walk.iter().position(|name| *name == at) {
+            let mut names: Vec<String> = walk[seen..].iter().map(|n| n.to_string()).collect();
+            names.push(at.to_string());
+            return names;
+        }
+        walk.push(at);
+        match pending[at]
+            .depends_on
+            .iter()
+            .find(|d| !done.contains(d.as_str()) && pending.contains_key(d.as_str()))
+        {
+            Some(next) => at = next.as_str(),
+            None => return walk.iter().map(|n| n.to_string()).collect(),
+        }
+    }
+}
+
+/// The projects on the way from `from` to `to` through `depends_on`, both ends included.
+pub(crate) fn dependency_path(
+    graph: &BTreeMap<String, Vec<String>>,
+    from: &str,
+    to: &str,
+) -> Option<Vec<String>> {
+    let mut parent: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut queue = std::collections::VecDeque::from([from]);
+    let mut seen: BTreeSet<&str> = BTreeSet::from([from]);
+    while let Some(at) = queue.pop_front() {
+        if at == to {
+            let mut path = vec![to.to_string()];
+            let mut step = to;
+            while let Some(before) = parent.get(step) {
+                path.push(before.to_string());
+                step = before;
+            }
+            path.reverse();
+            return Some(path);
+        }
+        for next in graph.get(at).into_iter().flatten() {
+            if seen.insert(next.as_str()) {
+                parent.insert(next.as_str(), at);
+                queue.push_back(next.as_str());
+            }
+        }
+    }
+    None
 }
 
 /// A TOML number, so `max_ratio = 1` means what `max_ratio = 1.0` does.

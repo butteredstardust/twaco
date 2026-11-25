@@ -189,12 +189,12 @@ mod tests {
 
     #[test]
     fn the_tab_set_detail_documents_the_items_objects() {
-        let note = detail("tabs").unwrap().note.unwrap();
+        let note = detail("tab-set").unwrap().note.unwrap();
         assert!(
             note.contains(r#""name":"Orders""#) && note.contains("Tab <n>"),
             "{note}"
         );
-        assert!(detail("button").unwrap().note.is_none());
+        assert!(detail("ptcsbutton").unwrap().note.is_none());
     }
 
     #[test]
@@ -241,7 +241,7 @@ mod tests {
             .properties
             .iter()
             .any(|property| property.name == "Text" && property.direction == "in/out"));
-        let button = detail("button").unwrap();
+        let button = detail("ptcsbutton").unwrap();
         assert!(button.events.iter().any(|event| event == "Clicked"));
         assert!(button
             .services
@@ -251,7 +251,7 @@ mod tests {
             .properties
             .iter()
             .any(|property| property.name == "Visible"));
-        let container = detail("container").unwrap();
+        let container = detail("flexcontainer").unwrap();
         assert!(container.note.is_none());
         assert!(container
             .properties

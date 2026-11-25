@@ -11,6 +11,13 @@ All notable changes to twaco are recorded here. The format follows
   pinned pages resolve generated id collisions and accept distinct ids sharing a number.
   Mashup diff treats binding property-type casing consistently with adoption.
 
+- Legacy widget type ids (`tree`, `collection`, `container`, `label`, `button`...) are no longer
+  aliases of the modern widgets: `twaco widgets tree` says it is a legacy widget outside the
+  catalogue, and a legacy widget on a page keeps its own events. `mashup add` still takes the
+  everyday words (`button`, `label`, `container`) and places the modern widget, saying which. `init
+  --from-server` writes the permission kinds the server exported (`<Create/>`...) instead of
+  empty blocks, and leaves out project dependencies that would close a cycle (the edge whose entities name the fewest of the other
+  project's, with a comment and a note); the cycle error names a real path and the edge to remove.
 - Page builds name spec nodes and source lines in widget diagnostics, report retained edits to
   managed custom.css and refuse competing stylesheet changes. The page content height floor
   follows the template's content slot even after it is renamed, including master page areas.

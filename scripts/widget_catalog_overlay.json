@@ -22,9 +22,7 @@
   "widgets": {
     "flexcontainer": {
       "aliases": [
-        "container",
-        "responsive-container",
-        "panel"
+        "responsive-container"
       ],
       "type_display_name": "Responsive Container",
       "display_name": "container",
@@ -182,9 +180,7 @@
       "type_display_name": "Breadcrumb"
     },
     "ptcsbutton": {
-      "aliases": [
-        "button"
-      ],
+      "aliases": [],
       "type_display_name": "Button"
     },
     "ptcschartbar": {
@@ -231,9 +227,7 @@
       "type_display_name": "Waterfall Chart"
     },
     "ptcscheckbox": {
-      "aliases": [
-        "checkbox"
-      ],
+      "aliases": [],
       "type_display_name": "Checkbox"
     },
     "ptcschipdatafilter": {
@@ -244,9 +238,7 @@
       "type_display_name": "Data Filter"
     },
     "ptcscollection": {
-      "aliases": [
-        "collection"
-      ],
+      "aliases": [],
       "type_display_name": "Collection"
     },
     "ptcsconfirmation": {
@@ -268,9 +260,7 @@
       "type_display_name": "Date Time Picker"
     },
     "ptcsdivider": {
-      "aliases": [
-        "divider"
-      ],
+      "aliases": [],
       "type_display_name": "Divider"
     },
     "ptcsdropdown": {
@@ -307,9 +297,7 @@
       "type_display_name": "Icon"
     },
     "ptcsimage": {
-      "aliases": [
-        "image"
-      ],
+      "aliases": [],
       "type_display_name": "Image"
     },
     "ptcskpidial": {
@@ -321,14 +309,12 @@
     },
     "ptcslabel": {
       "aliases": [
-        "label",
         "text"
       ],
       "type_display_name": "Label"
     },
     "ptcslink": {
       "aliases": [
-        "link",
         "hyperlink"
       ],
       "type_display_name": "Link"
@@ -398,22 +384,18 @@
       "type_display_name": "Rich Text Editor"
     },
     "ptcsslider": {
-      "aliases": [
-        "slider"
-      ],
+      "aliases": [],
       "type_display_name": "Slider"
     },
     "ptcstabset": {
       "aliases": [
-        "tabs",
         "tab-set"
       ],
       "type_display_name": "Tabs"
     },
     "ptcstextarea": {
       "aliases": [
-        "text-area",
-        "textarea"
+        "text-area"
       ],
       "type_display_name": "Text Area"
     },
@@ -455,8 +437,7 @@
     },
     "ptcstreeselector": {
       "aliases": [
-        "tree-selector",
-        "tree"
+        "tree-selector"
       ],
       "type_display_name": "Tree Selector"
     },
@@ -613,7 +594,6 @@
     },
     "navigationfunction": {
       "aliases": [
-        "navigation",
         "popup"
       ],
       "type_display_name": "Navigation",
@@ -632,8 +612,7 @@
     },
     "autorefreshfunction": {
       "aliases": [
-        "auto-refresh",
-        "autorefresh"
+        "auto-refresh"
       ],
       "type_display_name": "Auto Refresh",
       "function": true

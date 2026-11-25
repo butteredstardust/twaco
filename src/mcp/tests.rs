@@ -2755,7 +2755,7 @@ fn what_the_offline_tools_return_fits_the_output_schema_they_publish() {
         ("mashup_templates", json!({"name": "blank"})),
         ("widgets", json!({})),
         ("widgets", json!({"search": "grid"})),
-        ("widgets", json!({"widget": "button"})),
+        ("widgets", json!({"widget": "ptcsbutton"})),
         ("mashup_validate", json!({"all": true})),
         ("mashup_describe", json!({"mashup": "P.Board_MU"})),
         (
@@ -4135,7 +4135,7 @@ fn mashup_on_runs_a_service_after_creating_a_button() {
 #[test]
 fn widgets_returns_catalogue_details_and_refuses_two_selectors() {
     let (_dir, root) = solution_dir();
-    let button = call(&root, "widgets", json!({"widget": "button"}));
+    let button = call(&root, "widgets", json!({"widget": "ptcsbutton"}));
     assert_eq!(button["isError"], false, "{button}");
     assert!(button["structuredContent"]["events"]
         .as_array()
