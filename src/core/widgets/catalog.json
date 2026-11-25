@@ -205,11 +205,6 @@
         "Visible": true,
         "Z-index": 10
       },
-      "services": [
-        "ToggleExpandCollapse",
-        "Expand",
-        "Collapse"
-      ],
       "properties": {
         "ExpandCollapseTabLocation": {
           "base_type": "STRING",
@@ -267,7 +262,12 @@
           "base_type": "BOOLEAN"
         }
       },
-      "events": []
+      "events": [],
+      "services": [
+        "ToggleExpandCollapse",
+        "Expand",
+        "Collapse"
+      ]
     },
     {
       "type": "mashupcontainer",
@@ -13804,10 +13804,6 @@
         "Z-index": 10
       },
       "properties": {
-        "Icon": {
-          "base_type": "IMAGELINK",
-          "target": true
-        },
         "Text": {
           "base_type": "STRING",
           "source": true,
@@ -13883,7 +13879,8 @@
           "base_type": "NUMBER"
         },
         "Icon": {
-          "base_type": "IMAGELINK"
+          "base_type": "IMAGELINK",
+          "target": true
         },
         "TooltipField": {
           "base_type": "STRING",

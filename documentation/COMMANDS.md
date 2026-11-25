@@ -178,9 +178,15 @@ reproject <entity>... --to <project> [--apply] [--json]
 widgets [<widget>] [--search <text>] [--json]
                             --search html finds display-only HTML; collapsible finds its recipe
 widgets --icons [<filter>] [--json]
+widgets (--platform [--profile <name>] | --from <webapp folder>) [--json]
                             the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
                             aliases, containers and editable or bindable properties with defaults, events and services
     --icons                 the 215 CDS icon names a cds: value may take; twaco refuses any other
+    --platform              read the server's widget files (GET only) into .twaco/widgets.json: the
+                            contracts of legacy widgets (tree, collection, ...) and of installed
+                            extensions, read without running them; widgets, check, mashup validate
+                            and page specs then use them after the embedded catalogue, which wins
+    --from <folder>         the same from a Thingworx webapp folder on disk (the one holding Common/)
 mashup validate <mashup>|--all [--json]
                             what in a mashup ThingWorx would load but not honour, or the next edit would
                             trip over: structure, ids, bindings and events that name what is not there,

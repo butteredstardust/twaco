@@ -49,7 +49,7 @@ when the command is asked to write. A local output named by an option is include
 | `requirements check` | read-only | read-only | none; optional server reads | Retry freely. Server read errors block. | `core/commands/requirements.rs: execute_check` |
 | `bundle` | read-only | single-file atomic | generated bundle and optional handoff | The generated bundle is old or new; an applied handoff is available as a base. Retry freely. | `core/commands/bundle.rs: execute` |
 | `deploy` | read-only | server-partial | server, baseline, backups, localization tables | Read back reported imports and baseline; use the plan and backups before retrying An agent imported first without allowances its namespaces drop is put back when its bundle fails to import. A localization failure after the imports says so; `localization push --apply` retries the tables. | `core/commands/deploy.rs: execute` |
-| `call` | server-partial | server-partial | service effects | Inspect the service's effects and logs before retrying. | `core/commands/call.rs: execute` |
+| `call` | read-only | server-partial | service effects (a read runs without `--apply`) | Inspect the service's effects and logs before retrying. | `core/commands/call.rs: execute` |
 | `logs` | read-only | read-only | none | Retry freely. | `cli/data.rs: logs_cmd` |
 | `logs level` | read-only | server-partial | server log level | Read the current level and use the printed undo before retrying. | `core/commands/logs.rs: execute` |
 | `config-table` | read-only | server-partial | server table, optional backup | Set replaces all rows and reads back; pull to update the repository. Read back and use a backup before retrying set or restore. | `core/commands/config_table.rs: execute` |
@@ -206,6 +206,7 @@ when the command is asked to write. A local output named by an option is include
 | `mashup diff` | read-only | read-only | none | Retry freely. | `core/mashup/diff.rs: diff` |
 | `mashup validate` | read-only | read-only | none | Retry freely. | `core/mashup_validate.rs: validate` |
 | `widgets` | read-only | read-only | none | Retry freely. | `core/widgets_view.rs: list` |
+| `widgets --platform` | single-file atomic | single-file atomic | widget cache (`.twaco/widgets.json`) | The cache is entirely old or entirely new; retry freely. | `core/commands/widgets.rs: execute` |
 | `mashup tokens` | read-only | read-only | none | Retry freely. | `core/mashup/tokens/mod.rs: inspect` |
 | `mashup templates` | read-only | read-only | none | Retry freely. | `core/mashup_templates_view.rs: list` |
 | `mashup new` | read-only | multi-file atomic | new entity file, mashup sidecars | The entity file and its content.json and custom.css are created in one journaled transaction, or none is; a file that appeared since the plan is refused. Retry. | `core/commands/mashup.rs: new` |

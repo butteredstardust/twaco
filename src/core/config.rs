@@ -747,6 +747,9 @@ impl Solution {
                 .map(|project| project.name.as_str()),
         );
         solution.server_owned.push(rule);
+        // The widget cache, when there is one, adds the legacy and extension widgets to what
+        // widget lookups on this thread know.
+        super::widget_cache::install(&solution.root);
         Ok(solution)
     }
 

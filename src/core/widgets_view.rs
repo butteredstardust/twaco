@@ -49,8 +49,7 @@ pub fn list(search: Option<&str>) -> Vec<WidgetSummary> {
             let wanted = text.to_ascii_lowercase().replace('-', " ");
             let words: Vec<_> = wanted.split_whitespace().collect();
             catalog()
-                .widgets
-                .iter()
+                .all()
                 .filter(|widget| {
                     widget
                         .names()
@@ -64,7 +63,7 @@ pub fn list(search: Option<&str>) -> Vec<WidgetSummary> {
                 .map(summary)
                 .collect()
         }
-        None => catalog().widgets.iter().map(summary).collect(),
+        None => catalog().all().map(summary).collect(),
     }
 }
 
@@ -98,7 +97,9 @@ pub fn detail(word: &str) -> Result<WidgetDetail, CatalogError> {
         services: widget.services.clone().unwrap_or_default(),
         defaults_count: widget.defaults.len(),
         note: if bindable {
-            schema_note(&widget.type_id).map(str::to_string)
+            schema_note(&widget.type_id)
+                .map(str::to_string)
+                .or_else(|| widget.provenance.clone())
         } else {
             Some("no binding contract in the catalogue: it can be placed but not bound".to_string())
         },

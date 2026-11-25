@@ -1339,6 +1339,13 @@ parameters need a DataShape and are added with `mashup param add --data-shape`.
 Widget searches match all query words in any order and treat alias hyphens as spaces:
 `twaco widgets --search "date picker"` and `--search "picker date"` both find `ptcsdatepicker`.
 
+`twaco widgets --platform` (or `--from <webapp folder>`) reads the installation's widget files
+into `.twaco/widgets.json`: legacy widgets (`tree`, `collection`, `gauge`, ...) and installed
+extensions then have contracts, so `twaco widgets tree` lists their properties, events and
+services and `mashup validate`, `check` and page specs judge them. Contracts are read statically
+(no widget code runs); a widget built at run time is listed as unknown with the reason. The
+embedded catalogue wins for the widgets it has and stays the default without a cache.
+
 `twaco widgets --search html` finds `ptcsrte`: set `ReadOnly=true` and
 `HideToolbar=true` for display-only HTML. `--search collapsible` points at the existing
 `mashup recipe collapsible`; these are discovery hints, with no authoring aliases or presets.

@@ -377,7 +377,10 @@
       "aliases": [
         "progress-tracker"
       ],
-      "type_display_name": "Progress Tracker"
+      "type_display_name": "Progress Tracker",
+      "remove_defaults": [
+        "CurrentStepMashup"
+      ]
     },
     "ptcspropertydisplay": {
       "aliases": [

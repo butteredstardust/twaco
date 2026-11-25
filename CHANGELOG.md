@@ -6,6 +6,21 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- **`widgets --platform` and `widgets --from <webapp folder>`: contracts for legacy and extension
+  widgets.** Both read the installation's widget files (`Common/mashup-common-widgets-shared.js`,
+  `-builder.js`, `widget-meta-values.json` and each extension's `*.ide.js`; `--platform` fetches
+  them by GET, `--from` reads a folder) with the JavaScript parser, without running them, and write
+  `.twaco/widgets.json` with the platform version and fetch time. The last `return` of each
+  definition function is read, a name bound to a literal stands for it, webpack dev-mode `eval`
+  modules are opened, and `translate("key")` is its key; a widget built any other way is listed as
+  unknown with the reason, never guessed. With a cache, `twaco widgets tree` describes the legacy
+  contract instead of "unknown (legacy widget ...)", and `mashup validate`, `check` and the page
+  specs judge such widgets' properties, events and services. The embedded catalogue still wins
+  for the widgets it has and is the offline default; without a cache nothing changes.
+- `scripts/generate_widget_catalog.mjs` reproduces the committed `catalog.json` again: the
+  progress tracker's removed `CurrentStepMashup` default moved into the overlay
+  (`remove_defaults`), and a duplicate `Icon` key the text field's entry carried is gone (its
+  `target` flag, which the overlay declares, now holds).
 - **Breaking: `call` now needs `--apply` for writes.** `twaco call` used to run anything at once
   (`Resources/EntityServices DeleteDataTagVocabulary` deleted on the spot). It now runs only a read:
   a service whose platform category is READ or QUERY, one on the built-in read list, one named

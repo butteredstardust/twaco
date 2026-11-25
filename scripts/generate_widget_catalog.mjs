@@ -2,11 +2,6 @@
 //
 //   node scripts/generate_widget_catalog.mjs <path to the Thingworx webapp folder>
 //
-// DO NOT regenerate the committed catalog.json until backlog item #149 is done: the committed file
-// carries hand edits this script does not reproduce yet (the progress tracker's CurrentStepMashup
-// default is left out, an Icon property's `target`), and regenerating loses them. Edit catalog.json
-// by hand, exactly as this script would, until those edits live in the overlay.
-//
 // Reads Common/widget-meta-values.json (defaults) and Common/mashup-common-widgets-shared.js (each
 // `widgetWrapper.config(...)` literal, evaluated in isolation), plus widget_catalog_overlay.json.
 // Function widgets (expressions, validators, navigation...) are older Composer widgets: their
@@ -141,6 +136,8 @@ for (const [type, extra] of Object.entries(overlay.widgets)) {
   // Composer translates `__tw.*` keys and resolves `$$...` markers when it drops a widget; the
   // overlay gives the value it writes, so none reaches a mashup untranslated.
   Object.assign(defaults, extra.overrides ?? {});
+  // A default Composer writes that a mashup is better without (an empty reference the editor fills).
+  for (const key of extra.remove_defaults ?? []) delete defaults[key];
   for (const [key, value] of Object.entries(defaults)) {
     if (typeof value === "string" && (value.startsWith("__tw.") || value.startsWith("$$"))) {
       throw new Error(`${type}.${key} is ${value}, which Composer translates; give its value in overrides`);

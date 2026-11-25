@@ -9,8 +9,9 @@
 //! its own configuration (a KPI's thresholds, a collection's mashup parameters) are not in it.
 
 use crate::core::codes::{Coded, ErrorCode};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::LazyLock;
 
@@ -79,29 +80,61 @@ pub struct Widget {
     /// Defined by one of the solution's extension projects, not shipped with the platform.
     #[serde(skip)]
     pub(crate) extension: bool,
+    /// Where a widget outside the embedded catalogue came from (the widget cache), for notes.
+    #[serde(skip)]
+    pub(crate) provenance: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub(crate) struct PropertyContract {
     pub(crate) base_type: Option<String>,
     /// Runtime accepts CSS size text as well as Composer's numeric base type.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub(crate) css_size: bool,
     /// Can be bound from: the widget sets it.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub(crate) source: bool,
     /// Can be bound to: something else sets it.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "is_false")]
     pub(crate) target: bool,
-    #[serde(default = "yes")]
+    #[serde(default = "yes", skip_serializing_if = "is_true")]
     pub(crate) editable: bool,
     /// The values a select property allows, when it lists them.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) options: Vec<Value>,
 }
 
 const fn yes() -> bool {
     true
+}
+
+const fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+const fn is_true(value: &bool) -> bool {
+    *value
+}
+
+/// Widgets beyond the embedded catalogue: the legacy and extension widgets of the widget cache
+/// (`twaco widgets --platform`), consulted after the embedded entries. It is read when a solution
+/// is loaded, per thread, so a thread that has loaded none sees the embedded catalogue alone.
+#[derive(Debug, Default)]
+pub(crate) struct Ambient {
+    pub(crate) widgets: Vec<Widget>,
+}
+
+thread_local! {
+    static AMBIENT: RefCell<Option<&'static Ambient>> = const { RefCell::new(None) };
+}
+
+/// Make `ambient` (or nothing) the cache this thread's lookups consult after the embedded entries.
+pub(crate) fn set_ambient(ambient: Option<&'static Ambient>) {
+    AMBIENT.with(|slot| *slot.borrow_mut() = ambient);
+}
+
+fn ambient() -> Option<&'static Ambient> {
+    AMBIENT.with(|slot| *slot.borrow())
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -374,13 +407,43 @@ pub(crate) fn configuration_warnings(content: &Value) -> Vec<String> {
 }
 
 impl Catalog {
-    /// The widget with this exact `Type`.
+    /// The widget with this exact `Type`: an embedded entry, else one of the widget cache.
     pub fn by_type(&self, type_id: &str) -> Option<&Widget> {
-        self.widgets.iter().find(|widget| widget.type_id == type_id)
+        self.widgets
+            .iter()
+            .find(|widget| widget.type_id == type_id)
+            .or_else(|| {
+                ambient()?
+                    .widgets
+                    .iter()
+                    .find(|widget| widget.type_id == type_id)
+            })
     }
 
-    /// The widget a person names: its type or an alias, ignoring case.
+    /// The embedded widgets, then those of the widget cache.
+    pub(crate) fn all(&self) -> impl Iterator<Item = &Widget> {
+        self.widgets
+            .iter()
+            .chain(ambient().into_iter().flat_map(|a| a.widgets.iter()))
+    }
+
+    /// The widget a person names: its type or an alias, ignoring case. An embedded entry wins; the
+    /// widget cache adds the legacy and extension widgets the catalogue lacks.
     pub(crate) fn resolve(&self, word: &str) -> Result<&Widget, CatalogError> {
+        self.resolve_embedded(word).or_else(|error| {
+            let wanted = word.trim();
+            ambient()
+                .and_then(|a| {
+                    a.widgets
+                        .iter()
+                        .find(|widget| widget.names().any(|name| name.eq_ignore_ascii_case(wanted)))
+                })
+                .ok_or(error)
+        })
+    }
+
+    /// [`Catalog::resolve`] over the embedded entries alone.
+    fn resolve_embedded(&self, word: &str) -> Result<&Widget, CatalogError> {
         let wanted = word.trim().to_ascii_lowercase();
         self.widgets
             .iter()
@@ -441,7 +504,7 @@ impl Catalog {
             ("autorefresh", "autorefreshfunction"),
         ];
         let wanted = word.trim().to_ascii_lowercase();
-        self.resolve(word).or_else(|error| {
+        self.resolve_embedded(word).or_else(|error| {
             EVERYDAY
                 .iter()
                 .find(|(name, _)| *name == wanted)
@@ -453,8 +516,7 @@ impl Catalog {
     /// Widgets whose type, alias or label contains `text`, ignoring case; all of them for "".
     pub(crate) fn search(&self, text: &str) -> Vec<&Widget> {
         let wanted = text.trim().to_ascii_lowercase();
-        self.widgets
-            .iter()
+        self.all()
             .filter(|widget| {
                 widget
                     .names()
@@ -506,6 +568,7 @@ impl Widget {
         defaults: Map<String, Value>,
         properties: BTreeMap<String, PropertyContract>,
         events: Vec<String>,
+        services: Option<Vec<String>>,
     ) -> Widget {
         Widget {
             display_name: type_id.clone(),
@@ -518,11 +581,12 @@ impl Widget {
             defaults,
             properties: Some(properties),
             events: Some(events),
-            services: None,
+            services,
             function: false,
             replaced_by: None,
             legacy: false,
             extension: true,
+            provenance: None,
         }
     }
 

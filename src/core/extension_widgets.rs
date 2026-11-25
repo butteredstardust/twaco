@@ -18,9 +18,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use swc_common::BytePos;
 use swc_ecma_ast::{
-    AssignExpr, AssignTarget, CallExpr, Callee, ClassDecl, ClassMember, Decorator, Expr, Function,
-    Lit, MemberExpr, MemberProp, ObjectLit, Pat, Prop, PropName, PropOrSpread, SimpleAssignTarget,
-    Stmt, UnaryOp, VarDeclarator,
+    AssignExpr, AssignTarget, CallExpr, Callee, ClassDecl, ClassMember, Decl, Decorator, Expr,
+    Function, Lit, MemberExpr, MemberProp, ObjectLit, Pat, Prop, PropName, PropOrSpread,
+    SimpleAssignTarget, Stmt, UnaryOp, VarDeclarator,
 };
 use swc_ecma_parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax, TsSyntax};
 use swc_ecma_visit::{Visit, VisitWith};
@@ -156,35 +156,60 @@ fn read_file(path: &Path) -> Result<Vec<Widget>, String> {
 
 /// The widgets one IDE source file defines.
 pub(crate) fn read_source(text: &str, typescript: bool) -> Result<Vec<Widget>, String> {
-    let end = u32::try_from(text.len()).map_err(|_| "too large to parse".to_string())?;
-    let syntax = if typescript {
-        Syntax::Typescript(TsSyntax {
-            decorators: true,
-            ..Default::default()
-        })
-    } else {
-        Syntax::Es(EsSyntax::default())
+    Ok(parse(text, typescript, false)?
+        .found
+        .into_iter()
+        .map(|found| found.widget)
+        .collect())
+}
+
+/// One widget read statically, with what the reading could not take.
+pub(crate) struct Found {
+    pub(crate) widget: Widget,
+    /// A property whose default is not a literal, and the like: said, never guessed.
+    pub(crate) notes: Vec<String>,
+    /// Why the contract cannot be known statically; the widget's contract is then not trusted.
+    pub(crate) unknown: Option<String>,
+}
+
+/// What [`read_report`] found in one file.
+#[derive(Default)]
+pub(crate) struct Report {
+    pub(crate) found: Vec<Found>,
+    /// Widgets registered under a name whose contract is built at run time (nothing to read).
+    pub(crate) unnamed: Vec<(String, String)>,
+}
+
+/// The widgets one source file defines, with a verdict on each contract: the last `return` of
+/// each definition function, identifiers bound to literals, webpack dev-mode `eval("...")`
+/// modules and `translate("key")` values are read; a widget built any other way is `unknown`.
+pub(crate) fn read_report(text: &str) -> Result<Report, String> {
+    parse(text, false, true)
+}
+
+fn parse(text: &str, typescript: bool, report: bool) -> Result<Report, String> {
+    let mut collector = Collector {
+        report,
+        ..Collector::default()
     };
-    let lexer = Lexer::new(
-        syntax,
-        Default::default(),
-        StringInput::new(text, BytePos(0), BytePos(end)),
-        None,
-    );
-    let program = super::script::guard_parse(|| Parser::new_from(lexer).parse_program())
-        .map_err(|error| error.to_string())?
-        .map_err(|error| format!("cannot parse it: {}", error.kind().msg()))?;
-    let mut collector = Collector::default();
-    program.visit_with(&mut collector);
-    Ok(collector.widgets)
+    collector.parse_text(text, typescript)?;
+    Ok(Report {
+        found: collector.found,
+        unnamed: collector.unnamed,
+    })
 }
 
 #[derive(Default)]
 struct Collector {
-    widgets: Vec<Widget>,
+    found: Vec<Found>,
+    unnamed: Vec<(String, String)>,
     /// The latest value each `const`/`let`/`var` name was declared with, in source order: a
     /// wrapper registration names its widget and configuration through them.
     declared: HashMap<String, Expr>,
+    /// Read for a verdict on each contract, not for authoring.
+    report: bool,
+    /// How many `eval` modules deep the text being read is.
+    depth: u8,
 }
 
 impl Collector {
@@ -193,6 +218,46 @@ impl Collector {
             Expr::Ident(ident) => self.declared.get(ident.sym.as_ref()).unwrap_or(expr),
             other => other,
         }
+    }
+
+    fn parse_text(&mut self, text: &str, typescript: bool) -> Result<(), String> {
+        let end = u32::try_from(text.len()).map_err(|_| "too large to parse".to_string())?;
+        let syntax = if typescript {
+            Syntax::Typescript(TsSyntax {
+                decorators: true,
+                ..Default::default()
+            })
+        } else {
+            Syntax::Es(EsSyntax::default())
+        };
+        let lexer = Lexer::new(
+            syntax,
+            Default::default(),
+            StringInput::new(text, BytePos(0), BytePos(end)),
+            None,
+        );
+        let program = super::script::guard_parse(|| Parser::new_from(lexer).parse_program())
+            .map_err(|error| error.to_string())?
+            .map_err(|error| format!("cannot parse it: {}", error.kind().msg()))?;
+        program.visit_with(self);
+        Ok(())
+    }
+
+    fn push(&mut self, parts: Parts, type_id: String) {
+        // A registration helper that names nothing is no widget.
+        if type_id.is_empty() {
+            return;
+        }
+        let notes = parts.notes.clone();
+        let mut unknown = parts.unknown.first().cloned();
+        if unknown.is_none() && !parts.saw_properties && !parts.wrapper {
+            unknown = Some("no widgetProperties function".to_string());
+        }
+        self.found.push(Found {
+            widget: parts.into_widget(type_id),
+            notes,
+            unknown,
+        });
     }
 }
 
@@ -207,18 +272,34 @@ impl Visit for Collector {
 
     fn visit_call_expr(&mut self, call: &CallExpr) {
         if let Callee::Expr(callee) = &call.callee {
-            let registers = member_path(callee)
-                .is_some_and(|path| path == ["TW", "Widget", "widgetWrapper", "config"]);
+            let registers = member_path(callee).is_some_and(|path| {
+                path.len() >= 2 && path[path.len() - 2..] == ["widgetWrapper", "config"]
+            });
             if registers && call.args.len() == 2 {
                 let name = string(self.resolve(&call.args[0].expr));
                 if let (Some(name), Expr::Object(config)) = (name, self.resolve(&call.args[1].expr))
                 {
                     let mut parts = Parts {
                         wrapper: true,
+                        report: self.report,
                         ..Parts::default()
                     };
                     parts.read_wrapper(config);
-                    self.widgets.push(parts.into_widget(name));
+                    self.push(parts, name);
+                }
+            }
+            // Webpack's dev mode wraps each module as `eval("...")`: its text is the code.
+            if self.report
+                && self.depth < 2
+                && matches!(&**callee, Expr::Ident(i) if i.sym.as_ref() == "eval")
+            {
+                if let Some(text) = call.args.first().and_then(|arg| string(&arg.expr)) {
+                    if text.contains("TW.IDE.Widgets") || text.contains("widgetWrapper") {
+                        self.depth += 1;
+                        // A module that does not parse is no worse than a file that does not.
+                        let _ = self.parse_text(&text, false);
+                        self.depth -= 1;
+                    }
                 }
             }
         }
@@ -227,10 +308,20 @@ impl Visit for Collector {
 
     fn visit_assign_expr(&mut self, assign: &AssignExpr) {
         if let Some(type_id) = ide_widget_name(&assign.left) {
-            if let Expr::Fn(function) = &*assign.right {
-                let mut parts = Parts::default();
-                function.function.visit_with(&mut parts);
-                self.widgets.push(parts.into_widget(type_id));
+            match &*assign.right {
+                Expr::Fn(function) => {
+                    let mut parts = Parts {
+                        report: self.report,
+                        ..Parts::default()
+                    };
+                    function.function.visit_with(&mut parts);
+                    self.push(parts, type_id);
+                }
+                _ if self.report => self.unnamed.push((
+                    type_id,
+                    "the widget is built at run time, not by a function literal".to_string(),
+                )),
+                _ => {}
             }
         }
         assign.visit_children_with(self);
@@ -238,7 +329,11 @@ impl Visit for Collector {
 
     fn visit_class_decl(&mut self, class: &ClassDecl) {
         if let Some(widget) = typescript_widget(class) {
-            self.widgets.push(widget);
+            self.found.push(Found {
+                widget,
+                notes: Vec::new(),
+                unknown: None,
+            });
         }
         class.visit_children_with(self);
     }
@@ -299,6 +394,24 @@ fn literal(expr: &Expr) -> Option<Value> {
             Expr::Lit(Lit::Num(number)) => number_value(-number.value),
             _ => None,
         },
+        // Minified booleans.
+        Expr::Unary(unary) if unary.op == UnaryOp::Bang => match &*unary.arg {
+            Expr::Lit(Lit::Num(number)) if number.value == 0.0 => Some(Value::from(true)),
+            Expr::Lit(Lit::Num(number)) if number.value == 1.0 => Some(Value::from(false)),
+            _ => None,
+        },
+        // A label is its translation key: the server translates it, the contract is its text.
+        Expr::Call(call) => {
+            let Callee::Expr(callee) = &call.callee else {
+                return None;
+            };
+            let translate = member_path(callee)
+                .is_some_and(|path| path == ["TW", "IDE", "I18NController", "translate"]);
+            match (translate, call.args.first()) {
+                (true, Some(key)) => string(&key.expr).map(Value::from),
+                _ => None,
+            }
+        }
         Expr::Paren(inner) => literal(&inner.expr),
         // An object or array counts only when every part of it is a literal.
         Expr::Object(object) => {
@@ -368,10 +481,20 @@ struct Parts {
     events: Vec<String>,
     /// A web-component widget: Composer themes it as its own PTCS widgets.
     wrapper: bool,
+    /// Read for a verdict on each contract (services included), not for authoring.
+    report: bool,
+    services: Vec<String>,
+    saw_properties: bool,
+    /// Why the contract cannot be read statically; the first one is the verdict.
+    unknown: Vec<String>,
+    notes: Vec<String>,
+    /// The `var x = {...}` declarations of the definition function being read.
+    locals: HashMap<String, Expr>,
 }
 
 #[derive(Default)]
 struct Declared {
+    options: Vec<Value>,
     base_type: Option<String>,
     default: Option<Value>,
     source: bool,
@@ -387,15 +510,40 @@ impl Visit for Parts {
         let (Expr::This(_), Some(name)) = (&*member.obj, property_name(&member.prop)) else {
             return assign.visit_children_with(self);
         };
+        let part = matches!(
+            name.as_str(),
+            "widgetProperties" | "widgetEvents" | "widgetServices"
+        );
+        if name == "widgetProperties" {
+            self.saw_properties = true;
+        }
         let Expr::Fn(function) = &*assign.right else {
+            if part {
+                self.unknown
+                    .push(format!("{name} is not a function literal"));
+            }
             return;
         };
-        let Some(returned) = returned_object(&function.function) else {
-            return;
+        self.locals = locals(&function.function);
+        let returned = match returned_object(&function.function, &self.locals) {
+            Ok(returned) => returned.clone(),
+            Err(why) => {
+                if part {
+                    self.unknown.push(format!("{name} {why}"));
+                }
+                return;
+            }
         };
         match name.as_str() {
-            "widgetProperties" => self.read_properties(returned),
-            "widgetEvents" => self.events.extend(pairs(returned).map(|(name, _)| name)),
+            "widgetProperties" => self.read_properties(&returned),
+            "widgetEvents" => {
+                let names = self.names(&returned, "widgetEvents");
+                self.events.extend(names);
+            }
+            "widgetServices" => {
+                let names = self.names(&returned, "widgetServices");
+                self.services.extend(names);
+            }
             _ => {}
         }
     }
@@ -405,18 +553,34 @@ impl Parts {
     fn read_properties(&mut self, object: &ObjectLit) {
         for (name, value) in pairs(object) {
             match name.as_str() {
-                "name" => self.label = string(value),
+                "name" => {
+                    self.label = literal(value).and_then(|label| label.as_str().map(str::to_string))
+                }
                 "supportsAutoResize" => {
                     self.auto_resize = literal(value) == Some(Value::from(true))
                 }
-                "properties" => {
-                    if let Expr::Object(properties) = value {
-                        self.read_property_map(properties);
+                "properties" => match resolve_local(value, &self.locals) {
+                    Expr::Object(properties) => {
+                        let properties = properties.clone();
+                        self.read_property_map(&properties);
                     }
-                }
+                    _ => self
+                        .unknown
+                        .push("properties is not an object literal".to_string()),
+                },
                 _ => {}
             }
         }
+    }
+
+    /// The keys of an object literal the widget lists (events, services); a spread or a computed
+    /// key means the list is not all there.
+    fn names(&mut self, object: &ObjectLit, what: &str) -> Vec<String> {
+        if pairs(object).count() != object.props.len() {
+            self.unknown
+                .push(format!("{what} has an entry that is not name: value"));
+        }
+        pairs(object).map(|(name, _)| name).collect()
     }
 
     /// A wrapper configuration: `flags` holds the label and auto-resize, `properties` and
@@ -429,29 +593,57 @@ impl Parts {
             match name.as_str() {
                 "flags" => self.read_properties(object),
                 "properties" => self.read_property_map(object),
-                "events" => self.events.extend(pairs(object).map(|(name, _)| name)),
+                "events" => {
+                    let names = self.names(object, "events");
+                    self.events.extend(names);
+                }
+                "services" => {
+                    let names = self.names(object, "services");
+                    self.services.extend(names);
+                }
                 _ => {}
             }
         }
     }
 
     fn read_property_map(&mut self, properties: &ObjectLit) {
+        if pairs(properties).count() != properties.props.len() {
+            self.unknown
+                .push("properties has an entry that is not name: value".to_string());
+        }
         for (property, declaration) in pairs(properties) {
-            let Expr::Object(declaration) = declaration else {
+            let Expr::Object(declaration) = resolve_local(declaration, &self.locals).clone() else {
+                self.notes.push(format!(
+                    "{property}: its declaration is not an object literal"
+                ));
                 continue;
             };
             let mut declared = Declared {
                 editable: true,
                 ..Declared::default()
             };
-            for (field, value) in pairs(declaration) {
+            for (field, value) in pairs(&declaration) {
                 let flag = literal(value) == Some(Value::from(true));
                 match field.as_str() {
                     "baseType" => declared.base_type = string(value),
-                    "defaultValue" => declared.default = literal(value),
+                    "defaultValue" => {
+                        declared.default = literal(value);
+                        if declared.default.is_none() {
+                            self.notes
+                                .push(format!("{property}: its default is not a literal"));
+                        }
+                    }
                     "isBindingSource" => declared.source = flag,
                     "isBindingTarget" => declared.target = flag,
                     "isEditable" => declared.editable = literal(value) != Some(Value::from(false)),
+                    "selectOptions" => {
+                        if let Some(Value::Array(options)) = literal(value) {
+                            declared.options = options
+                                .iter()
+                                .filter_map(|option| option.get("value").cloned())
+                                .collect();
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -480,10 +672,11 @@ impl Parts {
                     source: declared.source,
                     target: declared.target,
                     editable: declared.editable,
-                    options: Vec::new(),
+                    options: declared.options,
                 },
             );
         }
+        let services = self.report.then_some(self.services);
         Widget::extension(
             type_id.clone(),
             self.label.unwrap_or_else(|| type_id.clone()),
@@ -491,25 +684,64 @@ impl Parts {
             defaults,
             contracts,
             self.events,
+            services,
         )
     }
 }
 
-/// The object literal a function returns: `function () { return {...}; }`.
-fn returned_object(function: &Function) -> Option<&ObjectLit> {
-    function.body.as_ref()?.stmts.iter().find_map(|statement| {
-        let Stmt::Return(returned) = statement else {
-            return None;
-        };
-        match returned.arg.as_deref()? {
-            Expr::Object(object) => Some(object),
-            Expr::Paren(inner) => match &*inner.expr {
-                Expr::Object(object) => Some(object),
-                _ => None,
-            },
-            _ => None,
+/// The `var`/`let`/`const` declarations among a function's own statements.
+fn locals(function: &Function) -> HashMap<String, Expr> {
+    let mut out = HashMap::new();
+    for statement in function.body.iter().flat_map(|body| &body.stmts) {
+        if let Stmt::Decl(Decl::Var(declaration)) = statement {
+            for declarator in &declaration.decls {
+                if let (Pat::Ident(name), Some(init)) = (&declarator.name, &declarator.init) {
+                    out.insert(name.id.sym.to_string(), (**init).clone());
+                }
+            }
         }
-    })
+    }
+    out
+}
+
+/// A name bound to a value in the function being read stands for that value.
+fn resolve_local<'a>(expr: &'a Expr, locals: &'a HashMap<String, Expr>) -> &'a Expr {
+    match expr {
+        Expr::Ident(ident) => locals.get(ident.sym.as_ref()).unwrap_or(expr),
+        Expr::Paren(inner) => resolve_local(&inner.expr, locals),
+        // `return this.x = f(), {...}`: a comma list is worth its last value.
+        Expr::Seq(sequence) => sequence
+            .exprs
+            .last()
+            .map_or(expr, |last| resolve_local(last, locals)),
+        other => other,
+    }
+}
+
+/// The object literal a function's last `return` gives: `return {...}`, a parenthesised or comma
+/// list ending in one, or a name bound to one. Any other function says why it is not read.
+fn returned_object<'a>(
+    function: &'a Function,
+    locals: &'a HashMap<String, Expr>,
+) -> Result<&'a ObjectLit, String> {
+    let returned = function
+        .body
+        .iter()
+        .flat_map(|body| &body.stmts)
+        .filter_map(|statement| match statement {
+            Stmt::Return(returned) => Some(returned),
+            _ => None,
+        })
+        .next_back()
+        .ok_or_else(|| "has no return statement".to_string())?;
+    let arg = returned
+        .arg
+        .as_deref()
+        .ok_or_else(|| "returns nothing".to_string())?;
+    match resolve_local(arg, locals) {
+        Expr::Object(object) => Ok(object),
+        _ => Err("returns something other than an object literal".to_string()),
+    }
 }
 
 /// The decorator's name and arguments: `@name` or `@name(arg, ...)`.
@@ -717,5 +949,155 @@ class AcmeLabel extends TWComposerWidget {
         assert!(!label.defaults.contains_key("plain"));
         assert!(label.property("Value").unwrap().target);
         assert!(label.has_event("Clicked"));
+    }
+
+    fn report_of(source: &str) -> super::Report {
+        super::read_report(source).unwrap()
+    }
+
+    fn contract(found: &super::Found) -> (Vec<String>, Vec<String>, Vec<String>) {
+        let widget = &found.widget;
+        (
+            widget
+                .properties
+                .iter()
+                .flatten()
+                .map(|(n, _)| n.clone())
+                .collect(),
+            widget.events.clone().unwrap_or_default(),
+            widget.services.clone().unwrap_or_default(),
+        )
+    }
+
+    #[test]
+    fn a_first_statement_return_gives_properties_events_and_services() {
+        let report = report_of(
+            r#"
+TW.IDE.Widgets.acmefirst = function () {
+    this.widgetProperties = function () {
+        return { name: 'Acme First', properties: { Value: { baseType: 'STRING', isBindingTarget: true, selectOptions: [{ value: 'a' }, { value: 'b' }] } } };
+    };
+    this.widgetEvents = function () { return { Changed: {} }; };
+    this.widgetServices = function () { return { Reset: {} }; };
+};
+"#,
+        );
+        let found = &report.found[0];
+        assert_eq!(found.unknown, None);
+        assert_eq!(
+            contract(found),
+            (
+                vec!["Value".into()],
+                vec!["Changed".into()],
+                vec!["Reset".into()]
+            )
+        );
+        assert_eq!(
+            found.widget.property("Value").unwrap().options,
+            vec![json!("a"), json!("b")]
+        );
+    }
+
+    #[test]
+    fn the_last_return_counts_when_a_side_effect_runs_first() {
+        let report = report_of(
+            r#"
+TW.IDE.Widgets.acmeside = function () {
+    this.widgetProperties = function () {
+        this.flag = TW.UTIL.check(this, ["10.1.0"]);
+        if (this.flag) { return { name: 'early' }; }
+        return { name: 'Acme Side', properties: { Size: { baseType: 'NUMBER', defaultValue: 4 } } };
+    };
+    this.widgetServices = function () { return this.x = 1, { Refresh: { warnIfNotBound: !1 } }; };
+};
+"#,
+        );
+        let found = &report.found[0];
+        assert_eq!(found.unknown, None);
+        assert_eq!(found.widget.type_display_name, "Acme Side");
+        assert_eq!(found.widget.defaults["Size"], json!(4));
+        assert_eq!(contract(found).2, vec!["Refresh".to_string()]);
+    }
+
+    #[test]
+    fn a_name_bound_to_a_literal_stands_for_it() {
+        let report = report_of(
+            r#"
+TW.IDE.Widgets.acmebound = function () {
+    this.widgetProperties = function () {
+        var props = { Title: { baseType: 'STRING', isBindingSource: true } };
+        var all = { name: 'Acme Bound', properties: props };
+        return all;
+    };
+    this.widgetEvents = function () { var e = { Picked: {} }; return e; };
+};
+"#,
+        );
+        let found = &report.found[0];
+        assert_eq!(found.unknown, None);
+        assert_eq!(contract(found).0, vec!["Title".to_string()]);
+        assert_eq!(contract(found).1, vec!["Picked".to_string()]);
+    }
+
+    #[test]
+    fn a_webpack_dev_mode_eval_module_is_read() {
+        let source = r#"var modules = { "./src/acmeeval.ide.js": (function (module, exports) { eval("TW.IDE.Widgets.acmeeval = function () { this.widgetProperties = function () { return { name: 'Acme Eval', properties: { A: { baseType: 'BOOLEAN' } } }; }; };\n//# sourceURL=webpack:///./src/acmeeval.ide.js"); }) };"#;
+        let report = report_of(source);
+        assert_eq!(report.found.len(), 1);
+        assert_eq!(report.found[0].widget.type_id, "acmeeval");
+        assert_eq!(report.found[0].unknown, None);
+        assert_eq!(contract(&report.found[0]).0, vec!["A".to_string()]);
+    }
+
+    #[test]
+    fn translate_calls_are_their_key_and_other_expressions_are_noted() {
+        let report = report_of(
+            r#"
+TW.IDE.Widgets.acmetext = function () {
+    this.widgetProperties = function () {
+        return {
+            name: TW.IDE.I18NController.translate("acme.widget.name"),
+            properties: {
+                Label: { baseType: 'STRING', defaultValue: TW.IDE.I18NController.translate("acme.label") },
+                On: { baseType: 'BOOLEAN', defaultValue: !0 },
+                Computed: { baseType: 'STRING', defaultValue: TW.IDE.compute() }
+            }
+        };
+    };
+};
+"#,
+        );
+        let found = &report.found[0];
+        assert_eq!(found.widget.type_display_name, "acme.widget.name");
+        assert_eq!(found.widget.defaults["Label"], json!("acme.label"));
+        assert_eq!(found.widget.defaults["On"], json!(true));
+        assert!(!found.widget.defaults.contains_key("Computed"));
+        assert_eq!(found.notes, vec!["Computed: its default is not a literal"]);
+        assert_eq!(found.unknown, None);
+    }
+
+    #[test]
+    fn a_computed_or_decorated_widget_is_unknown_with_a_reason() {
+        let report = report_of(
+            r#"
+TW.IDE.Widgets.acmecomputed = function () {
+    this.widgetProperties = function () { return buildProperties(); };
+};
+TW.IDE.Widgets.acmeempty = function () { this.renderHtml = function () { return ''; }; };
+TW.IDE.Widgets.acmedecorated = __decorate([TWWidgetDefinition('Acme'), AcmeDecorated]);
+"#,
+        );
+        let computed = &report.found[0];
+        assert_eq!(computed.widget.type_id, "acmecomputed");
+        assert_eq!(
+            computed.unknown.as_deref(),
+            Some("widgetProperties returns something other than an object literal")
+        );
+        assert_eq!(
+            report.found[1].unknown.as_deref(),
+            Some("no widgetProperties function")
+        );
+        assert_eq!(report.unnamed.len(), 1);
+        assert_eq!(report.unnamed[0].0, "acmedecorated");
     }
 }

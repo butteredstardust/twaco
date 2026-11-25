@@ -114,6 +114,7 @@ pub mod types;
 pub mod unused;
 pub mod update;
 pub(crate) mod validate;
+pub mod widget_cache;
 pub mod widgets;
 pub mod widgets_view;
 pub mod workflow;

@@ -325,7 +325,7 @@ pub(crate) fn fetch_platform_with_progress(
 
 /// The combined mashup-builder code of the server's extensions: `Builder/index.html` names it in
 /// `COMBINED_EXT_JS`, a file whose name changes with every extension installed.
-fn extension_widget_code(remote: &dyn Remote) -> Result<Option<String>, String> {
+pub(crate) fn extension_widget_code(remote: &dyn Remote) -> Result<Option<String>, String> {
     let Some(page) = remote
         .web_file("Builder/index.html")
         .map_err(|e| e.to_string())?

@@ -42,6 +42,7 @@ pub mod status;
 pub mod sync;
 pub mod types;
 pub mod users;
+pub mod widgets;
 
 use super::config::Solution;
 use super::lock::{self, LockError, WorkspaceLock};
