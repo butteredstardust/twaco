@@ -146,3 +146,18 @@ STRING, HTML or HYPERLINK. `preserve_whitespace` requires textarea and the STRIN
 renderer. The shared columns recipe writes `cellEditor` and the boolean
 `preserveWhiteSpaces` (plural), including `false` when unset. Command equivalents are
 `--editable-column Notes --column-editor Notes=textarea --preserve-whitespace Notes`.
+
+## Legacy widget migration
+
+Before deriving a legacy page, `twaco mashup migrate Acme.View_MU --json` plans supported
+Composer 10.2 replacements. Inspect the dropped-property and dropped-connection warnings,
+then use `--apply` to write atomically. Widgets with no migrator (and current widgets such as
+shape or mashupcontainer, which have no replacement) are kept as they are and listed. Collection and numericentry
+have mappings; container converts only inside a dynamic panel. Gauge, radiobuttonlist, menu,
+tree and leddisplay have no newtype migrator. Legacy theme style callbacks are not executed;
+unmapped style properties are reported. Validate and derive the result before deploying.
+MCP: `mashup_migrate`, with `dry_run` true by default.
+
+MCP `widgets` refreshes contracts with `platform: true` and optional `profile`, or with a local
+`webapp` folder. Refresh takes no widget/search selector and writes `.twaco/widgets.json`
+under the workspace lock, using the same read-only server operations as `widgets --platform`.

@@ -420,3 +420,29 @@ fn result_infotables_without_shapes_warn_and_keep_whole_and_field_bindings() {
     let report = adopt_unchanged(&solution, NAME);
     assert!(!report["cell_notices"].as_array().unwrap().is_empty());
 }
+
+#[test]
+fn composer_property_renames_align_binding_ids_without_rewriting_the_entity() {
+    let (_dir, solution) = element_solution();
+    let spec = format!("{EMPTY}  layout: as-built\n  parameters: {{collapsed: BOOLEAN}}\n  slots:\n    center:\n      - widget: {{id: drawer, type: ptcsdynamicpanel, props: {{Collapsed: {{bind: param.collapsed}}}}}}\n");
+    adopt::handmade(&solution, &spec, NAME);
+    let mut content = adopt::current(&solution, NAME);
+    fn legacy(widget: &mut Value) {
+        if widget["Properties"]["Id"] == "drawer" {
+            let props = widget["Properties"].as_object_mut().unwrap();
+            let value = props.remove("Collapsed").unwrap_or(json!(true));
+            props.insert("CollapseByDefault".into(), value);
+        }
+        for child in widget["Widgets"].as_array_mut().into_iter().flatten() {
+            legacy(child);
+        }
+    }
+    legacy(&mut content["UI"]);
+    for binding in content["DataBindings"].as_array_mut().unwrap() {
+        if binding["TargetId"] == "drawer" {
+            binding["PropertyMaps"][0]["TargetProperty"] = json!("CollapseByDefault");
+        }
+    }
+    replace_content(&solution, NAME, &content);
+    adopt_unchanged(&solution, NAME);
+}

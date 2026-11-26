@@ -3,13 +3,13 @@ use super::requests::refactor::{
     AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, EntityEditAction,
     EntityEditRequest, EntityNewRequest, HandoffAction, HandoffRequest, MashupAddContainedRequest,
     MashupAddRequest, MashupBindRequest, MashupCollectionAddRequest, MashupDescribeRequest,
-    MashupDiffRequest, MashupEventRequest, MashupGapRequest, MashupMoveRequest, MashupNewRequest,
-    MashupOffRequest, MashupOnRequest, MashupParameterAction, MashupParameterRequest,
-    MashupRecipeRequest, MashupRemoveRequest, MashupSetRequest, MashupSourceAddRequest,
-    MashupSourceListRequest, MashupSourceRemoveRequest, MashupSourceRetargetRequest,
-    MashupTemplatesRequest, MashupUnbindRequest, MashupValidateRequest, MashupWhyRequest,
-    MoveMemberAction, MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest,
-    RetemplateRequest, WidgetsRequest,
+    MashupDiffRequest, MashupEventRequest, MashupGapRequest, MashupMigrateRequest,
+    MashupMoveRequest, MashupNewRequest, MashupOffRequest, MashupOnRequest, MashupParameterAction,
+    MashupParameterRequest, MashupRecipeRequest, MashupRemoveRequest, MashupSetRequest,
+    MashupSourceAddRequest, MashupSourceListRequest, MashupSourceRemoveRequest,
+    MashupSourceRetargetRequest, MashupTemplatesRequest, MashupUnbindRequest,
+    MashupValidateRequest, MashupWhyRequest, MoveMemberAction, MoveMemberRequest,
+    NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::{
@@ -1491,7 +1491,55 @@ fn beside(
     crate::core::mashup::edit::Placement::Beside { anchor, side }
 }
 
-pub(crate) fn widgets_tool(arguments: WidgetsRequest) -> Result<Value, ToolError> {
+pub(crate) fn widgets_tool(
+    root: &std::path::Path,
+    arguments: WidgetsRequest,
+) -> Result<Value, ToolError> {
+    if arguments.platform || arguments.webapp.as_ref().is_some() {
+        if (arguments.platform && arguments.webapp.as_ref().is_some())
+            || arguments.widget.as_ref().is_some()
+            || arguments.search.as_ref().is_some()
+            || (!arguments.platform && arguments.profile.as_ref().is_some())
+        {
+            return Err(ToolError::invalid("widgets refresh takes platform or webapp, no widget or search; profile requires platform"));
+        }
+        let solution = Solution::discover(root).map_err(ToolError::coded)?;
+        let source = if let Some(folder) = arguments.webapp.as_ref() {
+            let folder = std::path::PathBuf::from(folder);
+            commands::widgets::WidgetSource::Folder(if folder.is_absolute() {
+                folder
+            } else {
+                solution.root.join(folder)
+            })
+        } else {
+            commands::widgets::WidgetSource::Server {
+                profile: arguments
+                    .profile
+                    .as_ref()
+                    .cloned()
+                    .unwrap_or_else(|| "default".into()),
+            }
+        };
+        let request = commands::widgets::WidgetsRefreshRequest {
+            source,
+            lock_label: "widgets",
+        };
+        let mut notices = commands::Notices::default();
+        let outcome = commands::widgets::execute(
+            &solution,
+            &request,
+            crate::core::server::Client::new,
+            &mut notices,
+        )
+        .map_err(ToolError::coded)?;
+        let mut result = json!({"refresh": outcome});
+        add_notices(&mut result, &notices);
+        return Ok(result);
+    }
+    if arguments.profile.as_ref().is_some() {
+        return Err(ToolError::invalid("widgets profile requires platform"));
+    }
+    let _ = Solution::discover(root);
     match (arguments.widget.as_ref(), arguments.search.as_ref()) {
         (Some(_), Some(_)) => Err(ToolError::invalid("give a widget or search, not both")),
         (Some(widget), None) => crate::core::widgets_view::detail(widget)
@@ -1859,6 +1907,31 @@ pub(crate) fn components_tool(
 ) -> Result<Value, ToolError> {
     crate::core::mashup::page::components::inspect(solution, arguments.name.as_deref())
         .map_err(ToolError::coded)
+}
+
+pub(crate) fn mashup_migrate_tool(
+    solution: &Solution,
+    arguments: MashupMigrateRequest,
+) -> Result<Value, ToolError> {
+    let request = commands::mashup::MashupMigrateRequest {
+        request: crate::core::mashup::authoring::MigrateRequest {
+            mashup: nonempty(&arguments.mashup, "mashup")?.into(),
+        },
+        mode: if arguments.dry_run {
+            Mode::Plan
+        } else {
+            Mode::Apply
+        },
+        lock_label: "mashup migrate",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome =
+        commands::mashup::migrate(solution, &request, &mut notices).map_err(ToolError::coded)?;
+    let mut result =
+        crate::core::mashup::authoring::migrate_plan_json(&outcome.plan, outcome.applied);
+    result["dry_run"] = json!(arguments.dry_run);
+    add_notices(&mut result, &notices);
+    Ok(result)
 }
 
 #[cfg(test)]

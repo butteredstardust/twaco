@@ -12,6 +12,13 @@ All notable changes to twaco are recorded here. The format follows
   use runtime bindings, and `dynamic_panel:` keeps both named panes and collapse settings.
   Shapes accept inline fill and unfilled style objects. Existing native properties and styles
   survive derivation and fresh builds.
+- `mashup migrate` and MCP `mashup_migrate` plan offline legacy-widget replacements using
+  Composer 10.2 mappings, report dropped properties, and apply atomically.
+  Widgets with no migrator are kept as they are and listed; they never block the rest.
+- MCP `widgets` can refresh `.twaco/widgets.json` with `platform: true` (GET only, optional
+  `profile`) or a local `webapp` folder, using the same workspace lock as the CLI.
+- Page adoption aligns bindings that use Composer's legacy property names, retaining the
+  original entity bytes and binding IDs.
 
 ## [0.1.79] - 2026-11-25
 

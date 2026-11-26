@@ -7472,8 +7472,95 @@
     }
   },
   {
+    "name": "mashup_migrate",
+    "description": "Plan replacement of legacy widgets using Composer 10.2 migration mappings, repointing properties, bindings and events. Every dropped property or connection is reported. Widgets with no migrator are kept as they are and listed by name. dry_run defaults to true; apply takes the workspace lock and atomically writes entity and managed content sidecar. Layout and widget IDs are retained.",
+    "inputSchema": {
+      "required": [
+        "mashup"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "mashup": {
+          "type": "string"
+        },
+        "dry_run": {
+          "description": "Plan without writing; defaults to true.",
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": true
+    },
+    "outputSchema": {
+      "required": [
+        "mashup",
+        "applied",
+        "dry_run",
+        "changed",
+        "planned",
+        "kept_count",
+        "migrations",
+        "kept",
+        "warnings"
+      ],
+      "properties": {
+        "mashup": {
+          "type": "string"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "changed": {
+          "type": "boolean"
+        },
+        "planned": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kept_count": {
+          "description": "Widgets left as they are (no migrator, or a parent the migrator does not accept).",
+          "type": "integer",
+          "minimum": 0
+        },
+        "migrations": {
+          "type": "array",
+          "items": true
+        },
+        "kept": {
+          "type": "array",
+          "items": true
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "widgets",
-    "description": "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's editable and bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",
+    "description": "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's editable and bindable properties with base type and direction (in, out, in/out), its events and services. platform refreshes .twaco/widgets.json using read-only server GETs (profile optional); webapp refreshes from a local webapp folder. Refresh takes no widget or search and holds the workspace lock.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -7484,16 +7571,41 @@
         "search": {
           "description": "Narrow the list by type, Composer label or alias.",
           "type": "string"
+        },
+        "platform": {
+          "description": "Refresh the local widget cache from the profile's server using GET only.",
+          "type": "boolean",
+          "default": false
+        },
+        "webapp": {
+          "description": "Refresh from a local Thingworx webapp folder instead of the server.",
+          "type": "string"
+        },
+        "profile": {
+          "description": "Server profile; requires platform.",
+          "type": "string"
         }
       },
       "type": "object"
     },
     "annotations": {
-      "readOnlyHint": true,
-      "openWorldHint": false
+      "readOnlyHint": false,
+      "openWorldHint": true,
+      "destructiveHint": false,
+      "idempotentHint": true
     },
     "outputSchema": {
       "properties": {
+        "refresh": true,
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "widgets": {
           "type": [
             "array",

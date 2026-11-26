@@ -21,5 +21,210 @@
     "ptcsvaluedisplay": {"Alignment": "HorizontalAlignment", "ToolTipField": "TooltipField"},
     "navigationfunction": {"FixedPopupHeight": "PopupHeight", "FixedPopupWidth": "PopupWidth", "MashupName": "TargetMashup", "MessageToShow": "MissingMashupMessage", "PopupScrolling": "PopupScrollbar", "ShowCloseButton": "CloseButton", "TargetWindow": "TargetWindowType"}
   },
-  "values_differ": {"navigationfunction": ["TargetWindow"]}
+  "values_differ": {"navigationfunction": ["TargetWindow"]},
+  "newtypes_source": {
+    "platform": "10.2",
+    "bundle_sha256": "a950d01c1d76ec446347ad26e9e40215a5f7839365e3a01fcadec52c23d46045",
+    "note": "Curated declarative newtype overlay from Composer ptcs-migration modules. Collection configuration and numeric input mode are translated in authoring/migrate.rs. Container applies only under ptcsdynamicpanel. Theme style callbacks are not executed: unmapped properties are reported as dropped."
+  },
+  "newtypes": {
+    "collection": {
+      "newtype": "ptcscollection",
+      "create": {
+        "CellTabKeyScope": "item"
+      },
+      "mappings": {
+        "MashupHeight": "CellHeight",
+        "CellMashupSelectedField": "SelectedCellMashupField",
+        "CellMenuStates": "CellMenu",
+        "CellMenuStatesIconSize": "CellMenuIconSize",
+        "CellWasClicked": "CellClicked",
+        "CellWasDoubleClicked": "CellDoubleClicked",
+        "CellWasLongClicked": "CellLongClicked",
+        "CellWasRightClicked": "CellRightClicked",
+        "CellPointer": "CellPointer",
+        "regExp___^(Menu):.*$": "CellMenu",
+        "EmptyMashupName": "EmptyMashup",
+        "FlowLayoutAlignment": {
+          "newproperty": "RowVerticalAlignment",
+          "values": {
+            "Bottom": "bottom",
+            "Center": "center",
+            "Expand": "stretch",
+            "Top": "top"
+          }
+        },
+        "FlowLayoutGravity": {
+          "newproperty": "RowHorizontalAlignment",
+          "values": {
+            "Center": "center",
+            "Edge": "space-between",
+            "Expand": "stretch",
+            "Left": "left",
+            "Spaced": "space-evenly"
+          }
+        },
+        "FooterMashupName": "FooterMashup",
+        "HeaderMashupName": "HeaderMashup",
+        "ItemLoadBehavior": {
+          "newproperty": "ItemLoadBehavior",
+          "values": {
+            "loadUnload": "lazy",
+            "loadAll": "load-all"
+          }
+        },
+        "LeftAlignFinalRow": "LeftAlignLastRow",
+        "ScrollsToSelectedCell": "ScrollToSelectedCell",
+        "SectionInsetLeft": "LeftPadding",
+        "SectionInsetRight": "RightPadding",
+        "SelectedItems": "SelectedCells",
+        "SelectedMashupName": "SelectedCellMashup",
+        "View": {
+          "newproperty": "Layout",
+          "values": {
+            "flow": "flex",
+            "table": "table"
+          }
+        },
+        "UseMashupDimensions": "UseMashupDimensions"
+      },
+      "deletions": [
+        "AllowSelection",
+        "CellMenuStatesIconGravity",
+        "CellMenuStatesOrientation",
+        "CellMenuStatesUseBuiltin",
+        "CellMultipleSelectionType",
+        "FlowLayoutContentGravity",
+        "MultiSelect",
+        "OffScreenBufferFactor",
+        "PinFootersToBottom",
+        "PinHeadersToTop",
+        "PlaysIntroAnimation",
+        "ScrollbarType",
+        "SectionInsetBottom",
+        "SectionInsetLeft",
+        "SectionInsetRight",
+        "SectionInsetTop",
+        "ShowFooters",
+        "ShowHeaders",
+        "UseCustomScrollerOnWindowsDesktops",
+        "UseRippleEffect",
+        "_EventDataShape",
+        "_CanDoubleClick",
+        "_MenuDefinition",
+        "_GlobalDataShape"
+      ]
+    },
+    "numericentry": {
+      "newtype": "ptcstextfield",
+      "mappings": {
+        "AllowNegatives": "AllowNegativeValues",
+        "FixedDigits": "DecimalPlaces",
+        "Maximum": "MaxValue",
+        "Minimum": "MinValue",
+        "Value": "NumericValue",
+        "ToolTipField": "TooltipField",
+        "ValueAlign": "TextAlignment"
+      },
+      "create": {
+        "NumericInputMode": true,
+        "ShowValidationFailure": true
+      }
+    },
+    "container": {
+      "newtype": "flexcontainer",
+      "deletions": [
+        "Margin"
+      ]
+    },
+    "label": {
+      "newtype": "ptcslabel",
+      "mappings": {
+        "CustomClass": "CustomClass",
+        "Text": "LabelText",
+        "Alignment": "HorizontalAlignment",
+        "ToolTipField": "TooltipField"
+      },
+      "deletions": [
+        "ShowDataLoading"
+      ]
+    },
+    "checkbox": {
+      "newtype": "ptcscheckbox",
+      "mappings": {
+        "Prompt": "Label",
+        "CustomClass": "CustomClass",
+        "ToolTipField": "TooltipField"
+      },
+      "deletions": [
+        "ShowDataLoading"
+      ]
+    },
+    "divider": {
+      "newtype": "ptcsdivider",
+      "mappings": {
+        "CustomClass": "CustomClass"
+      },
+      "deletions": [
+        "ShowDataLoading",
+        "ToolTipField"
+      ]
+    },
+    "textbox": {
+      "newtype": "ptcstextfield",
+      "mappings": {
+        "CustomClass": "CustomClass",
+        "PlaceholderText": "HintText",
+        "MaskInputCharacters": "Password",
+        "ToolTipField": "TooltipField",
+        "TextAlign": "TextAlignment"
+      }
+    },
+    "textarea": {
+      "newtype": "ptcstextarea",
+      "mappings": {
+        "CustomClass": "CustomClass",
+        "ToolTipField": "TooltipField"
+      }
+    },
+    "image": {
+      "newtype": "ptcsimage",
+      "mappings": {
+        "CustomClass": "CustomClass",
+        "Scaling": {
+          "newproperty": "Scaling",
+          "values": {
+            "height": "fit-y",
+            "width": "fit-x",
+            "none": "fit"
+          }
+        }
+      },
+      "deletions": [
+        "ToolTipField"
+      ]
+    },
+    "link": {
+      "newtype": "ptcslink",
+      "mappings": {
+        "CustomClass": "CustomClass",
+        "SourceURL": "LinkURL",
+        "TargetWindow": {
+          "newproperty": "TargetWindow",
+          "values": {
+            "new": "_blank",
+            "replace": "_self",
+            "popup": "_popup"
+          }
+        },
+        "ToolTipField": "TooltipField"
+      },
+      "create": {
+        "VerticalAlignment": "center"
+      },
+      "deletions": [
+        "LinkDisplay"
+      ]
+    }
+  }
 }

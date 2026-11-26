@@ -1346,6 +1346,31 @@ services and `mashup validate`, `check` and page specs judge them. Contracts are
 (no widget code runs); a widget built at run time is listed as unknown with the reason. The
 embedded catalogue wins for the widgets it has and stays the default without a cache.
 
+MCP exposes the same refresh through `widgets` with `platform: true` and optional `profile`,
+or `webapp: "path/to/Thingworx"`. Refresh takes no `widget` or `search`, writes the local cache
+under the workspace lock, and uses the CLI's read-only server operations.
+
+### Migrating legacy widgets
+
+Run `twaco mashup migrate Acme.Orders_MU --json` to plan replacements using Composer 10.2's
+migration mappings. Repeat with `--apply` to write the entity and managed content sidecar in
+one transaction. Widget IDs and authored layout are retained; bindings, events and services
+follow renamed endpoints. Every property or connection dropped because it lacks a target
+mapping is listed in warnings. Review those warnings before applying.
+
+Supported replacements include collection, numericentry, label, checkbox, divider, textbox,
+textarea, image and link. Collection configuration (selection, section headers/footers, gaps,
+cell dimensions and field maps) and numeric input mode follow Composer. A container converts
+only inside a dynamic panel, as Composer's migrator requires. Legacy theme/style callbacks
+are not run; unmapped style properties are reported as dropped. Gauge, radiobuttonlist, menu,
+tree and leddisplay have no newtype migrator in the source bundle. Other complex migrators
+are not yet supported. Widgets without a migrator are kept as they are and listed by name;
+they never block the supported migrations.
+
+MCP uses `mashup_migrate` with `mashup` and `dry_run` defaulting to true.
+After migration, run `mashup validate` and `mashup spec` to inspect the result. Migration refuses
+new content validation errors; existing findings still need review.
+
 `twaco widgets --search html` finds `ptcsrte`: set `ReadOnly=true` and
 `HideToolbar=true` for display-only HTML. `--search collapsible` points at the existing
 `mashup recipe collapsible`; these are discovery hints, with no authoring aliases or presets.

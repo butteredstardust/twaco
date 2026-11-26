@@ -991,3 +991,48 @@ pub fn build(
     plan.report["dry_run"] = serde_json::json!(mode == Mode::Plan);
     Ok(plan.report)
 }
+
+#[derive(Clone, Debug)]
+pub struct MashupMigrateRequest {
+    pub request: mashup::authoring::MigrateRequest,
+    pub mode: Mode,
+    pub lock_label: &'static str,
+}
+
+#[derive(Debug)]
+pub struct MashupMigrateOutcome {
+    pub plan: mashup::authoring::MigratePlan,
+    pub applied: bool,
+}
+
+/// Plan offline; application replans under the workspace lock and writes atomically.
+pub fn migrate(
+    solution: &Solution,
+    request: &MashupMigrateRequest,
+    notices: &mut Notices,
+) -> Result<MashupMigrateOutcome, MashupCommandError> {
+    let held = if request.mode == Mode::Apply {
+        Some(
+            lock_workspace(solution, request.lock_label, notices)
+                .map_err(MashupCommandError::Lock)?,
+        )
+    } else {
+        None
+    };
+    let reloaded;
+    let solution = if held.is_some() {
+        reloaded = Solution::load(&solution.root.join(config::CONFIG_FILE))
+            .map_err(MashupCommandError::Config)?;
+        &reloaded
+    } else {
+        solution
+    };
+    let plan = mashup::authoring::plan_migrate(solution, &request.request)
+        .map_err(MashupCommandError::Authoring)?;
+    let applied = held.is_some();
+    if let (Some(held), Some(edit)) = (&held, &plan.edit) {
+        mashup::authoring::apply_edit(solution, edit, held)
+            .map_err(MashupCommandError::Authoring)?;
+    }
+    Ok(MashupMigrateOutcome { plan, applied })
+}

@@ -210,6 +210,10 @@ fn without_id(value: &Value) -> Value {
 /// name and target keep the id the mashup has; a generated binding or event takes the id of the
 /// first unclaimed current one that is the same apart from its id.
 pub(super) fn wiring(current: &Value, generated: &Value) -> BTreeMap<String, String> {
+    let (mut current, mut generated) = (current.clone(), generated.clone());
+    for value in [&mut current, &mut generated] {
+        crate::core::widgets::migrate_content(value);
+    }
     let mut out = BTreeMap::new();
     for (section, made) in generated["Data"].as_object().into_iter().flatten() {
         let have = &current["Data"][section];
@@ -549,10 +553,10 @@ fn normalise_bindings(content: &mut Value) {
 /// What the generated page still lacks of the current one. A bound property's own value never
 /// shows, so the spec need not repeat it.
 pub(super) fn remaining(current: &Value, generated: &Value) -> Vec<Difference> {
-    let bound = bound_properties(current);
     // Declared parameters are a set to the platform; the spec lists them by name.
     let (mut current, mut generated) = (current.clone(), generated.clone());
     for value in [&mut current, &mut generated] {
+        crate::core::widgets::migrate_content(value);
         normalise_bindings(value);
         strip_navigation_defaults(&mut value["UI"]);
         if let Some(defs) = value
@@ -562,6 +566,7 @@ pub(super) fn remaining(current: &Value, generated: &Value) -> Vec<Difference> {
             defs.sort_by_key(|d| d["ParameterName"].as_str().unwrap_or("").to_string());
         }
     }
+    let bound = bound_properties(&current);
     let kinds = widget_types(&generated);
     merge::differences(&current, &generated)
         .into_iter()
@@ -588,6 +593,10 @@ pub(super) fn remaining(current: &Value, generated: &Value) -> Vec<Difference> {
 
 /// The bindings and events of `current` that nothing in `generated` matches, as `source -> target`.
 pub(super) fn lost_wiring(current: &Value, generated: &Value) -> Vec<String> {
+    let (mut current, mut generated) = (current.clone(), generated.clone());
+    for value in [&mut current, &mut generated] {
+        crate::core::widgets::migrate_content(value);
+    }
     let mut out = vec![];
     for item in current["Events"].as_array().into_iter().flatten() {
         if generated["Events"]

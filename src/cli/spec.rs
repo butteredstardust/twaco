@@ -968,6 +968,12 @@ pub(crate) const USAGE: &[Usage] = &[
       --to <address>          target address from mashup describe"#,
     },
     Usage {
+        path: "mashup migrate",
+        group: 1,
+        text: r#"  mashup migrate <mashup> [--apply] [--json]
+                              replace legacy widgets using Composer migration mappings; plan unless --apply"#,
+    },
+    Usage {
         path: "mashup off",
         group: 1,
         text: r#"  mashup off <mashup> --event <address> --invoke <address> [--apply] [--json]

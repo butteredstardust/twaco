@@ -421,6 +421,8 @@ help:
 |                               widget is gone (validate: unknown-widget) is removed by the id it names
 |       --from <address>        source address from mashup describe
 |       --to <address>          target address from mashup describe
+|   mashup migrate <mashup> [--apply] [--json]
+|                               replace legacy widgets using Composer migration mappings; plan unless --apply
 |   mashup off <mashup> --event <address> --invoke <address> [--apply] [--json]
 |                               remove exactly one event handler; plan unless --apply
 |       --event <address>       event address from mashup describe
@@ -8097,7 +8099,7 @@ help:
 == twaco mashup
 usage: twaco mashup <command>
 settings: disable-version-flag disable-help-subcommand subcommand-required arg-required-else-help
-subcommands: add add-contained bind build collection describe diff event gap move new off on param recipe remove set source spec state-format templates tokens unbind validate why
+subcommands: add add-contained bind build collection describe diff event gap migrate move new off on param recipe remove set source spec state-format templates tokens unbind validate why
 arg --help
     action: Help
     value_name: -
@@ -8296,6 +8298,8 @@ help:
 |                               widget is gone (validate: unknown-widget) is removed by the id it names
 |       --from <address>        source address from mashup describe
 |       --to <address>          target address from mashup describe
+|   mashup migrate <mashup> [--apply] [--json]
+|                               replace legacy widgets using Composer migration mappings; plan unless --apply
 |   mashup off <mashup> --event <address> --invoke <address> [--apply] [--json]
 |                               remove exactly one event handler; plan unless --apply
 |       --event <address>       event address from mashup describe
@@ -9658,6 +9662,83 @@ help:
 |   mashup gap <mashup> <container> <px> [--apply] [--json]
 |                               replace direct twaco spacers with fixed gaps (0 removes; 0..200px);
 |                               run again after adding children; plan unless --apply
+| 
+|   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
+|   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
+
+== twaco mashup migrate
+usage: twaco mashup migrate <mashup> [--apply] [--json]
+settings: disable-version-flag disable-help-subcommand
+subcommands: 
+arg --apply
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --help
+    action: Help
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: -
+arg --json
+    action: SetTrue
+    value_name: -
+    num_args: 0
+    allow_hyphen_values: no
+    allow_negative_numbers: no
+    required: no
+    default: "false"
+    index: -
+    other: -
+    given twice: accepted
+arg --log
+    action: Set
+    value_name: filter
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg --log-file
+    action: Set
+    value_name: path
+    num_args: 1
+    allow_hyphen_values: yes
+    allow_negative_numbers: no
+    required: no
+    default: -
+    index: -
+    other: global
+    given twice: ArgumentConflict
+    given bare: InvalidValue
+arg <operands>
+    action: Append
+    value_name: operand
+    num_args: 0..
+    allow_hyphen_values: no
+    allow_negative_numbers: yes
+    required: no
+    default: -
+    index: 1
+    other: -
+help:
+|   mashup migrate <mashup> [--apply] [--json]
+|                               replace legacy widgets using Composer migration mappings; plan unless --apply
 | 
 |   --log <filter>              write diagnostic logs to stderr (or TWACO_LOG)
 |   --log-file <path>           append diagnostic logs to a file (or TWACO_LOG_FILE)
