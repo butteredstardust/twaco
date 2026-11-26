@@ -28,6 +28,7 @@ pub(crate) enum Mashup {
     Move(MashupMove),
     Unbind(MashupUnbind),
     Off(MashupOff),
+    Migrate(MashupMigrate),
     Param(MashupParam),
     Recipe(Box<MashupRecipe>),
     Event(MashupEvent),
@@ -59,6 +60,7 @@ impl Mashup {
             Mashup::Move(_) => "mashup move",
             Mashup::Unbind(_) => "mashup unbind",
             Mashup::Off(_) => "mashup off",
+            Mashup::Migrate(_) => "mashup migrate",
             Mashup::Param(_) => "mashup param",
             Mashup::Recipe(_) => "mashup recipe",
             Mashup::Event(_) => "mashup event",
@@ -3411,4 +3413,81 @@ pub(crate) fn mashup_tokens_cmd(args: &MashupTokens) -> u8 {
             FAILED
         }
     }
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct MashupMigrate {
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+pub(crate) fn mashup_migrate_cmd(solution: &Solution, args: &MashupMigrate) -> u8 {
+    let [mashup] = args.operands.as_slice() else {
+        eprintln!("{} mashup migrate needs one <mashup>", style::prefix());
+        return FAILED;
+    };
+    let request = commands::mashup::MashupMigrateRequest {
+        request: mashup::authoring::MigrateRequest {
+            mashup: mashup.clone(),
+        },
+        mode: if args.apply.apply {
+            Mode::Apply
+        } else {
+            Mode::Plan
+        },
+        lock_label: "mashup migrate",
+    };
+    let mut notices = commands::Notices::default();
+    let outcome = match commands::mashup::migrate(solution, &request, &mut notices) {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            print_notices(&notices);
+            eprintln!("{} {error}", style::prefix());
+            return FAILED;
+        }
+    };
+    print_notices(&notices);
+    if args.json.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&mashup::authoring::migrate_plan_json(
+                &outcome.plan,
+                outcome.applied
+            ))
+            .expect("migration plan serialises")
+        );
+    } else {
+        println!(
+            "{}: {} widget(s) planned, {} kept as they are; {}",
+            mashup,
+            outcome.plan.migrations.len(),
+            outcome.plan.kept.len(),
+            if outcome.applied {
+                "applied"
+            } else {
+                "nothing written"
+            }
+        );
+        for item in &outcome.plan.migrations {
+            println!(
+                "  {} ({}): {} -> {}",
+                item.name, item.id, item.from, item.to
+            );
+        }
+        for item in &outcome.plan.kept {
+            println!(
+                "  kept {} ({}): {}: {}",
+                item.name, item.id, item.widget, item.reason
+            );
+        }
+        for warning in &outcome.plan.warnings {
+            eprintln!("{} {warning}", style::prefix());
+        }
+    }
+    OK
 }

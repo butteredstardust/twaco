@@ -64,6 +64,7 @@ impl Tool {
 /// Platform help and Javadoc sites. `check` and `types` do so only when asked (`live`,
 /// `platform`), which is still "may".
 const OPEN_WORLD: &[&str] = &[
+    "widgets",
     "init_from_server",
     "types",
     "check",
@@ -121,6 +122,7 @@ const OPEN_WORLD: &[&str] = &[
 /// or rewrite derived files (declarations, the bundle, the baseline, formatting) that the
 /// repository can produce again. Every other writing tool may discard something.
 const ADDITIVE: &[&str] = &[
+    "widgets",
     "init_from_server",
     "types",
     "fmt",
@@ -139,6 +141,8 @@ const ADDITIVE: &[&str] = &[
 
 /// Writing tools that, called again with the same arguments, change nothing more.
 const IDEMPOTENT: &[&str] = &[
+    "widgets",
+    "mashup_migrate",
     "mashup_build",
     "mashup_gap",
     "mashup_move",
@@ -675,10 +679,16 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
             refactor::mashup_off_tool,
         )
         .with_output::<outputs::MashupOffResult>(),
-        bare_tool::<refactor_requests::WidgetsRequest>(
+        solution_tool::<refactor_requests::MashupMigrateRequest>(
+            "mashup_migrate",
+            "Plan replacement of legacy widgets using Composer 10.2 migration mappings, repointing properties, bindings and events. Every dropped property or connection is reported. Widgets with no migrator are kept as they are and listed by name. dry_run defaults to true; apply takes the workspace lock and atomically writes entity and managed content sidecar. Layout and widget IDs are retained.",
+            false,
+            refactor::mashup_migrate_tool,
+        ).with_output::<outputs::MashupMigrateResult>(),
+        root_tool::<refactor_requests::WidgetsRequest>(
             "widgets",
-            "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's editable and bindable properties with base type and direction (in, out, in/out), its events and services. Read-only; no server.",
-            true,
+            "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's editable and bindable properties with base type and direction (in, out, in/out), its events and services. platform refreshes .twaco/widgets.json using read-only server GETs (profile optional); webapp refreshes from a local webapp folder. Refresh takes no widget or search and holds the workspace lock.",
+            false,
             refactor::widgets_tool,
         )
         .with_output::<outputs::WidgetsResult>(),
@@ -1154,6 +1164,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "mashup_move",
             "mashup_unbind",
             "mashup_off",
+            "mashup_migrate",
             "widgets",
             "mashup_param",
             "mashup_recipe",

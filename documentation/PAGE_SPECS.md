@@ -397,6 +397,81 @@ for example the slider's `Value`. A `card` holding a dial stretches it.
 Card and trend-tile titles use the regular label size (`LabelType: label`), as the kit does, instead
 of the card recipe's sub-header; the recipe command keeps its own size.
 
+## Native navigation, grids and dynamic containers
+
+`navigate:` is a native navigation function with an authored ID. Its `destination` accepts a
+static mashup name or `{bind: ...}`; `mode` is `replace`, `new`, `popup`, `modal-popup` or
+`fullscreen`. `popup_title`, `popup_width` and `popup_height` accept values or bindings.
+`params` sets literal or bound parameters. `parameter_defs` carries the stored
+`_currentParameterDefs` snapshot verbatim; `props.MashupParameters` keeps the native parameter
+contract when adopting. Other native controls (close button, scrollbar, reload) use `props`.
+`widget_id` pins the original ID when another binding or event addresses it. Events use the
+existing page event syntax, including multiple triggers and popup-close handlers:
+
+```yaml
+slots:
+  center:
+    - navigate:
+        id: details
+        destination: Acme.Details_MU
+        mode: modal-popup
+        popup_width: 640
+        popup_height: 480
+        params: {selected: {bind: param.selected}}
+events:
+  - {on: load, invoke: details.Navigate}
+  - {on: open.Clicked, invoke: details.Navigate}
+  - {on: details.WindowClosed, invoke: mashup.CloseIfPopup}
+  - {on: details.WindowClosed, invoke: mashup.ResetInputsToDefaultValue}
+```
+
+The existing `{on: open.Clicked, navigate: {mashup: Acme.Details_MU, ...}}` action remains the
+short form for one static navigation. Derivation uses the element when the function needs its
+own identity, dynamic target, snapshot, multiple triggers or outgoing bindings.
+
+A `grid` also accepts `column_config`, the native `ColumnFormat` JSON value or JSON text,
+carried verbatim. Use either `columns` (the checked column recipe) or `column_config`.
+`selection: none|single|multiple` writes `RowSelection`; `editable: true|false` writes
+`IsEditable`. Column editors and grid controls remain in the column configuration and `props`.
+Stored `styles` and events such as `SelectedRowsChanged` use the common syntax. Derivation
+keeps existing column configuration rather than reducing it to a list and losing formatters.
+
+```yaml
+- grid:
+    id: results
+    data: rows
+    selection: multiple
+    editable: true
+    column_config: {formatInfo: [{FieldName: Name, Title: Name, Width: auto}]}
+```
+
+`mashup_container: {id: child, destination: {bind: param.target}, params: {selected:
+{bind: param.selected}}}` is the dynamic native container. A stored starting `Name` can be
+stated in `destination` with a separate `page.bindings` entry for its runtime binding. Since
+runtime parameters cannot be checked against a fixed child, the shared authoring operations
+warn instead of refusing them. Static contained mashups continue to derive as `embed:`.
+
+`dynamic_panel` names its two native pane nodes as `main` (first child) and `panel` (second
+child). Each is a complete container node with its own ID and children. `collapsed`, `side`,
+`panel_size` and `collapsed_size` map to `Collapsed`, `AnchorLocation`, `PanelSize` and
+`SizeWhenCollapsed`; values may be bound. Other push, trigger and resize controls use `props`.
+Ordered `children` remains accepted instead of named panes; when supplied there must be two.
+
+```yaml
+- dynamic_panel:
+    id: split
+    collapsed: {bind: param.closed}
+    side: right
+    panel_size: '320'
+    collapsed_size: '24'
+    main: {column: {id: content, children: [{label: {id: title, text: Details}}]}}
+    panel: {column: {id: drawer, children: [{label: {id: note, text: More}}]}}
+```
+
+A shape's `fill` and `unfilled` accept inline style objects as well as style names. These
+objects are carried verbatim. Unknown outlines or nonnumeric range values remain raw widgets
+with a derivation note.
+
 ## Side panels, lists, collections and navigation
 
 These elements come from the kit's Compare and Administrator pages. Place a `side_panel` in a
@@ -717,7 +792,7 @@ v1 rule table; legacy rules are unchanged.
 | `image` | `source` (Media entity name, URL, or binding), `scaling` (`fit-x`, `fit-y`, `fit`, `contain`, `cover`, `auto`, `25%`, `50%`, `75%`), `position` (`top`, `center`, `bottom`), `alt` | `mashup add ... ptcsimage --prop SourceURL=/Thingworx/MediaEntities/Acme.Logo_MD --prop Scaling=contain --prop AlternateText=Logo` |
 | `icon` | `icon` (CDS name or shorthand), `source`, `alt`, `icon_size` (`small`, `medium`, `large`, `xlarge`, `custom`), `size: sm/md/lg/xl`, token `color` | `mashup add ... ptcsicon --prop SVGIcon=cds:icon_info --prop Size=large`; `mashup set ... --style color=ink` |
 | `divider` | `orientation` (`horizontal` or `vertical`), token `color` | `mashup add ... ptcsdivider --prop VerticalDivider=true`; `mashup set ... --style line:background=line` |
-| `shape` | `form` (`circle`, `rectangle`, `roundrect`, `ellipse`), `fill` and `unfilled` (style names), `radius`, `dynamic` (fill in proportion to a bound value), `min`, `max`, `orientation`; position, size and state formatting stay in `props` | `mashup add ... shape --prop ShapeType=circle --prop ShapeStyle=Acme_Green --prop EnableDynamicFill=true --prop DynamicRangeMaximum=100` |
+| `shape` | `form` (`circle`, `rectangle`, `roundrect`, `ellipse`), `fill` and `unfilled` (style names or inline objects), `radius`, `dynamic` (fill in proportion to a bound value), `min`, `max`, `orientation`; position, size and state formatting stay in `props` | `mashup add ... shape --prop ShapeType=circle --prop ShapeStyle=Acme_Green --prop EnableDynamicFill=true --prop DynamicRangeMaximum=100` |
 | `checkbox`, `toggle` | `label`/`text`, bindable boolean `value` | `mashup add ... ptcscheckbox` / `ptcstogglebutton --prop Label=Enabled --prop State=true` |
 | `radio` | `label`/`text`, bindable boolean `value`, bindable `group`; or static `options: [Open, Closed]` | `mashup add ... ptcsradio --prop Label=Open --prop Radiogroup=AcmeStatus`; bind `State` |
 | `textarea` | `label`/`text`, `hint`, bindable `value`, `max_length` | `mashup add ... ptcstextarea --prop Label=Notes --prop HintText=Enter --prop MaxNumberOfCharacters=500`; bind `Text` |
@@ -811,12 +886,10 @@ inputs). Both CLI and MCP use these core planners; MCP page builds still plan by
 visual container. The local exports use two/three STRING or BOOLEAN inputs and no special events.
 Other native properties and events remain available through `props` and explicit event wiring.
 
-Static navigation with one Navigate trigger derives as an event action. Dynamic targets and
-shared navigation functions remain raw. `dynamic_panel`
-stays raw because its two native panes and push/trigger behaviours differ from `side_panel`.
-`menubar` stays raw because primary/secondary Menu entities, infotable navigation and page-host
-selection do not map to `nav_menu`'s button groups. Decorative `shape` and map extensions
-(`googlemap`, `OpenStreetMap`) intentionally remain raw. Raw-type notes name these limitations.
+Static navigation with one Navigate trigger can derive as an event action. Adoption, dynamic
+targets and shared navigation functions use the native `navigate` element. Dynamic panels keep
+their panes through `dynamic_panel`, and menubars use `menu_bar`. Shapes with unsupported
+outlines or ranges and map extensions (`googlemap`, `OpenStreetMap`) remain raw with notes.
 All kit observations in this batch are from local exports; no live behaviour is claimed.
 
 ## Components
@@ -1003,7 +1076,7 @@ function, or (on a page built by the layout rules) a widget the catalogue does n
 a `widget:` node of an unknown type is built verbatim with the properties it states.
 Properties the catalogue does not list are carried as props on a page that is derived to be adopted, and listed in `notes` otherwise. The report's `notes` list what applied.
 Pagination derives as `pagination` with `mode: server`, preserving its existing wiring without
-adding slicing expressions. Native expressions become typed `data` entries. Widgets without an element (decorative shapes, extension maps, dynamic navigation or embed targets, two-pane dynamic panels) stay as raw `widget:` nodes with a note.
+adding slicing expressions. Native expressions become typed `data` entries. Widgets without an expressible element contract (unsupported shape outlines or ranges and extension maps) stay as raw `widget:` nodes with a note.
 Build the derived spec to review a plan: its widget tree matches the
 original's widgets, nesting, services, bindings and events (the compiler adds layout wrappers
 and the look), not its properties.

@@ -832,6 +832,10 @@ fn typed_requests_accept_and_reject_what_the_hand_written_schemas_did() {
     let mut checked = 0;
     for tool in hand_written_tools() {
         let name = tool["name"].as_str().unwrap();
+        if name == "widgets" {
+            // The hand-written schema predates the refresh arguments.
+            continue;
+        }
         for arguments in contract_inputs(&tool["inputSchema"]) {
             let Some(typed) = registry::accepts(name, &arguments) else {
                 break;
@@ -895,11 +899,13 @@ fn generated_schemas_mean_what_the_hand_written_ones_did() {
     );
     for (generated, tool) in generated.iter().zip(&hand_written) {
         let name = tool["name"].as_str().unwrap();
-        assert_eq!(
-            meaning(&generated["inputSchema"]),
-            meaning(&tool["inputSchema"]),
-            "{name}"
-        );
+        if name != "widgets" {
+            assert_eq!(
+                meaning(&generated["inputSchema"]),
+                meaning(&tool["inputSchema"]),
+                "{name}"
+            );
+        }
         for key in ["description", "annotations"] {
             // These descriptions evolved with selectors, formatting, form warnings and failure handling.
             // Their current wording is checked by the golden file and tools/list tests.
@@ -919,6 +925,10 @@ fn generated_schemas_mean_what_the_hand_written_ones_did() {
                         | "guide"
                 )
             {
+                continue;
+            }
+            if name == "widgets" && key == "annotations" {
+                // The tool now refreshes its cache on request, so it is no longer read-only.
                 continue;
             }
             assert_eq!(generated[key], tool[key], "{name}: {key}");
@@ -1617,6 +1627,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "mashup_move",
             "mashup_unbind",
             "mashup_off",
+            "mashup_migrate",
             "widgets",
             "mashup_param",
             "mashup_recipe",
@@ -2531,6 +2542,11 @@ fn writing_tools_take_the_lock_before_they_read_anything() {
         ("sync", json!({"entity": "No.Such.Entity"})),
         ("extract", json!({"entity": "No.Such.Entity"})),
         ("types", json!({"action": "platform", "profile": "missing"})),
+        ("widgets", json!({"platform": true, "profile": "missing"})),
+        (
+            "mashup_migrate",
+            json!({"mashup": "No.Such.Entity", "dry_run": false}),
+        ),
     ] {
         let responses = converse(
             &root,
@@ -5547,4 +5563,47 @@ fn tokens_mcp_inspection_and_theme_creation_share_the_resolver() {
     );
     assert_eq!(invalid["isError"], true);
     assert!(invalid.to_string().contains("global-color-bg-primary"));
+}
+
+#[test]
+fn widgets_mcp_refreshes_from_webapp_and_refuses_mixed_selectors() {
+    let (_dir, root) = solution_dir();
+    let common = root.join("webapp/Common");
+    std::fs::create_dir_all(&common).unwrap();
+    std::fs::write(common.join("widget-meta-values.json"), "{}").unwrap();
+    std::fs::write(common.join("mashup-common-widgets-builder.js"), "").unwrap();
+    std::fs::write(common.join("mashup-common-widgets-shared.js"), r#"TW.IDE.Widgets.acmelegacy = function () { this.widgetProperties = function () {return { name: 'Acme', properties: { Value: {baseType: 'NUMBER', isBindingTarget: true} } }; }; };"#).unwrap();
+    let refreshed = call(&root, "widgets", json!({"webapp":"webapp"}));
+    assert_eq!(refreshed["isError"], false, "{refreshed}");
+    assert_eq!(
+        refreshed["structuredContent"]["refresh"]["source"],
+        "folder"
+    );
+    assert!(root.join(".twaco/widgets.json").is_file());
+    let detail = call(&root, "widgets", json!({"widget":"acmelegacy"}));
+    assert_eq!(detail["isError"], false, "{detail}");
+    for arguments in [
+        json!({"platform":true,"webapp":"webapp"}),
+        json!({"webapp":"webapp","search":"label"}),
+        json!({"platform":true,"widget":"ptcslabel"}),
+        json!({"profile":"missing"}),
+    ] {
+        assert_eq!(call(&root, "widgets", arguments)["isError"], true);
+    }
+}
+
+#[test]
+fn mashup_migrate_mcp_defaults_to_a_plan() {
+    let (_dir, root) = solution_dir();
+    let created = call(
+        &root,
+        "mashup_new",
+        json!({"name":"P.Acme_MU","project":"P","dry_run":false}),
+    );
+    assert_eq!(created["isError"], false, "{created}");
+    let result = call(&root, "mashup_migrate", json!({"mashup":"P.Acme_MU"}));
+    assert_eq!(result["isError"], false, "{result}");
+    assert_eq!(result["structuredContent"]["dry_run"], true);
+    assert_eq!(result["structuredContent"]["applied"], false);
+    assert_eq!(result["structuredContent"]["planned"], 0);
 }

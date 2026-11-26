@@ -414,11 +414,7 @@ page:
     let first = compile(&solution, "Acme", spec).unwrap();
     let before: Value = serde_json::from_str(&first.content).unwrap();
     let derived = derive::derive_exact("Acme.Copy_MU", &first.content).unwrap();
-    assert!(
-        derived.spec.contains("type: navigationfunction"),
-        "{}",
-        derived.spec
-    );
+    assert!(derived.spec.contains("navigate:"), "{}", derived.spec);
     let fresh = compile(&solution, "Acme", &derived.spec).unwrap();
     let after: Value = serde_json::from_str(&fresh.content).unwrap();
     assert!(

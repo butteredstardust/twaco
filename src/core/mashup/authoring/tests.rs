@@ -15115,3 +15115,54 @@ fn copies_warn_about_design_time_access_a_permission_group_gives_the_source() {
         "{notes:?}"
     );
 }
+
+#[test]
+fn migrate_keeps_unsupported_widgets_and_applies_atomically() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Orders_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    rewrite_content(&solution.root, |content| {
+        content["UI"]["Widgets"][0]["Widgets"] = json!([
+            {"Properties":{"Type":"numericentry","Id":"numericentry-3","DisplayName":"Amount","Value":42,"ResponsiveLayout":false},"Widgets":[]},
+            {"Properties":{"Type":"gauge","Id":"gauge-4","DisplayName":"Acme.Gauge"},"Widgets":[]}
+        ]);
+    });
+    let path = solution.root.join("acme/Mashups/Acme.Orders_MU.xml");
+    let before = std::fs::read(&path).unwrap();
+    let request = crate::core::commands::mashup::MashupMigrateRequest {
+        request: MigrateRequest {
+            mashup: name.into(),
+        },
+        mode: crate::core::commands::Mode::Plan,
+        lock_label: "test migrate",
+    };
+    let mut notices = crate::core::commands::Notices::default();
+    let mut request = request;
+    let dry = crate::core::commands::mashup::migrate(&solution, &request, &mut notices).unwrap();
+    assert!(!dry.applied);
+    assert!(dry.plan.edit.is_some());
+    assert_eq!(dry.plan.migrations.len(), 1);
+    // A widget with no migrator is listed and kept; it does not block the supported ones.
+    assert_eq!(dry.plan.kept[0].name, "Acme.Gauge");
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    request.mode = crate::core::commands::Mode::Apply;
+    let applied =
+        crate::core::commands::mashup::migrate(&solution, &request, &mut notices).unwrap();
+    assert!(applied.applied);
+    let loaded = load_existing(&solution, name).unwrap();
+    assert!(loaded.assets.content.contains("ptcstextfield"));
+    let again = crate::core::commands::mashup::migrate(&solution, &request, &mut notices).unwrap();
+    assert!(again.plan.edit.is_none());
+    let after = std::fs::read(&path).unwrap();
+    let assets = mashup::extract(&before).unwrap();
+    let prefix = String::from_utf8(before).unwrap();
+    let suffix = String::from_utf8(after).unwrap();
+    // Payload splicing retains the entity envelope, including every unrelated XML field.
+    assert_eq!(
+        prefix.split("<mashupContent>").next(),
+        suffix.split("<mashupContent>").next()
+    );
+    assert_eq!(assets.css, loaded.assets.css);
+    super::super::page::extract::extract(&solution, name).unwrap();
+}

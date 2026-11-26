@@ -1622,6 +1622,8 @@ pub(crate) struct MashupOffResult {
 /// The catalogue, or with a widget that widget's contract.
 #[derive(Serialize, JsonSchema)]
 pub(crate) struct WidgetsResult {
+    refresh: Option<Value>,
+    notices: Notices,
     widgets: Option<Vec<Value>>,
     #[serde(rename = "type")]
     kind: Option<String>,
@@ -1804,4 +1806,19 @@ pub(crate) struct MashupTokensResult {
     presets: Option<Vec<String>>,
     tokens: Option<Value>,
     props: Option<Vec<Value>>,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub(crate) struct MashupMigrateResult {
+    mashup: String,
+    applied: bool,
+    dry_run: bool,
+    changed: bool,
+    planned: usize,
+    /// Widgets left as they are (no migrator, or a parent the migrator does not accept).
+    kept_count: usize,
+    migrations: Vec<Value>,
+    kept: Vec<Value>,
+    warnings: Vec<String>,
+    notices: Notices,
 }

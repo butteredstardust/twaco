@@ -6,6 +6,20 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- **Page specs: native navigation, grids and dynamic containers become elements.** `navigate:`
+  keeps navigation identity, parameter snapshots and event wiring; grids carry `column_config`
+  verbatim with selection and editing fields. Dynamic `mashup_container:` names and parameters
+  use runtime bindings, and `dynamic_panel:` keeps both named panes and collapse settings.
+  Shapes accept inline fill and unfilled style objects. Existing native properties and styles
+  survive derivation and fresh builds.
+- `mashup migrate` and MCP `mashup_migrate` plan offline legacy-widget replacements using
+  Composer 10.2 mappings, report dropped properties, and apply atomically.
+  Widgets with no migrator are kept as they are and listed; they never block the rest.
+- MCP `widgets` can refresh `.twaco/widgets.json` with `platform: true` (GET only, optional
+  `profile`) or a local `webapp` folder, using the same workspace lock as the CLI.
+- Page adoption aligns bindings that use Composer's legacy property names, retaining the
+  original entity bytes and binding IDs.
+
 ## [0.1.79] - 2026-11-25
 
 - **Page specs: the last offline kit pages copy executably, and `shape:` is an element.** A gadget

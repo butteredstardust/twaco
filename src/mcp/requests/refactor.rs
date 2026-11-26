@@ -312,6 +312,15 @@ pub(crate) struct WidgetsRequest {
     /// Narrow the list by type, Composer label or alias.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) search: Absent<String>,
+    /// Refresh the local widget cache from the profile's server using GET only.
+    #[serde(default)]
+    pub(crate) platform: bool,
+    /// Refresh from a local Thingworx webapp folder instead of the server.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) webapp: Absent<String>,
+    /// Server profile; requires platform.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) profile: Absent<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
@@ -1526,4 +1535,13 @@ pub(crate) struct MashupTokensRequest {
     /// Preset or token YAML file relative to the MCP root; omit to list presets.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) source: Absent<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct MashupMigrateRequest {
+    pub(crate) mashup: String,
+    /// Plan without writing; defaults to true.
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
 }

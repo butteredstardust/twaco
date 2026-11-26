@@ -510,6 +510,67 @@ impl Session {
         }
     }
 
+    /// Populate a native navigation element's missing parameter contract using the same child
+    /// definitions as the popup recipe. Explicit snapshots remain as found.
+    pub(crate) fn navigation_parameters(
+        &mut self,
+        solution: &Solution,
+        id: &str,
+        literals: &[(String, serde_json::Value)],
+    ) -> Result<(), AuthoringError> {
+        use serde_json::{json, Value};
+        let found = self.document.find_exact(id).map_err(AuthoringError::Edit)?;
+        let target = self.document.at(&found.path)["Properties"]["TargetMashup"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let definitions = match super::load_existing(solution, &target) {
+            Ok(child) => Some(super::contained_parameters(
+                &child,
+                &super::parse_loaded(&child)?,
+            )?),
+            Err(AuthoringError::Unknown(_)) => None,
+            Err(error) => return Err(error),
+        };
+        let properties = &mut self.document.at_mut(&found.path)["Properties"];
+        if properties.get("MashupParameters").is_some() {
+            return Ok(());
+        }
+        let definitions = definitions.unwrap_or_else(|| {
+            literals
+                .iter()
+                .map(|(name, value)| {
+                    let base = match value {
+                        Value::Bool(_) => "BOOLEAN",
+                        Value::Number(_) => "NUMBER",
+                        Value::Object(_) | Value::Array(_) => "JSON",
+                        _ => "STRING",
+                    };
+                    super::ParameterDefinition {
+                        name: name.clone(),
+                        base_type: base.into(),
+                        direction: "IN".into(),
+                        description: String::new(),
+                        default: None,
+                        data_shape: None,
+                        visible: true,
+                    }
+                })
+                .collect()
+        });
+        properties["MashupParameters"] = json!(definitions
+            .iter()
+            .map(|def| super::cache_entry(def, def.default.clone()))
+            .collect::<Vec<_>>());
+        if properties.get("_currentParameterDefs").is_none() {
+            properties["_currentParameterDefs"] = json!(definitions
+                .iter()
+                .map(|def| super::navigation_definition(def, def.default.as_ref()))
+                .collect::<Vec<_>>());
+        }
+        Ok(())
+    }
+
     pub(crate) fn on(
         &mut self,
         model: &types::Model,

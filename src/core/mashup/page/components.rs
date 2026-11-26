@@ -276,6 +276,7 @@ impl Registry {
             stack.pop();
             return Ok(());
         }
+        super::native::panes(node)?;
         let body = node.body_mut();
         for child in body
             .children

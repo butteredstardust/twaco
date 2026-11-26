@@ -65,6 +65,9 @@ pub(super) fn expand(node: &mut Node, tokens: &Tokens) -> Result<(), Error> {
         Node::EventsRouter(_) => ("events_router", "eventsrouter"),
         Node::StatusMessage(_) => ("status_message", "statusmessage"),
         Node::RichText(_) => ("rich_text", "ptcsrte"),
+        Node::Navigate(_) => ("navigate", "navigationfunction"),
+        Node::MashupContainer(_) => ("mashup_container", "mashupcontainer"),
+        Node::DynamicPanel(_) => ("dynamic_panel", "ptcsdynamicpanel"),
         _ => return Ok(()),
     };
     if element == "value_display"
@@ -152,7 +155,7 @@ pub(super) fn expand(node: &mut Node, tokens: &Tokens) -> Result<(), Error> {
     if b.kind.is_some() {
         return Err(Error::at(at, "type belongs to widget"));
     }
-    if !b.children.is_empty() {
+    if element != "dynamic_panel" && !b.children.is_empty() {
         return Err(Error::at(at, format!("{element} does not take children")));
     }
     if let Some(text) = b.text.take() {
@@ -166,6 +169,54 @@ pub(super) fn expand(node: &mut Node, tokens: &Tokens) -> Result<(), Error> {
         field(b, property, Some(text));
     }
     match element {
+        "navigate" | "mashup_container" => {
+            b.native_parameters = true;
+            let destination = b.destination.take();
+            field(
+                b,
+                if element == "navigate" {
+                    "TargetMashup"
+                } else {
+                    "Name"
+                },
+                destination,
+            );
+            if element == "navigate" {
+                if let Some(mode) = b.mode.take() {
+                    choice(
+                        &mode,
+                        &["replace", "new", "popup", "modal-popup", "fullscreen"],
+                        "navigate mode",
+                    )?;
+                    put(b, "TargetWindowType", json!(mode.value));
+                }
+                let title = b.popup_title.take();
+                let width = b.popup_width.take();
+                let height = b.popup_height.take();
+                let defs = b.parameter_defs.take();
+                field(b, "PopupTitle", title);
+                field(b, "PopupWidth", width);
+                field(b, "PopupHeight", height);
+                field(b, "_currentParameterDefs", defs);
+            }
+            for (name, value) in std::mem::take(&mut b.params) {
+                b.native_param_names.insert(name.clone());
+                field(b, &name, Some(value));
+            }
+        }
+        "dynamic_panel" => {
+            if !b.children.is_empty() && b.children.len() != 2 {
+                return Err(Error::at(at, "dynamic_panel needs two pane children"));
+            }
+            let collapsed = b.collapsed.take();
+            let side = b.side.take();
+            let size = b.panel_size.take();
+            let collapsed_size = b.collapsed_size.take();
+            field(b, "Collapsed", collapsed);
+            field(b, "AnchorLocation", side);
+            field(b, "PanelSize", size);
+            field(b, "SizeWhenCollapsed", collapsed_size);
+        }
         "page_host" | "menu_bar" => {}
         "status_message" => {
             let message = b.message.take();
@@ -369,7 +420,7 @@ pub(super) fn expand(node: &mut Node, tokens: &Tokens) -> Result<(), Error> {
                 ("UnfilledBackgroundStyle", b.unfilled.take()),
             ] {
                 if let Some(style) = value {
-                    put(b, key, json!(style.value));
+                    field(b, key, Some(style));
                 }
             }
             if let Some(radius) = b.radius.take() {
@@ -425,7 +476,7 @@ pub(super) fn expand(node: &mut Node, tokens: &Tokens) -> Result<(), Error> {
             if b.mashup.is_none() {
                 return Err(Error::at(
                     at,
-                    "embed needs mashup; dynamic mashup names remain widget: mashupcontainer",
+                    "embed needs mashup; use mashup_container with destination for a runtime name",
                 ));
             }
             b.native = b.mashup.take().map(|m| m.value);
@@ -467,5 +518,22 @@ pub(super) fn expand(node: &mut Node, tokens: &Tokens) -> Result<(), Error> {
     std::mem::swap(b, &mut body);
     body.kind = Some(Spanned::new(widget.into(), at, at));
     *node = Node::Widget(body);
+    Ok(())
+}
+
+/// Normalize named panes before component expansion and node-event hoisting recurse.
+pub(super) fn panes(node: &mut Node) -> Result<(), Error> {
+    if let Node::DynamicPanel(b) = node {
+        if b.main.is_some() || b.panel.is_some() {
+            if !b.children.is_empty() || b.main.is_none() || b.panel.is_none() {
+                return Err(Error::at(
+                    b.id.referenced,
+                    "dynamic_panel needs both main and panel panes; do not also supply children",
+                ));
+            }
+            b.children.push(*b.main.take().expect("main"));
+            b.children.push(*b.panel.take().expect("panel"));
+        }
+    }
     Ok(())
 }
