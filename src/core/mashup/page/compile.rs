@@ -545,9 +545,9 @@ fn compile_nested(
         allocator,
         &mut ids,
     )?;
-    // Static initial rows can coexist with a bound Data property. Install that binding before
-    // checking the controls and events it creates, then restore its normal declaration order.
-    let mut menu_data = BTreeMap::new();
+    // Bind runtime contracts before their dependent properties and events are checked; restore
+    // declaration order afterwards, since a derived static value can leave these in page.bindings.
+    let mut prerequisite_bindings = BTreeMap::new();
     for (index, binding) in page.bindings.iter().enumerate() {
         let binding = &binding.value;
         let target = binding
@@ -555,7 +555,7 @@ fn compile_nested(
             .value
             .strip_prefix("ui:")
             .unwrap_or(&binding.to.value);
-        let Some(node) = target.strip_suffix(".Data") else {
+        let Some((node, property)) = target.rsplit_once('.') else {
             continue;
         };
         let Some(id) = ids.get(node) else {
@@ -565,10 +565,15 @@ fn compile_nested(
             .document
             .find_exact(id)
             .map_err(|e| Error::at(binding.to.referenced, e))?;
-        if found.type_id != "ptcsmenubutton"
-            || session.document.at(&found.path)["Properties"]["ItemConfigurationMode"]
-                != "widgetProperties"
-        {
+        let prerequisite = match (found.type_id.as_str(), property) {
+            ("mashupcontainer", "Name") | ("navigationfunction", "TargetMashup") => true,
+            ("ptcsmenubutton", "Data") => {
+                session.document.at(&found.path)["Properties"]["ItemConfigurationMode"]
+                    == "widgetProperties"
+            }
+            _ => false,
+        };
+        if !prerequisite {
             continue;
         }
         let before = session.document.bindings_mut().len();
@@ -579,11 +584,11 @@ fn compile_nested(
                 &model,
                 platform.as_ref(),
                 &from,
-                &format!("ui:{id}.Data"),
+                &format!("ui:{id}.{property}"),
             )
             .map_err(|e| Error::at(binding.to.referenced, e))?;
         let made = session.document.bindings_mut();
-        menu_data.insert(
+        prerequisite_bindings.insert(
             index,
             (made.len() > before).then(|| {
                 made.last().expect("new binding")["Id"]
@@ -704,7 +709,7 @@ fn compile_nested(
             .map_err(|e| Error::at(on.referenced, e))?;
     }
     for (index, binding) in page.bindings.iter().enumerate() {
-        if let Some(made) = menu_data.get(&index) {
+        if let Some(made) = prerequisite_bindings.get(&index) {
             if let Some(id) = made {
                 let bindings = session.document.bindings_mut();
                 if let Some(at) = bindings.iter().position(|binding| binding["Id"] == *id) {
@@ -1168,6 +1173,31 @@ fn add(
             .collect(),
     );
     let mut dynamic_values = Vec::new();
+    let mut native_parameter_values = Vec::new();
+    if body.native_parameters && page.layout.is_none() {
+        let names: BTreeSet<_> = configuration["MashupParameters"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry["ParameterName"].as_str())
+            .collect();
+        for (name, value) in &body.props {
+            if binding(&value.value).is_some() {
+                continue;
+            }
+            if matches!(name.as_str(), "MashupParameters" | "_currentParameterDefs") {
+                dynamic_values.push((name.clone(), value.value.clone()));
+            } else if names.contains(name.as_str()) || body.native_param_names.contains(name) {
+                native_parameter_values.push((name.clone(), value.value.clone()));
+            }
+        }
+        props.retain(|(name, _)| {
+            !dynamic_values
+                .iter()
+                .chain(&native_parameter_values)
+                .any(|(key, _)| key == name)
+        });
+    }
     if menu_data_bound {
         let widget = crate::core::widgets::catalog()
             .by_type("ptcsmenubutton")
@@ -1383,6 +1413,35 @@ fn add(
             .path;
         for (key, value) in dynamic_values {
             session.document.set_property(&path, &key, value);
+        }
+    }
+    if !native_parameter_values.is_empty() && node.widget()? == "navigationfunction" {
+        session
+            .navigation_parameters(solution, &placed, &native_parameter_values)
+            .map_err(|e| Error::at(loc, e))?;
+        session
+            .set(
+                solution,
+                &authoring::SetRequest {
+                    mashup: page.name.value.clone(),
+                    widget: placed.clone(),
+                    properties: native_parameter_values,
+                    style_from: None,
+                    styles: vec![],
+                },
+            )
+            .map_err(|e| Error::at(loc, e))?;
+    }
+    if node.widget()? == "mashupcontainer" {
+        let path = session
+            .document
+            .find_exact(&placed)
+            .map_err(|e| Error::at(loc, e))?
+            .path;
+        for name in &body.native_param_names {
+            if let Some(value) = body.props.get(name).filter(|v| binding(&v.value).is_none()) {
+                super::elements::set_or_remove(&mut session.document, &path, name, &value.value);
+            }
         }
     }
     if let Some(op) = op {
@@ -3556,7 +3615,16 @@ fn wire_values(
             )
             .map_err(|e| Error::at(body.id.referenced, e))?;
     }
-    for (prop, value) in &body.props {
+    // Runtime targets establish the parameter contract before parameter bindings, regardless
+    // of their alphabetical order in the authored map.
+    let runtime_target = match node.widget()? {
+        "mashupcontainer" => Some("Name"),
+        "navigationfunction" => Some("TargetMashup"),
+        _ => None,
+    };
+    let mut props: Vec<_> = body.props.iter().collect();
+    props.sort_by_key(|(name, _)| runtime_target != Some(name.as_str()));
+    for (prop, value) in props {
         if let Some(from) = binding(&value.value) {
             let from = address(page, ids, from, value.referenced)?;
             session

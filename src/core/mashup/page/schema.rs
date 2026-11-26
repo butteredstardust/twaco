@@ -2,7 +2,7 @@ use super::Error;
 use serde::Deserialize;
 use serde_json::Value;
 use serde_saphyr::Spanned;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -273,13 +273,19 @@ pub(crate) enum Node {
     EventsRouter(Body),
     StatusMessage(Body),
     RichText(Body),
+    Navigate(Body),
+    MashupContainer(Body),
+    DynamicPanel(Body),
 }
 
 impl Node {
     pub(crate) fn body(&self) -> &Body {
         match self {
             Self::Component(_) => unreachable!("components expand before elements"),
-            Self::StatusMessage(b)
+            Self::Navigate(b)
+            | Self::MashupContainer(b)
+            | Self::DynamicPanel(b)
+            | Self::StatusMessage(b)
             | Self::RichText(b)
             | Self::EventsRouter(b)
             | Self::Link(b)
@@ -332,7 +338,10 @@ impl Node {
     pub(crate) fn body_mut(&mut self) -> &mut Body {
         match self {
             Self::Component(_) => unreachable!("components expand before elements"),
-            Self::StatusMessage(b)
+            Self::Navigate(b)
+            | Self::MashupContainer(b)
+            | Self::DynamicPanel(b)
+            | Self::StatusMessage(b)
             | Self::RichText(b)
             | Self::EventsRouter(b)
             | Self::Link(b)
@@ -385,7 +394,10 @@ impl Node {
     pub(crate) fn into_body(self) -> Body {
         match self {
             Self::Component(_) => unreachable!("components expand before elements"),
-            Self::StatusMessage(b)
+            Self::Navigate(b)
+            | Self::MashupContainer(b)
+            | Self::DynamicPanel(b)
+            | Self::StatusMessage(b)
             | Self::RichText(b)
             | Self::EventsRouter(b)
             | Self::Link(b)
@@ -453,6 +465,9 @@ impl Node {
             | Self::CardGrid(_)
             | Self::Block(_)
             | Self::Spacer(_) => "flexcontainer",
+            Self::Navigate(_) => "navigationfunction",
+            Self::MashupContainer(_) => "mashupcontainer",
+            Self::DynamicPanel(_) => "ptcsdynamicpanel",
             Self::EventsRouter(_) => "eventsrouter",
             Self::StatusMessage(_) => "statusmessage",
             Self::RichText(_) => "ptcsrte",
@@ -521,6 +536,11 @@ pub(crate) struct Body {
     pub(crate) native: Option<String>,
     #[serde(skip)]
     pub(crate) initialize: bool,
+    /// Native parameter snapshots are explicit element data, rather than authored widget props.
+    #[serde(skip)]
+    pub(crate) native_parameters: bool,
+    #[serde(skip)]
+    pub(crate) native_param_names: BTreeSet<String>,
     pub(crate) id: Spanned<String>,
     #[serde(rename = "type")]
     pub(crate) kind: Option<Spanned<String>>,
@@ -529,6 +549,19 @@ pub(crate) struct Body {
     pub(crate) title: Option<String>,
     pub(crate) help: Option<String>,
     pub(crate) hint: Option<String>,
+    pub(crate) destination: Option<Spanned<Value>>,
+    pub(crate) popup_title: Option<Spanned<Value>>,
+    pub(crate) popup_width: Option<Spanned<Value>>,
+    pub(crate) popup_height: Option<Spanned<Value>>,
+    pub(crate) parameter_defs: Option<Spanned<Value>>,
+    pub(crate) collapsed: Option<Spanned<Value>>,
+    pub(crate) side: Option<Spanned<Value>>,
+    pub(crate) panel_size: Option<Spanned<Value>>,
+    pub(crate) collapsed_size: Option<Spanned<Value>>,
+    pub(crate) main: Option<Box<Node>>,
+    pub(crate) panel: Option<Box<Node>>,
+    pub(crate) column_config: Option<Spanned<Value>>,
+    pub(crate) editable: Option<Spanned<bool>>,
     pub(crate) message: Option<Spanned<Value>>,
     pub(crate) message_type: Option<Spanned<String>>,
     pub(crate) content: Option<Spanned<Value>>,
@@ -545,8 +578,8 @@ pub(crate) struct Body {
     /// A shape's outline: circle, rectangle, roundrect or ellipse.
     pub(crate) form: Option<Spanned<String>>,
     /// A shape's fill style and the style of its unfilled part.
-    pub(crate) fill: Option<Spanned<String>>,
-    pub(crate) unfilled: Option<Spanned<String>>,
+    pub(crate) fill: Option<Spanned<Value>>,
+    pub(crate) unfilled: Option<Spanned<Value>>,
     /// The corner radius of a rounded rectangle.
     pub(crate) radius: Option<Spanned<f64>>,
     /// Whether a shape fills in proportion to a bound value between `min` and `max`.

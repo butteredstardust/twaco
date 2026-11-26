@@ -348,6 +348,41 @@ pub(super) fn expand(page: &mut Page, tokens: &Tokens) -> Result<(), Error> {
     fn nodes(list: &mut [Node], tokens: &Tokens) -> Result<(), Error> {
         for node in list {
             super::native::expand(node, tokens)?;
+            if let Node::Grid(b) = node {
+                if let Some(config) = b.column_config.take() {
+                    if !b.columns.is_empty() {
+                        return Err(Error::at(
+                            config.referenced,
+                            "grid takes columns or column_config, not both",
+                        ));
+                    }
+                    b.props.entry("ColumnFormat".into()).or_insert(config);
+                }
+                if let Some(selection) = b.selection.take() {
+                    if !["none", "single", "multiple"].contains(&selection.value.as_str()) {
+                        return Err(Error::at(
+                            selection.referenced,
+                            "grid selection is none, single or multiple",
+                        ));
+                    }
+                    b.props
+                        .entry("RowSelection".into())
+                        .or_insert(serde_saphyr::Spanned::new(
+                            json!(selection.value),
+                            selection.referenced,
+                            selection.defined,
+                        ));
+                }
+                if let Some(editable) = b.editable.take() {
+                    b.props
+                        .entry("IsEditable".into())
+                        .or_insert(serde_saphyr::Spanned::new(
+                            json!(editable.value),
+                            editable.referenced,
+                            editable.defined,
+                        ));
+                }
+            }
             match node {
                 Node::Heading(b) | Node::Label(b) | Node::Text(b) => {
                     text_size(b)?;
@@ -984,6 +1019,9 @@ fn fields(node: &Node) -> Result<(), Error> {
         }
     }
     let checks = [
+        (b.destination.is_some() || b.popup_title.is_some() || b.popup_width.is_some() || b.popup_height.is_some() || b.parameter_defs.is_some(), false, "destination/popup fields belong to navigate or mashup_container"),
+        (b.collapsed.is_some() || b.side.is_some() || b.panel_size.is_some() || b.collapsed_size.is_some() || b.main.is_some() || b.panel.is_some(), false, "pane fields belong to dynamic_panel"),
+        (b.column_config.is_some() || b.editable.is_some(), false, "column_config/editable belongs to grid"),
         (b.message.is_some() || b.message_type.is_some(), false, "message/message_type belongs to status_message"),
         (b.content.is_some() || b.read_only.is_some() || b.show_toolbar.is_some() || b.font_size.is_some(), false, "content/read_only/show_toolbar/font_size belongs to rich_text"),
         (b.data_type.is_some() || b.input_count.is_some() || !b.routes.is_empty(), false, "data_type/input_count/routes belongs to events_router"),

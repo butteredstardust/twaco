@@ -6,6 +6,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- **Page specs: native navigation, grids and dynamic containers become elements.** `navigate:`
+  keeps navigation identity, parameter snapshots and event wiring; grids carry `column_config`
+  verbatim with selection and editing fields. Dynamic `mashup_container:` names and parameters
+  use runtime bindings, and `dynamic_panel:` keeps both named panes and collapse settings.
+  Shapes accept inline fill and unfilled style objects. Existing native properties and styles
+  survive derivation and fresh builds.
+
 ## [0.1.79] - 2026-11-25
 
 - **Page specs: the last offline kit pages copy executably, and `shape:` is an element.** A gadget

@@ -951,7 +951,11 @@ impl<'a> Run<'a> {
         }
         let mut out = Map::new();
         for (key, value) in widget["Properties"].as_object().into_iter().flatten() {
-            if self.exact && type_id == "navigationfunction" && key == "_currentParameterDefs" {
+            if self.exact
+                && type_id == "navigationfunction"
+                && key == "_currentParameterDefs"
+                && !skip.contains(&key.as_str())
+            {
                 out.insert(key.clone(), value.clone());
                 continue;
             }
@@ -985,7 +989,7 @@ impl<'a> Run<'a> {
                 continue;
             }
             if key == "MashupParameters"
-                && !(self.exact && matches!(type_id, "mashupcontainer" | "navigationfunction"))
+                && !matches!(type_id, "mashupcontainer" | "navigationfunction")
             {
                 // Managed by the contained mashup; `embed` writes it.
                 continue;
@@ -1129,12 +1133,26 @@ impl<'a> Run<'a> {
             "ptcslabel" => self.label(widget),
             "expression2" => self.expression(widget),
             "navigationfunction" => self.navigation(widget),
+            "ptcsdynamicpanel"
+                if widgets_of(widget).len() == 2 || widgets_of(widget).is_empty() =>
+            {
+                self.native(widget)
+            }
             "eventsrouter" => self.router(widget),
             "ptcsbutton" => self.button(widget),
             "ptcslink" | "ptcsimage" | "ptcsicon" | "ptcsdivider" | "ptcscheckbox"
             | "ptcsradio" | "ptcstogglebutton" | "ptcstextarea" | "ptcsvaluedisplay"
             | "ptcspagination" | "ptcskpidial" | "ptcsrte" | "statusmessage" => self.native(widget),
             "shape" if self.shape_expressible(widget) => self.native(widget),
+            "mashupcontainer"
+                if widgets::property_bound(
+                    self.content,
+                    prop(widget, "Id").as_str().unwrap_or_default(),
+                    "Name",
+                ) || text(widget, "Name").is_none_or(|s| s.is_empty()) =>
+            {
+                self.native(widget)
+            }
             "mashupcontainer" if text(widget, "Name").is_some_and(|s| !s.is_empty()) => {
                 self.embed(widget)
             }
@@ -1160,7 +1178,7 @@ impl<'a> Run<'a> {
             "ptcsdatepicker" => self.native(widget),
             "ptcsdropdown" | "ptcslist" => self.picker(widget),
             // A grid's column formats are kept exactly as they are when adopting.
-            "ptcsgrid" if self.exact => self.other(widget),
+            "ptcsgrid" if self.exact => self.native(widget),
             "ptcsgrid" => self.grid(widget),
             "ptcschartline" | "ptcschartbar" | "ptcschartpie" | "ptcschartcombo"
             | "ptcschartpareto" | "ptcschartwaterfall" => self.chart(widget),
@@ -1309,11 +1327,11 @@ impl<'a> Run<'a> {
     fn other(&mut self, widget: &Value) -> Value {
         let type_id = kind(widget).to_string();
         let reason = match type_id.as_str() {
-            "shape" => "a shape needs a known outline and plain style names and numbers; other shapes remain raw",
+            "shape" => "a shape needs a known outline, style names or objects and numeric ranges; other shapes remain raw",
             "googlemap" | "OpenStreetMap" | "openstreetmap" => "map extension contracts remain raw",
             "ptcscollection" => "collection needs a static cell, nonempty row map and a supported data feed; dynamic entity and mashup selection remain raw",
             "mashupcontainer" => "embed needs a static mashup; dynamic Name bindings remain raw",
-            "ptcsdynamicpanel" => "dynamic panels have two native panes and varied push/trigger controls; side_panel has a different structure",
+            "ptcsdynamicpanel" => "dynamic_panel needs two native pane children (or an unconfigured panel); other child structures remain raw",
             "eventsrouter" => "router needs 1 to 20 typed native inputs; unsupported counts remain raw",
             "navigationfunction" => "navigation needs a static target and a single representable Navigate trigger; dynamic targets remain raw",
             "ptcschartschedule" => "schedule charts need nested resource intervals rather than flat numeric series",
@@ -1415,19 +1433,19 @@ impl<'a> Run<'a> {
         self.finish("button", widget, body, props)
     }
 
-    /// A shape states its look as fields only when each is a plain value the element writes back:
-    /// a known outline, style names, numbers.
+    /// A shape becomes an element only when its outline, style values and ranges write back
+    /// without guessing at an unsupported platform variant.
     fn shape_expressible(&self, widget: &Value) -> bool {
         let known =
             |key: &str, ok: &dyn Fn(&Value) -> bool| widget["Properties"].get(key).is_none_or(ok);
         known("ShapeType", &|v| {
             v.as_str()
                 .is_some_and(|s| ["circle", "rectangle", "roundrect", "ellipse"].contains(&s))
-        }) && known("ShapeStyle", &|v| v.as_str().is_some_and(|s| !s.is_empty()))
-            && known("UnfilledBackgroundStyle", &|v| {
-                v.as_str().is_some_and(|s| !s.is_empty())
-            })
-            && known("RectangleCornerRadius", &Value::is_number)
+        }) && known("ShapeStyle", &|v| {
+            v.is_object() || v.as_str().is_some_and(|s| !s.is_empty())
+        }) && known("UnfilledBackgroundStyle", &|v| {
+            v.is_object() || v.as_str().is_some_and(|s| !s.is_empty())
+        }) && known("RectangleCornerRadius", &Value::is_number)
             && known("EnableDynamicFill", &Value::is_boolean)
             && known("DynamicRangeMinimum", &Value::is_number)
             && known("DynamicRangeMaximum", &Value::is_number)
@@ -1439,6 +1457,35 @@ impl<'a> Run<'a> {
 
     fn native(&mut self, widget: &Value) -> Value {
         let (element, fields): (&str, &[(&str, &str)]) = match kind(widget) {
+            "navigationfunction" => (
+                "navigate",
+                &[
+                    ("TargetMashup", "destination"),
+                    ("TargetWindowType", "mode"),
+                    ("PopupTitle", "popup_title"),
+                    ("PopupWidth", "popup_width"),
+                    ("PopupHeight", "popup_height"),
+                    ("_currentParameterDefs", "parameter_defs"),
+                ],
+            ),
+            "mashupcontainer" => ("mashup_container", &[("Name", "destination")]),
+            "ptcsdynamicpanel" => (
+                "dynamic_panel",
+                &[
+                    ("Collapsed", "collapsed"),
+                    ("AnchorLocation", "side"),
+                    ("PanelSize", "panel_size"),
+                    ("SizeWhenCollapsed", "collapsed_size"),
+                ],
+            ),
+            "ptcsgrid" => (
+                "grid",
+                &[
+                    ("ColumnFormat", "column_config"),
+                    ("RowSelection", "selection"),
+                    ("IsEditable", "editable"),
+                ],
+            ),
             "statusmessage" => (
                 "status_message",
                 &[("Message", "message"), ("MessageType", "message_type")],
@@ -1546,16 +1593,12 @@ impl<'a> Run<'a> {
         let mut skip: Vec<&str> = fields.iter().map(|(property, _)| *property).collect();
         let mut carried_bindings = Vec::new();
         for (property, field) in fields {
-            let binding = self
-                .links
-                .iter()
-                .find(|link| {
-                    !link.consumed
-                        && link.target.0 == "UI"
-                        && link.target.1 == prop(widget, "Id").as_str().unwrap_or_default()
-                        && link.target.3 == *property
-                })
-                .cloned();
+            let binding = self.links.iter().position(|link| {
+                !link.consumed
+                    && link.target.0 == "UI"
+                    && link.target.1 == prop(widget, "Id").as_str().unwrap_or_default()
+                    && link.target.3 == *property
+            });
             if binding.is_some() {
                 // Consume the original before `props` sees it; it is restored after the
                 // authored field has become a real design-time value in the spec.
@@ -1565,11 +1608,38 @@ impl<'a> Run<'a> {
             if let Some(binding) = binding {
                 carried_bindings.push(binding);
             }
-            if let Some(value) = value.filter(|v| !v.is_null() && *v != "") {
+            let native_value = matches!(
+                element,
+                "navigate" | "mashup_container" | "dynamic_panel" | "grid"
+            );
+            let default = widgets::catalog()
+                .by_type(kind(widget))
+                .and_then(|w| w.defaults.get(*property));
+            if let Some(value) =
+                value.filter(|v| (native_value && default != Some(v)) || (!v.is_null() && *v != ""))
+            {
+                // A null stays a prop, since scalar fields cannot express it; the raw writer
+                // removes that property rather than inventing the catalogue's default.
+                if value.is_null() {
+                    extra.insert((*property).into(), value);
+                    continue;
+                }
                 // These scalar fields describe catalogue choices; retain an unusual binding as a prop.
                 if value.is_object()
                     && ![
-                        "text", "source", "alt", "value", "group", "total", "message", "content",
+                        "text",
+                        "source",
+                        "alt",
+                        "value",
+                        "group",
+                        "total",
+                        "message",
+                        "content",
+                        "parameter_defs",
+                        "column_config",
+                        "destination",
+                        "fill",
+                        "unfilled",
                     ]
                     .contains(field)
                 {
@@ -1577,6 +1647,13 @@ impl<'a> Run<'a> {
                     continue;
                 }
                 body.insert((*field).into(), value);
+            }
+        }
+        if element == "dynamic_panel" {
+            let children = widgets_of(widget);
+            if children.len() == 2 {
+                body.insert("main".into(), self.node(&children[0], "column"));
+                body.insert("panel".into(), self.node(&children[1], "column"));
             }
         }
         if element == "rich_text" {
@@ -1611,7 +1688,26 @@ impl<'a> Run<'a> {
             skip.push("Layout");
         }
         let mut props = self.props(widget, &skip);
-        self.links.extend(carried_bindings);
+        if matches!(element, "navigate" | "mashup_container") {
+            let mut params = Map::new();
+            for entry in prop(widget, "MashupParameters")
+                .as_array()
+                .into_iter()
+                .flatten()
+            {
+                if let Some(name) = entry["ParameterName"].as_str() {
+                    if let Some(value) = props.remove(name) {
+                        params.insert(name.into(), value);
+                    }
+                }
+            }
+            if !params.is_empty() {
+                body.insert("params".into(), Value::Object(params));
+            }
+        }
+        for index in carried_bindings {
+            self.links[index].consumed = false;
+        }
         props.extend(extra);
         self.finish(element, widget, body, props)
     }
@@ -1689,12 +1785,14 @@ impl<'a> Run<'a> {
             .collect();
         let target = text(widget, "TargetMashup").filter(|s| !s.is_empty());
         if self.exact
+            || widget["Properties"].get("_currentParameterDefs").is_some()
             || target.is_none()
             || events.len() != 1
-            || (self.exact
-                && !id
-                    .rsplit_once('-')
-                    .is_some_and(|(_, suffix)| suffix.parse::<u64>().is_ok()))
+            || self.content["Events"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|event| event["EventTriggerArea"] == "UI" && event["EventTriggerId"] == id)
             || self.links.iter().any(|l| {
                 (l.source.0 == "UI" && l.source.1 == id)
                     || (l.target.0 == "UI"
@@ -1709,7 +1807,7 @@ impl<'a> Run<'a> {
                 .iter()
                 .any(|l| l.target.1 == id && l.target.3 == "TargetMashup")
         {
-            return self.other(widget);
+            return self.native(widget);
         }
         let mut action = Map::new();
         action.insert("id".into(), json!(self.id(widget)));
@@ -1898,47 +1996,7 @@ impl<'a> Run<'a> {
     }
 
     fn grid(&mut self, widget: &Value) -> Value {
-        let data = self.feed(widget);
-        let mut body = Map::new();
-        if let Some(data) = data {
-            body.insert("data".into(), json!(data));
-        }
-        let columns: Vec<Value> = prop(widget, "ColumnFormat")["formatInfo"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|c| {
-                let field = c["FieldName"].as_str()?;
-                let title = c["Title"].as_str().filter(|t| *t != field);
-                let width = whole(&c["Width"]).filter(|w| *w > 0);
-                Some(if title.is_none() && width.is_none() {
-                    json!(field)
-                } else {
-                    let mut column = Map::new();
-                    column.insert("field".into(), json!(field));
-                    if let Some(title) = title {
-                        column.insert("title".into(), json!(title));
-                    }
-                    if let Some(width) = width {
-                        column.insert("width".into(), json!(width));
-                    }
-                    Value::Object(column)
-                })
-            })
-            .collect();
-        if !columns.is_empty() {
-            body.insert("columns".into(), Value::Array(columns));
-        }
-        let props = self.props(
-            widget,
-            if body.contains_key("data") {
-                &["ColumnFormat", "Label"]
-            } else {
-                body.remove("columns");
-                &["Label"]
-            },
-        );
-        self.finish("grid", widget, body, props)
+        self.native(widget)
     }
 
     fn chart(&mut self, widget: &Value) -> Value {
@@ -2792,6 +2850,12 @@ impl<'a> Run<'a> {
                             return false;
                         }
                         let unresolved = item.as_object().is_some_and(|m| {
+                            // A native navigation node is not an event action.
+                            if m.len() == 1
+                                && m.get("navigate").is_some_and(|b| b.get("id").is_some())
+                            {
+                                return false;
+                            }
                             m.contains_key("on")
                                 != (m.contains_key("invoke")
                                     || m.contains_key("navigate")

@@ -371,15 +371,9 @@ fn kit_variant_properties_and_deliberate_raw_reasons() {
         {"Properties": {"Id": "navigationfunction-6", "Type": "navigationfunction", "TargetMashup": ""}}
     ]}, "Data": {}, "DataBindings": [], "Events": []});
     let derived = super::super::derive::derive("Acme.Raw_MU", &content.to_string()).unwrap();
-    assert_eq!(derived.raw, 5);
+    assert_eq!(derived.raw, 3);
     assert!(derived.spec.contains("menu_bar:"));
-    for kind in [
-        "shape",
-        "googlemap",
-        "ptcsdynamicpanel",
-        "eventsrouter",
-        "navigationfunction",
-    ] {
+    for kind in ["shape", "googlemap", "eventsrouter"] {
         assert!(
             derived
                 .notes
