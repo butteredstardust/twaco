@@ -3475,8 +3475,8 @@ pub(crate) fn mashup_migrate_cmd(solution: &Solution, args: &MashupMigrate) -> u
         );
         for item in &outcome.plan.migrations {
             println!(
-                "  {} ({}): {} -> {}",
-                item.name, item.id, item.from, item.to
+                "  {} ({}): {} -> {} [{}]",
+                item.name, item.id, item.from, item.to, item.source
             );
         }
         for item in &outcome.plan.kept {

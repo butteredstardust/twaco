@@ -4,7 +4,7 @@
 //! The embedded catalogue stays the offline default and always wins for the widgets it has. The
 //! cache, `.twaco/widgets.json`, adds the rest: legacy platform widgets (`tree`, `collection`,
 //! `gauge`, ...) from `Common/mashup-common-widgets-shared.js` and `-builder.js`, and each
-//! installed extension's widgets from its `*.ide.js` and `*.config.js`. A solution that loads
+//! installed extension's widgets from its IDE bundles, sources and configuration. A solution that loads
 //! with a cache lets `widgets`, `check`, `mashup validate` and the page specs judge those widgets
 //! by their contracts instead of carrying them as unknown.
 //!
@@ -165,7 +165,7 @@ fn from_folder(root: &Path) -> Result<Inputs, WidgetCacheError> {
     Ok(inputs)
 }
 
-/// `*.ide.js` and `*.config.js` under `extensions/<name>/ui/<widget>/`.
+/// Widget IDE JavaScript and TypeScript sources under `extensions/<name>/ui/<widget>/`.
 fn collect_extension_files(dir: &Path, out: &mut Vec<PathBuf>, depth: u8) {
     if depth > 4 {
         return;
@@ -181,7 +181,14 @@ fn collect_extension_files(dir: &Path, out: &mut Vec<PathBuf>, depth: u8) {
         };
         if kind.is_dir() {
             collect_extension_files(&path, out, depth + 1);
-        } else if kind.is_file() && (name.ends_with(".ide.js") || name.ends_with(".config.js")) {
+        } else if kind.is_file()
+            && (name.ends_with(".ide.js")
+                || name.ends_with(".ide.bundle.js")
+                || name.ends_with(".config.js")
+                || (name.ends_with(".ts")
+                    && !name.ends_with(".runtime.ts")
+                    && !name.ends_with(".d.ts")))
+        {
             out.push(path);
         }
     }
@@ -260,7 +267,14 @@ fn build(inputs: Inputs) -> (CacheFile, Outcome) {
     ];
     for (files, kind) in groups {
         for (origin, text) in files {
-            let report = match read_report(text) {
+            let typescript = origin.ends_with(".ts");
+            if typescript
+                && !(text.contains("TWWidgetDefinition")
+                    && (text.contains("widgetIDESupport") || text.contains("TWComposerWidget")))
+            {
+                continue;
+            }
+            let report = match read_report(text, typescript) {
                 Ok(report) => report,
                 Err(why) => {
                     skipped.push(format!("{origin}: {why}"));
@@ -567,6 +581,122 @@ TW.IDE.Widgets.acmeext = function () {
     fn refresh_from(solution: &Solution, folder: &Path) -> Outcome {
         let held = lock::acquire(&solution.root, "test", &[]).unwrap();
         refresh(solution, None, Some(folder), &held).unwrap()
+    }
+
+    #[test]
+    fn webapp_reads_compiled_and_source_typescript_ide_decorators() {
+        let (guard, solution) = solution();
+        let folder = webapp(guard.path());
+        let ui = folder.join("Common/extensions/acme-ext/ui/acmeext");
+        std::fs::write(ui.join("compiled.ide.js"), r#"
+(function() {
+  let AcmeCompiled = class AcmeCompiled extends TWComposerWidget {};
+  __decorate([(0, ide.property)("INTEGER", ide.bindingSource, (0, ide.defaultValue)(7)), __metadata("design:type", Number)], AcmeCompiled.prototype, "Value", void 0);
+  __decorate([ide.event], AcmeCompiled.prototype, "Changed", void 0);
+  __decorate([ide.service], AcmeCompiled.prototype, "Reset", null);
+  AcmeCompiled = __decorate([(0, ide.TWWidgetDefinition)("Acme Compiled", ide.autoResizable)], AcmeCompiled);
+})();
+class AcmeUnknown extends TWComposerWidget {}
+__decorate([ide.property("STRING", ide.defaultValue(compute()))], AcmeUnknown.prototype, "Value");
+AcmeUnknown = __decorate([ide.TWWidgetDefinition("Acme Unknown")], AcmeUnknown);
+"#).unwrap();
+        std::fs::write(
+            ui.join("source.ide.ts"),
+            r#"
+@TWWidgetDefinition('Acme Source')
+class AcmeSource extends TWComposerWidget {
+  @property({baseType: 'STRING', bindingType: 'both', defaultValue: 'Acme'})
+  Value: string;
+  @event Changed: unknown;
+  @service reset(): void {}
+}
+"#,
+        )
+        .unwrap();
+        let outcome = refresh_from(&solution, &folder);
+        assert!(outcome.extension.iter().any(|kind| kind == "AcmeCompiled"));
+        assert!(outcome.extension.iter().any(|kind| kind == "AcmeSource"));
+        let unknown = outcome
+            .unknown
+            .iter()
+            .find(|item| item.type_id == "AcmeUnknown")
+            .unwrap();
+        assert!(
+            unknown.why.contains("property decorator"),
+            "{:?}",
+            unknown.why
+        );
+        let file: CacheFile =
+            serde_json::from_str(&std::fs::read_to_string(solution.root.join(FILE)).unwrap())
+                .unwrap();
+        let compiled = file
+            .widgets
+            .iter()
+            .find(|w| w.type_id == "AcmeCompiled")
+            .unwrap();
+        assert_eq!(compiled.defaults["Value"], 7);
+        assert!(compiled.properties["Value"].source);
+        assert!(!compiled.properties["Value"].target);
+        assert_eq!(compiled.events, ["Changed"]);
+        assert_eq!(compiled.services, ["Reset"]);
+        let source = file
+            .widgets
+            .iter()
+            .find(|w| w.type_id == "AcmeSource")
+            .unwrap();
+        assert_eq!(source.defaults["Value"], "Acme");
+        assert!(source.properties["Value"].source && source.properties["Value"].target);
+        assert_eq!(source.events, ["Changed"]);
+        assert_eq!(source.services, ["reset"]);
+    }
+
+    #[test]
+    fn webapp_reads_the_minified_typescript_template_bundle() {
+        let (guard, solution) = solution();
+        let folder = webapp(guard.path());
+        let ui = folder.join("Common/extensions/acme-ext/ui/acmeext");
+        std::fs::write(
+            ui.join("acme.ide.bundle.js"),
+            r#"
+(() => {
+    var q = Object.defineProperty;
+    var n = (target, value) => q(target, "name", {value: value, configurable: !0});
+    n(p, "property");
+    n(v, "defaultValue");
+    n(e, "event");
+    n(s, "service");
+    n(d, "TWWidgetDefinition");
+    var b = AcmeAspect.aspectWithKeyAndValue("isBindingTarget", !0);
+    var r = AcmeAspect.aspectWithKeyAndValue("supportsAutoResize", !0);
+    var x = class extends TWComposerWidget {};
+    n(x, "AcmeBundle");
+    w([p("NUMBER", b, v(42))], x.prototype, "Value", 2);
+    w([e], x.prototype, "Changed", 2);
+    w([s], x.prototype, "Reset", 1);
+    x = w([d("Acme Bundle", r)], x);
+})();
+"#,
+        )
+        .unwrap();
+        let outcome = refresh_from(&solution, &folder);
+        assert!(outcome.extension.iter().any(|kind| kind == "AcmeBundle"));
+        let file: CacheFile =
+            serde_json::from_str(&std::fs::read_to_string(solution.root.join(FILE)).unwrap())
+                .unwrap();
+        let widget = file
+            .widgets
+            .iter()
+            .find(|w| w.type_id == "AcmeBundle")
+            .unwrap();
+        assert!(widget.auto_resize);
+        assert_eq!(widget.defaults["Value"], 42);
+        assert_eq!(
+            widget.properties["Value"].base_type.as_deref(),
+            Some("NUMBER")
+        );
+        assert!(widget.properties["Value"].target);
+        assert_eq!(widget.events, ["Changed"]);
+        assert_eq!(widget.services, ["Reset"]);
     }
 
     #[test]

@@ -69,6 +69,46 @@ fn native_grid_keeps_column_json_selection_editing_events_and_styles() {
 }
 
 #[test]
+fn grid_derives_friendly_columns_only_when_the_recipe_rebuilds_the_stored_grid() {
+    let (_dir, solution) = element_solution();
+    let text = format!("{HEADER}  data:\n    rows: {{service: Acme.Data.GetRows}}\n  slots:\n    center:\n      - grid:\n          id: ptcsgrid-7\n          data: rows\n          columns: [{{field: Name, title: 'Item name', width: 180}}]\n");
+    let built = compile(&solution, "Acme", &text).unwrap();
+    let entity = solution.root.join("acme/Mashups/Acme.Native_MU.xml");
+    std::fs::write(&entity, &built.entity).unwrap();
+    let directory = solution.src_root().join("Acme.Native_MU/mashup");
+    std::fs::create_dir_all(&directory).unwrap();
+    std::fs::write(directory.join("custom.css"), &built.css).unwrap();
+    let file = directory.join("content.json");
+    std::fs::write(&file, &built.content).unwrap();
+    let derived = super::super::extract::extract(&solution, "Acme.Native_MU").unwrap();
+    assert!(derived.spec.contains("columns:"), "{}", derived.spec);
+    assert!(!derived.spec.contains("column_config:"), "{}", derived.spec);
+    let rebuilt = compile(&solution, "Acme", &derived.spec).unwrap();
+    let grid_props = |content: &str| {
+        let doc = mashup::edit::parse(content).unwrap();
+        doc.at(&doc.find_exact("ptcsgrid-7").unwrap().path)["Properties"].clone()
+    };
+    assert_eq!(grid_props(&built.content), grid_props(&rebuilt.content));
+
+    let mut document = mashup::edit::parse(&built.content).unwrap();
+    let grid = document.find_exact("ptcsgrid-7").unwrap().path;
+    let mut config = document.at(&grid)["Properties"]["ColumnFormat"].clone();
+    config["formatInfo"][0]["FormatOptions"]["formatInfo"] =
+        json!({"StateDefinition": "Acme.State"});
+    document.set_property(&grid, "ColumnFormat", config.clone());
+    let assets = mashup::Assets {
+        content: document.to_content(),
+        css: built.css,
+    };
+    std::fs::write(&entity, mashup::sync(&built.entity, &assets).unwrap().0).unwrap();
+    std::fs::write(&file, &assets.content).unwrap();
+    let derived = super::super::extract::extract(&solution, "Acme.Native_MU").unwrap();
+    assert!(derived.spec.contains("column_config:"), "{}", derived.spec);
+    let rebuilt = compile(&solution, "Acme", &derived.spec).unwrap();
+    assert_eq!(grid_props(&rebuilt.content)["ColumnFormat"], config);
+}
+
+#[test]
 fn native_dynamic_container_warns_for_runtime_parameters_and_keeps_bindings() {
     let (_dir, solution) = element_solution();
     let text = format!("{HEADER}  parameters: {{target: MASHUPNAME, selected: STRING}}\n  slots:\n    center:\n      - mashup_container: {{id: mashupcontainer-9, destination: {{bind: param.target}}, params: {{ASelection: {{bind: param.selected}}}}, props: {{MashupParameters: [{{ParameterName: ASelection, BaseType: STRING}}]}}}}\n");

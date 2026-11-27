@@ -1342,9 +1342,12 @@ Widget searches match all query words in any order and treat alias hyphens as sp
 `twaco widgets --platform` (or `--webapp <webapp folder>`) reads the installation's widget files
 into `.twaco/widgets.json`: legacy widgets (`tree`, `collection`, `gauge`, ...) and installed
 extensions then have contracts, so `twaco widgets tree` lists their properties, events and
-services and `mashup validate`, `check` and page specs judge them. Contracts are read statically
-(no widget code runs); a widget built at run time is listed as unknown with the reason. The
-embedded catalogue wins for the widgets it has and stays the default without a cache.
+services and `mashup validate`, `check` and page specs judge them. The reader handles JavaScript
+definitions, compiled TypeScript IDE decorators such as `__decorate` and the widget template's
+esbuild bundles, and TypeScript IDE sources in the webapp. It reads literal base types,
+binding directions and defaults, plus decorated
+events and services. Dynamically computed contracts are listed as unknown with the reason.
+The embedded catalogue wins for the widgets it has and stays the default without a cache.
 
 MCP exposes the same refresh through `widgets` with `platform: true` and optional `profile`,
 or `webapp: "path/to/Thingworx"`. Refresh takes no `widget` or `search`, writes the local cache
@@ -1352,20 +1355,21 @@ under the workspace lock, and uses the CLI's read-only server operations.
 
 ### Migrating legacy widgets
 
-Run `twaco mashup migrate Acme.Orders_MU --json` to plan replacements using Composer 10.2's
-migration mappings. Repeat with `--apply` to write the entity and managed content sidecar in
-one transaction. Widget IDs and authored layout are retained; bindings, events and services
-follow renamed endpoints. Every property or connection dropped because it lacks a target
-mapping is listed in warnings. Review those warnings before applying.
+Run `twaco mashup migrate Acme.Orders_MU --json` to plan replacements. Repeat with `--apply` to
+write the entity and managed content sidecar in one transaction. Widget IDs and authored layout
+are retained. Bindings, events and services follow renamed endpoints. Review warnings for
+properties or connections dropped because the target has no compatible mapping.
 
-Supported replacements include collection, numericentry, label, checkbox, divider, textbox,
-textarea, image and link. Collection configuration (selection, section headers/footers, gaps,
-cell dimensions and field maps) and numeric input mode follow Composer. A container converts
-only inside a dynamic panel, as Composer's migrator requires. Legacy theme/style callbacks
-are not run; unmapped style properties are reported as dropped. Gauge, radiobuttonlist, menu,
-tree and leddisplay have no newtype migrator in the source bundle. Other complex migrators
-are not yet supported. Widgets without a migrator are kept as they are and listed by name;
-they never block the supported migrations.
+Composer 10.2 supplies the declarative rules for the plan entries marked `source: "composer"`.
+These include collections, numeric inputs, buttons, date pickers, lists, grids, upload controls,
+sliders, and pie charts. A container converts only inside a dynamic panel. Migrations that
+require Composer to generate or rewire widgets may be kept, and theme style callbacks are omitted.
+
+Plans mark twaco's own alternatives `source: "twaco"`. They replace a numeric gauge with a KPI
+dial, an LED display with a numeric Value Display, or a configured Menu entity driving the page
+mashup with a Menu Bar. Legacy styling and display settings may be dropped. Radio button lists
+and trees are kept because their data and selection contracts need a redesign. Kept widgets
+are listed by name.
 
 MCP uses `mashup_migrate` with `mashup` and `dry_run` defaulting to true.
 After migration, run `mashup validate` and `mashup spec` to inspect the result. Migration refuses

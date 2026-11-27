@@ -188,7 +188,7 @@ pub fn catalog() -> &'static Catalog {
     &PARSED
 }
 
-static MIGRATIONS: LazyLock<Value> = LazyLock::new(|| {
+pub(crate) static MIGRATIONS: LazyLock<Value> = LazyLock::new(|| {
     serde_json::from_str(include_str!("widgets/migrations.json"))
         .expect("widgets/migrations.json is valid JSON")
 });

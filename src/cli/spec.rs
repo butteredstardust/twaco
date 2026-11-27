@@ -971,7 +971,7 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "mashup migrate",
         group: 1,
         text: r#"  mashup migrate <mashup> [--apply] [--json]
-                              replace legacy widgets using Composer migration mappings; plan unless --apply"#,
+                              replace legacy widgets using Composer or twaco mappings; plan unless --apply"#,
     },
     Usage {
         path: "mashup off",

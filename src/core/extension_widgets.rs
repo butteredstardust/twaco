@@ -1,10 +1,10 @@
 //! The widgets a solution's own `[[extension]]` projects define, read from their mashup-builder
 //! source, so `mashup add` can place them as Composer would.
 //!
-//! Three forms are read: a JavaScript `TW.IDE.Widgets.<type> = function () { this.widgetProperties
+//! Read a JavaScript `TW.IDE.Widgets.<type> = function () { this.widgetProperties
 //! = function () { return {...} } }`; a web-component widget's configuration, registered with
 //! `TW.Widget.widgetWrapper.config(<type>, {flags, properties, events})`; and a TypeScript
-//! `@TWWidgetDefinition` class in a file that imports `widgetIDESupport`. Only literals count: a
+//! `@TWWidgetDefinition` class, including its compiled `__decorate` calls. Only literals count: a
 //! default worked out at run time is left out, and Composer fills it when the mashup is next
 //! opened. A property without a default is not written, as Composer does not write it.
 //!
@@ -18,9 +18,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use swc_common::BytePos;
 use swc_ecma_ast::{
-    AssignExpr, AssignTarget, CallExpr, Callee, ClassDecl, ClassMember, Decl, Decorator, Expr,
-    Function, Lit, MemberExpr, MemberProp, ObjectLit, Pat, Prop, PropName, PropOrSpread,
-    SimpleAssignTarget, Stmt, UnaryOp, VarDeclarator,
+    ArrowExpr, AssignExpr, AssignTarget, BlockStmtOrExpr, CallExpr, Callee, ClassDecl, ClassMember,
+    Decl, Decorator, Expr, Function, Lit, MemberExpr, MemberProp, ObjectLit, Pat, Prop, PropName,
+    PropOrSpread, SimpleAssignTarget, Stmt, UnaryOp, VarDeclarator,
 };
 use swc_ecma_parser::{lexer::Lexer, EsSyntax, Parser, StringInput, Syntax, TsSyntax};
 use swc_ecma_visit::{Visit, VisitWith};
@@ -148,7 +148,10 @@ fn read_file(path: &Path) -> Result<Vec<Widget>, String> {
         if !(text.contains("TWWidgetDefinition") && text.contains("widgetIDESupport")) {
             return Ok(Vec::new());
         }
-    } else if !text.contains("TW.IDE.Widgets") && !text.contains("widgetWrapper") {
+    } else if !text.contains("TW.IDE.Widgets")
+        && !text.contains("widgetWrapper")
+        && !text.contains("TWWidgetDefinition")
+    {
         return Ok(Vec::new());
     }
     read_source(&text, typescript)
@@ -183,8 +186,8 @@ pub(crate) struct Report {
 /// The widgets one source file defines, with a verdict on each contract: the last `return` of
 /// each definition function, identifiers bound to literals, webpack dev-mode `eval("...")`
 /// modules and `translate("key")` values are read; a widget built any other way is `unknown`.
-pub(crate) fn read_report(text: &str) -> Result<Report, String> {
-    parse(text, false, true)
+pub(crate) fn read_report(text: &str, typescript: bool) -> Result<Report, String> {
+    parse(text, typescript, true)
 }
 
 fn parse(text: &str, typescript: bool, report: bool) -> Result<Report, String> {
@@ -210,6 +213,28 @@ struct Collector {
     report: bool,
     /// How many `eval` modules deep the text being read is.
     depth: u8,
+    compiled: DecoratorScope,
+}
+
+#[derive(Default)]
+struct DecoratorScope {
+    classes: HashMap<String, CompiledClass>,
+    names: HashMap<String, String>,
+    aspects: HashMap<String, (String, bool)>,
+    name_helpers: Vec<String>,
+}
+
+impl DecoratorScope {
+    fn name(&self, expression: &Expr) -> Option<String> {
+        let name = decorator_name(expression)?;
+        Some(self.names.get(&name).cloned().unwrap_or(name))
+    }
+}
+
+#[derive(Default)]
+struct CompiledClass {
+    members: HashMap<String, Parts>,
+    found: Option<usize>,
 }
 
 impl Collector {
@@ -239,8 +264,134 @@ impl Collector {
         let program = super::script::guard_parse(|| Parser::new_from(lexer).parse_program())
             .map_err(|error| error.to_string())?
             .map_err(|error| format!("cannot parse it: {}", error.kind().msg()))?;
+        let outer = std::mem::take(&mut self.compiled);
         program.visit_with(self);
+        self.compiled = outer;
         Ok(())
+    }
+
+    /// esbuild's keepNames helper is an arrow that sets a function or class's name.
+    fn is_name_helper(&self, init: &Expr) -> bool {
+        let Expr::Arrow(arrow) = init else {
+            return false;
+        };
+        let ([Pat::Ident(target), Pat::Ident(value)], BlockStmtOrExpr::Expr(body)) =
+            (arrow.params.as_slice(), &*arrow.body)
+        else {
+            return false;
+        };
+        let Expr::Call(call) = &**body else {
+            return false;
+        };
+        let (Callee::Expr(callee), [owner, name, descriptor]) =
+            (&call.callee, call.args.as_slice())
+        else {
+            return false;
+        };
+        member_path(self.resolve(callee)).is_some_and(|path| path == ["Object", "defineProperty"])
+            && matches!(&*owner.expr, Expr::Ident(id) if id.sym == target.id.sym)
+            && string(&name.expr).as_deref() == Some("name")
+            && matches!(&*descriptor.expr, Expr::Object(object) if pairs(object).any(|(key, expr)| {
+                key == "value" && matches!(expr, Expr::Ident(id) if id.sym == value.id.sym)
+            }))
+    }
+
+    fn read_compiled_decorator(&mut self, call: &CallExpr, registration: Option<&str>) -> bool {
+        let Callee::Expr(callee) = &call.callee else {
+            return false;
+        };
+        let Some(helper) = decorator_name(callee) else {
+            return false;
+        };
+        let named = matches!(helper.as_str(), "__decorate" | "__decorateClass");
+        if !named && self.compiled.names.is_empty() {
+            return false;
+        }
+        let [first, target, rest @ ..] = call.args.as_slice() else {
+            return false;
+        };
+        let Some(path) = member_path(&target.expr) else {
+            return false;
+        };
+        // In a minified esbuild bundle, keepNames still records the class and
+        // decorator names. Associate the member calls with the class call by helper.
+        if !named && !self.compiled.names.contains_key(&path[0]) {
+            return false;
+        }
+        if first.spread.is_some() || target.spread.is_some() {
+            return false;
+        }
+        let decorators = match &*first.expr {
+            Expr::Array(array) => Some(&array.elems),
+            _ => None,
+        };
+        let static_decorators: Vec<_> = decorators
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|element| element.spread.is_none())
+            .filter_map(|element| decorator_expr(&element.expr, &self.compiled))
+            .collect();
+        let computed = decorators.is_none_or(|entries| entries.len() != static_decorators.len());
+        match (path.as_slice(), rest) {
+            ([class, prototype], [member, ..]) if prototype == "prototype" => {
+                if !named
+                    && !matches!(rest, [_, kind] if matches!(literal(&kind.expr), Some(value) if value == 1 || value == 2))
+                {
+                    return false;
+                }
+                let mut parts = self
+                    .compiled
+                    .classes
+                    .entry(class.clone())
+                    .or_default()
+                    .members
+                    .remove(&helper)
+                    .unwrap_or_default();
+                if computed {
+                    parts
+                        .unknown
+                        .push("a member has computed decorators".into());
+                }
+                if let Some(name) = string(&member.expr) {
+                    parts.read_decorated_member(name, &static_decorators, &self.compiled);
+                } else {
+                    parts
+                        .unknown
+                        .push("a decorated member has a computed name".into());
+                }
+                self.compiled
+                    .classes
+                    .entry(class.clone())
+                    .or_default()
+                    .members
+                    .insert(helper, parts);
+            }
+            ([class], []) => {
+                let Some((_, arguments)) = static_decorators
+                    .iter()
+                    .find(|(name, _)| name == "TWWidgetDefinition")
+                else {
+                    return false;
+                };
+                let compiled = self.compiled.classes.entry(class.clone()).or_default();
+                let mut parts = compiled.members.remove(&helper).unwrap_or_default();
+                compiled.found = Some(self.found.len());
+                parts.read_definition(arguments, self.report, &self.compiled);
+                if computed {
+                    parts
+                        .unknown
+                        .push("the widget definition has a computed decorator".into());
+                }
+                let type_id = registration
+                    .or_else(|| self.compiled.names.get(class).map(String::as_str))
+                    .unwrap_or(class)
+                    .to_owned();
+                self.push(parts, type_id);
+            }
+            _ => return false,
+        }
+        true
     }
 
     fn push(&mut self, parts: Parts, type_id: String) {
@@ -262,8 +413,36 @@ impl Collector {
 }
 
 impl Visit for Collector {
+    fn visit_function(&mut self, function: &Function) {
+        let outer = std::mem::take(&mut self.compiled);
+        function.visit_children_with(self);
+        self.compiled = outer;
+    }
+
+    fn visit_arrow_expr(&mut self, arrow: &ArrowExpr) {
+        let outer = std::mem::take(&mut self.compiled);
+        arrow.visit_children_with(self);
+        self.compiled = outer;
+    }
+
     fn visit_var_declarator(&mut self, declarator: &VarDeclarator) {
         if let (Pat::Ident(name), Some(init)) = (&declarator.name, &declarator.init) {
+            if self.is_name_helper(init) {
+                self.compiled.name_helpers.push(name.id.sym.to_string());
+            }
+            if let Expr::Call(call) = &**init {
+                if let (Callee::Expr(callee), [key, value]) = (&call.callee, call.args.as_slice()) {
+                    if decorator_name(callee).as_deref() == Some("aspectWithKeyAndValue") {
+                        if let (Some(key), Some(Value::Bool(value))) =
+                            (string(&key.expr), literal(&value.expr))
+                        {
+                            self.compiled
+                                .aspects
+                                .insert(name.id.sym.to_string(), (key, value));
+                        }
+                    }
+                }
+            }
             self.declared
                 .insert(name.id.sym.to_string(), (**init).clone());
         }
@@ -271,6 +450,16 @@ impl Visit for Collector {
     }
 
     fn visit_call_expr(&mut self, call: &CallExpr) {
+        if let (Callee::Expr(callee), [target, name]) = (&call.callee, call.args.as_slice()) {
+            if decorator_name(callee).is_some_and(|helper| {
+                helper == "__name" || self.compiled.name_helpers.contains(&helper)
+            }) {
+                if let (Expr::Ident(target), Some(name)) = (&*target.expr, string(&name.expr)) {
+                    self.compiled.names.insert(target.sym.to_string(), name);
+                }
+            }
+        }
+        self.read_compiled_decorator(call, None);
         if let Callee::Expr(callee) = &call.callee {
             let registers = member_path(callee).is_some_and(|path| {
                 path.len() >= 2 && path[path.len() - 2..] == ["widgetWrapper", "config"]
@@ -294,7 +483,10 @@ impl Visit for Collector {
                 && matches!(&**callee, Expr::Ident(i) if i.sym.as_ref() == "eval")
             {
                 if let Some(text) = call.args.first().and_then(|arg| string(&arg.expr)) {
-                    if text.contains("TW.IDE.Widgets") || text.contains("widgetWrapper") {
+                    if text.contains("TW.IDE.Widgets")
+                        || text.contains("widgetWrapper")
+                        || text.contains("TWWidgetDefinition")
+                    {
                         self.depth += 1;
                         // A module that does not parse is no worse than a file that does not.
                         let _ = self.parse_text(&text, false);
@@ -308,6 +500,22 @@ impl Visit for Collector {
 
     fn visit_assign_expr(&mut self, assign: &AssignExpr) {
         if let Some(type_id) = ide_widget_name(&assign.left) {
+            if let Expr::Call(call) = &*assign.right {
+                if self.read_compiled_decorator(call, Some(&type_id)) {
+                    return;
+                }
+            }
+            if let Expr::Ident(class) = &*assign.right {
+                if let Some(index) = self
+                    .compiled
+                    .classes
+                    .get(class.sym.as_ref())
+                    .and_then(|c| c.found)
+                {
+                    self.found[index].widget.type_id = type_id;
+                    return;
+                }
+            }
             match &*assign.right {
                 Expr::Fn(function) => {
                     let mut parts = Parts {
@@ -328,12 +536,8 @@ impl Visit for Collector {
     }
 
     fn visit_class_decl(&mut self, class: &ClassDecl) {
-        if let Some(widget) = typescript_widget(class) {
-            self.found.push(Found {
-                widget,
-                notes: Vec::new(),
-                unknown: None,
-            });
+        if let Some(parts) = typescript_widget(class, self.report, &self.compiled) {
+            self.push(parts, class.ident.sym.to_string());
         }
         class.visit_children_with(self);
     }
@@ -744,89 +948,220 @@ fn returned_object<'a>(
     }
 }
 
-/// The decorator's name and arguments: `@name` or `@name(arg, ...)`.
-fn decorator(decorator: &Decorator) -> Option<(String, Vec<&Expr>)> {
-    match &*decorator.expr {
-        Expr::Ident(ident) => Some((ident.sym.to_string(), Vec::new())),
-        Expr::Call(call) => {
-            let Callee::Expr(callee) = &call.callee else {
-                return None;
-            };
-            let Expr::Ident(ident) = &**callee else {
-                return None;
-            };
-            Some((
-                ident.sym.to_string(),
-                call.args.iter().map(|arg| &*arg.expr).collect(),
-            ))
+/// Babel and TypeScript's CommonJS emitter wrap imported helpers in `(0, module.helper)`.
+fn decorator_name(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Ident(ident) => Some(ident.sym.to_string()),
+        Expr::Member(member) => property_name(&member.prop),
+        Expr::Paren(paren) => decorator_name(&paren.expr),
+        Expr::Seq(seq)
+            if seq.exprs.len() == 2
+                && matches!(&*seq.exprs[0], Expr::Lit(Lit::Num(n)) if n.value == 0.0) =>
+        {
+            decorator_name(&seq.exprs[1])
         }
         _ => None,
     }
 }
 
-/// A `@TWWidgetDefinition` class: its name is the widget's type; `@property` members are its
-/// properties and `@event` members its events.
-fn typescript_widget(class: &ClassDecl) -> Option<Widget> {
-    let type_id = class.ident.sym.to_string();
+fn decorator_expr<'a>(expr: &'a Expr, scope: &DecoratorScope) -> Option<(String, Vec<&'a Expr>)> {
+    if let Expr::Call(call) = expr {
+        let Callee::Expr(callee) = &call.callee else {
+            return None;
+        };
+        if call.args.iter().any(|arg| arg.spread.is_some()) {
+            return None;
+        }
+        Some((
+            scope.name(callee)?,
+            call.args.iter().map(|arg| &*arg.expr).collect(),
+        ))
+    } else {
+        Some((scope.name(expr)?, Vec::new()))
+    }
+}
+
+fn decorator<'a>(
+    decorator: &'a Decorator,
+    scope: &DecoratorScope,
+) -> Option<(String, Vec<&'a Expr>)> {
+    decorator_expr(&decorator.expr, scope)
+}
+
+impl Declared {
+    fn read_binding_type(&mut self, expression: &Expr) -> bool {
+        match literal(expression)
+            .and_then(|v| v.as_str().map(str::to_ascii_lowercase))
+            .as_deref()
+        {
+            Some("source") => self.source = true,
+            Some("target") => self.target = true,
+            Some("both") => {
+                self.source = true;
+                self.target = true;
+            }
+            Some("none") => {}
+            _ => return false,
+        }
+        true
+    }
+
+    fn read_decorator_argument(&mut self, argument: &Expr, scope: &DecoratorScope) -> bool {
+        if let Expr::Object(object) = argument {
+            if pairs(object).count() != object.props.len() {
+                return false;
+            }
+            return pairs(object).all(|(field, value)| match field.as_str() {
+                "baseType" => {
+                    self.base_type = string(value);
+                    self.base_type.is_some()
+                }
+                "bindingType" => self.read_binding_type(value),
+                "defaultValue" => {
+                    self.default = literal(value);
+                    self.default.is_some()
+                }
+                "isBindingSource" | "isBindingTarget" | "isEditable" => {
+                    let Some(Value::Bool(flag)) = literal(value) else {
+                        return false;
+                    };
+                    match field.as_str() {
+                        "isBindingSource" => self.source = flag,
+                        "isBindingTarget" => self.target = flag,
+                        _ => self.editable = flag,
+                    }
+                    true
+                }
+                _ => true,
+            });
+        }
+        if let Expr::Ident(alias) = argument {
+            if let Some((key, flag)) = scope.aspects.get(alias.sym.as_ref()) {
+                match key.as_str() {
+                    "isBindingSource" => self.source = *flag,
+                    "isBindingTarget" => self.target = *flag,
+                    "isEditable" => self.editable = *flag,
+                    _ => return false,
+                }
+                return true;
+            }
+        }
+        if let Some((helper, args)) = decorator_expr(argument, scope) {
+            return match (helper.as_str(), args.as_slice()) {
+                ("bindingSource", []) => {
+                    self.source = true;
+                    true
+                }
+                ("bindingTarget", []) => {
+                    self.target = true;
+                    true
+                }
+                ("nonEditable", []) => {
+                    self.editable = false;
+                    true
+                }
+                ("defaultValue", [value]) => {
+                    self.default = literal(value);
+                    self.default.is_some()
+                }
+                ("bindingType", [value]) => self.read_binding_type(value),
+                _ => false,
+            };
+        }
+        if self.base_type.is_none() {
+            self.base_type = string(argument);
+            return self.base_type.is_some();
+        }
+        false
+    }
+}
+
+impl Parts {
+    fn read_definition(&mut self, arguments: &[&Expr], report: bool, scope: &DecoratorScope) {
+        self.saw_properties = true;
+        self.report = report;
+        for argument in arguments {
+            if let Expr::Ident(alias) = argument {
+                if let Some((key, flag)) = scope.aspects.get(alias.sym.as_ref()) {
+                    if key == "supportsAutoResize" {
+                        self.auto_resize = *flag;
+                        continue;
+                    }
+                }
+            }
+            if scope.name(argument).as_deref() == Some("autoResizable") {
+                self.auto_resize = true;
+            } else if self.label.is_none() {
+                self.label = string(argument);
+                if self.label.is_none() {
+                    self.unknown
+                        .push("TWWidgetDefinition has a nonliteral argument".into());
+                }
+            } else {
+                self.unknown
+                    .push("TWWidgetDefinition has an unrecognized argument".into());
+            }
+        }
+    }
+
+    fn read_decorated_member(
+        &mut self,
+        name: String,
+        decorators: &[(String, Vec<&Expr>)],
+        scope: &DecoratorScope,
+    ) {
+        if decorators.iter().any(|(name, _)| name == "event") {
+            self.events.push(name);
+        } else if decorators.iter().any(|(name, _)| name == "service") {
+            self.services.push(name);
+        } else if let Some((_, arguments)) = decorators.iter().find(|(name, _)| name == "property")
+        {
+            let mut declared = Declared {
+                editable: true,
+                ..Declared::default()
+            };
+            if !arguments
+                .iter()
+                .all(|arg| declared.read_decorator_argument(arg, scope))
+                || declared.base_type.is_none()
+            {
+                self.unknown.push(format!("{name}: the property decorator needs a literal base type, binding flags and default"));
+            }
+            self.properties.push((name, declared));
+        }
+    }
+}
+
+fn typescript_widget(class: &ClassDecl, report: bool, scope: &DecoratorScope) -> Option<Parts> {
     let (_, arguments) = class
         .class
         .decorators
         .iter()
-        .filter_map(decorator)
+        .filter_map(|value| decorator(value, scope))
         .find(|(name, _)| name == "TWWidgetDefinition")?;
-    let mut parts = Parts {
-        label: arguments.first().and_then(|first| string(first)),
-        auto_resize: arguments
-            .iter()
-            .any(|arg| matches!(arg, Expr::Ident(ident) if ident.sym.as_ref() == "autoResizable")),
-        ..Parts::default()
-    };
+    let mut parts = Parts::default();
+    parts.read_definition(&arguments, report, scope);
     for member in &class.class.body {
-        let ClassMember::ClassProp(prop) = member else {
-            continue;
-        };
-        let Some(name) = key(&prop.key) else {
-            continue;
-        };
-        let decorators: Vec<_> = prop.decorators.iter().filter_map(decorator).collect();
-        if decorators.iter().any(|(name, _)| name == "event") {
-            parts.events.push(name);
-            continue;
-        }
-        let Some((_, arguments)) = decorators.iter().find(|(name, _)| name == "property") else {
-            continue;
-        };
-        let mut declared = Declared {
-            editable: true,
-            ..Declared::default()
-        };
-        for argument in arguments {
-            match argument {
-                Expr::Ident(ident) => match ident.sym.as_ref() {
-                    "bindingSource" => declared.source = true,
-                    "bindingTarget" => declared.target = true,
-                    "nonEditable" => declared.editable = false,
-                    _ => {}
-                },
-                Expr::Call(call) => {
-                    let Callee::Expr(callee) = &call.callee else {
-                        continue;
-                    };
-                    if matches!(&**callee, Expr::Ident(ident) if ident.sym.as_ref() == "defaultValue")
-                    {
-                        declared.default = call.args.first().and_then(|arg| literal(&arg.expr));
-                    }
-                }
-                other => {
-                    if declared.base_type.is_none() {
-                        declared.base_type = string(other);
-                    }
-                }
+        let (property, decorators) = match member {
+            ClassMember::ClassProp(prop) if !prop.is_static => (&prop.key, &prop.decorators),
+            ClassMember::Method(method) if !method.is_static => {
+                (&method.key, &method.function.decorators)
             }
+            _ => continue,
+        };
+        let declared: Vec<_> = decorators
+            .iter()
+            .filter_map(|value| decorator(value, scope))
+            .collect();
+        if let Some(name) = key(property) {
+            parts.read_decorated_member(name, &declared, scope);
+        } else if !declared.is_empty() {
+            parts
+                .unknown
+                .push("a decorated member has a computed name".into());
         }
-        parts.properties.push((name, declared));
     }
-    Some(parts.into_widget(type_id))
+    Some(parts)
 }
 
 #[cfg(test)]
@@ -952,7 +1287,7 @@ class AcmeLabel extends TWComposerWidget {
     }
 
     fn report_of(source: &str) -> super::Report {
-        super::read_report(source).unwrap()
+        super::read_report(source, false).unwrap()
     }
 
     fn contract(found: &super::Found) -> (Vec<String>, Vec<String>, Vec<String>) {

@@ -681,7 +681,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::MashupOffResult>(),
         solution_tool::<refactor_requests::MashupMigrateRequest>(
             "mashup_migrate",
-            "Plan replacement of legacy widgets using Composer 10.2 migration mappings, repointing properties, bindings and events. Every dropped property or connection is reported. Widgets with no migrator are kept as they are and listed by name. dry_run defaults to true; apply takes the workspace lock and atomically writes entity and managed content sidecar. Layout and widget IDs are retained.",
+            "Plan replacement of legacy widgets and repoint properties, bindings and events. Each replacement identifies its source as composer or twaco. Every dropped property or connection is reported. Widgets with no migrator are kept as they are and listed by name. dry_run defaults to true; apply takes the workspace lock and atomically writes entity and managed content sidecar. Layout and widget IDs are retained.",
             false,
             refactor::mashup_migrate_tool,
         ).with_output::<outputs::MashupMigrateResult>(),

@@ -6,6 +6,13 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Generate legacy-widget migration rules from Composer 10.2. `mashup migrate` identifies each
+  rule's source, including twaco's gauge, LED display and configured menu equivalents.
+- Derive friendly grid `columns:` when the recipe reproduces the stored grid, and carry native
+  `column_config:` for custom configurations.
+- Read extension widget contracts from IDE TypeScript and compiled decorators in
+  `widgets --platform` and `widgets --webapp`.
+
 ## [0.1.80] - 2026-11-26
 
 - **Page specs: native navigation, grids and dynamic containers become elements.** `navigate:`

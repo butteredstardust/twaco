@@ -412,15 +412,165 @@ fn node_mut<'a>(value: &'a mut Value, id: &str) -> Option<&'a mut serde_json::Ma
     }
 }
 
-fn widget_type_at<'a>(widget: &'a Value, id: &str) -> Option<&'a str> {
+fn widget_props_at<'a>(widget: &'a Value, id: &str) -> Option<&'a Value> {
     if widget["Properties"]["Id"] == id {
-        return widget["Properties"]["Type"].as_str();
+        return Some(&widget["Properties"]);
     }
     widget["Widgets"]
         .as_array()
         .into_iter()
         .flatten()
-        .find_map(|child| widget_type_at(child, id))
+        .find_map(|child| widget_props_at(child, id))
+}
+
+/// The column recipe also fills hidden fields from the current result shape and sets
+/// grid styles. Use the actual page compiler to check both effects before keeping it.
+fn friendly_grid_columns(
+    solution: &Solution,
+    project: &str,
+    directory: &std::path::Path,
+    stored: &Value,
+    derived: &mut derive::Derived,
+    tokens: Option<&str>,
+) {
+    fn candidates(value: &Value, grids: &mut Vec<String>) {
+        if let Some(id) = value["grid"]["id"].as_str() {
+            if value["grid"]["column_config"]["formatInfo"].is_array()
+                && value["grid"]["props"]["Data"]["bind"].is_string()
+            {
+                grids.push(id.into());
+            }
+        }
+        if let Some(map) = value.as_object() {
+            for child in map.values() {
+                candidates(child, grids);
+            }
+        } else if let Some(items) = value.as_array() {
+            for item in items {
+                candidates(item, grids);
+            }
+        }
+    }
+
+    let mut grids = vec![];
+    candidates(&derived.value, &mut grids);
+    let compile = |spec: &Value| {
+        let spec = with_tokens(derive::render(spec), tokens);
+        let built = compile::compile_at(solution, project, &spec, directory).ok()?;
+        let content: Value = serde_json::from_str(&built.content).ok()?;
+        Some((built, content))
+    };
+    let mut baseline = None;
+    for id in grids {
+        let mut trial = derived.value.clone();
+        let Some(body) = node_mut(&mut trial, &id) else {
+            continue;
+        };
+        if body["props"].get("ColumnFormat").is_some() {
+            continue;
+        }
+        let Some(feed) = body["props"]["Data"]["bind"].as_str().map(str::to_owned) else {
+            continue;
+        };
+        let Some(columns) = column_candidates(&body["column_config"]) else {
+            continue;
+        };
+        let stored_id = body
+            .get("widget_id")
+            .and_then(Value::as_str)
+            .unwrap_or(&id)
+            .to_owned();
+        body.remove("column_config");
+        let props = body
+            .get_mut("props")
+            .and_then(Value::as_object_mut)
+            .expect("Data binding");
+        props.remove("Data");
+        if props.is_empty() {
+            body.remove("props");
+        }
+        body.insert("data".into(), Value::String(feed.clone()));
+        body.insert("columns".into(), Value::Array(columns));
+        if !trial["page"]["data"][&feed]["service"].is_string() {
+            continue;
+        }
+        let Some((built, candidate)) = compile(&trial) else {
+            continue;
+        };
+        let Some(widget_id) = built.ids.get(&id) else {
+            continue;
+        };
+        let Some(stored_props) = widget_props_at(&stored["UI"], &stored_id) else {
+            continue;
+        };
+        if widget_props_at(&candidate["UI"], widget_id) != Some(stored_props) {
+            continue;
+        }
+        let Some((_, native)) = baseline.get_or_insert_with(|| compile(&derived.value)) else {
+            break;
+        };
+        use crate::core::mashup::diff::{compare, Tier};
+        if [Tier::Executable, Tier::Layout]
+            .into_iter()
+            .all(|tier| compare("native", "recipe", native, &candidate, None, None, tier).equal)
+        {
+            derived.value = trial;
+            derived.spec = derive::render(&derived.value);
+        }
+    }
+}
+
+fn with_tokens(spec: String, tokens: Option<&str>) -> String {
+    match tokens {
+        Some(tokens) => spec.replacen(
+            "rules: v1\n",
+            &format!(
+                "rules: v1\ntokens: {}\n",
+                serde_json::to_string(tokens).expect("token path")
+            ),
+            1,
+        ),
+        None => spec,
+    }
+}
+
+fn column_candidates(config: &Value) -> Option<Vec<Value>> {
+    let mut columns = Vec::new();
+    for column in config["formatInfo"].as_array()? {
+        if column["hidden"] == true && column["inLayout"] == false {
+            continue;
+        }
+        let field = column["FieldName"].as_str()?;
+        let mut entry = serde_json::json!({"field": field});
+        if let Some(title) = column["Title"].as_str().filter(|title| *title != field) {
+            entry["title"] = serde_json::json!(title);
+        }
+        if let Some(width) = column["Width"].as_u64() {
+            entry["width"] = serde_json::json!(width);
+        }
+        if column["editable"] == true {
+            entry["editable"] = Value::Bool(true);
+        }
+        if let Some(editor) = column["cellEditor"]
+            .as_str()
+            .filter(|e| matches!(*e, "textfield" | "textarea"))
+        {
+            entry["editor"] = serde_json::json!(editor);
+        }
+        if column["preserveWhiteSpaces"] == true {
+            entry["preserve_whitespace"] = Value::Bool(true);
+        }
+        if column["FormatOptions"]["renderer"] == "DATETIME" {
+            if let Some(format) = column["FormatOptions"]["FormatString"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+            {
+                entry["format"] = serde_json::json!(format);
+            }
+        }
+        columns.push(entry);
+    }
+    (!columns.is_empty()).then_some(columns)
 }
 
 /// Build the derived spec offline and state, as props, what the mashup has that the build does not
@@ -470,7 +620,8 @@ fn refine(
                 continue;
             };
             let (widget, key) = (parts[at - 1], parts[at + 1].to_string());
-            let type_id = widget_type_at(&current["UI"], widget);
+            let type_id =
+                widget_props_at(&current["UI"], widget).and_then(|props| props["Type"].as_str());
             if type_id
                 .and_then(|t| crate::core::widgets::catalog().by_type(t))
                 .is_some_and(|w| !authoring::property_editable(w, &key))
@@ -595,6 +746,14 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
     } else {
         None
     };
+    friendly_grid_columns(
+        solution,
+        &project,
+        &directory,
+        &value,
+        &mut derived,
+        tokens.as_deref(),
+    );
     let mut notes = derived.notes;
     notes.extend(kept);
     if let Some(content) = refined {
@@ -638,17 +797,7 @@ pub fn extract(solution: &Solution, name: &str) -> Result<Extraction, AuthoringE
     if carried.is_some() {
         derived.spec = derive::render(&derived.value);
     }
-    if let Some(tokens) = tokens {
-        derived.spec = derived.spec.replacen(
-            "rules: v1\n",
-            &format!(
-                "rules: v1\ntokens: {}\n",
-                serde_json::to_string(&tokens).unwrap()
-            ),
-            1,
-        );
-    }
-    let spec = derived.spec;
+    let spec = with_tokens(derived.spec, tokens.as_deref());
     Ok(Extraction {
         mashup: name.into(),
         elements: derived.elements,

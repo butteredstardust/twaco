@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { generateMigrations } from "./generate_widget_migrations.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..");
@@ -208,5 +209,6 @@ const catalog = {
 };
 
 const out = join(repo, "src", "core", "widgets", "catalog.json");
+generateMigrations(webapp, repo, widgets);
 writeFileSync(out, JSON.stringify(catalog, null, 2) + "\n");
 console.error(`${widgets.length} widgets (${Object.keys(contracts).length} contracts in the bundle) -> ${out}`);

@@ -30,10 +30,19 @@ to install.
 - **Edit scripts as files.** `extract` writes service scripts, DataShape fields, mashups and
   DataTable settings to files under `src/`; `sync` puts them back, changing nothing else.
 - **Start from what you have.** `init` sets up a repository from a folder of exports, or with
-  `--from-server` from projects on a server; `entity pull` takes in later server changes.
+  `--from-server` from projects on a server; `entity pull` takes in later server changes and
+  `entity diff` shows how the repository and the server differ.
+- **Take in a designer's work.** `adopt` compares a Composer export with the repository and its
+  handoff base, and shows only what really changed on each side. See
+  [taking in someone else's work](documentation/USER_GUIDE.md#taking-in-a-designers-or-another-backend-developers-work).
 - **Build without Composer.** `new` creates Things, templates, shapes, DataShapes, DataTables,
-  timers, styles, menus and more; `thing` edits services, properties and subscriptions;
-  `mashup` builds mashups from templates, with widgets, bindings and events.
+  timers, styles, menus, roles, networks and more; `thing` edits services, properties and
+  subscriptions.
+- **Build mashups offline.** `mashup` adds widgets, bindings and events, or builds a whole page
+  from a YAML [page spec](documentation/PAGE_SPECS.md) and derives a spec from an existing
+  mashup. `mashup migrate` replaces legacy widgets using Composer's own migrators, and
+  `widgets --platform` reads the widget contracts installed on your server, extension widgets
+  included.
 - **Refactor safely.** `rename`, `move` and `copy` follow every reference through entities,
   scripts and mashups, and show the plan first.
 - **Understand before you change.** `catalog` shows a service's signature and script, `impact`
@@ -43,18 +52,19 @@ to install.
   sync, formatting, script traps, mashup bindings, localization tokens, structure against
   ThingWorx's export schema, and your own hooks. `types --check` type-checks scripts.
 - **Your house style, enforced.** `[lint]` sets each script rule to error, warn or off, per
-  solution or per entity: formatting, script traps, code order, and (with `house-v1`) service
-  headers held to their definitions and a comment budget and prose style. `lint fix-headers`
-  repairs headers.
+  solution or per entity, with [presets](documentation/USER_GUIDE.md#focused-script-lint) for
+  new and adopted code. `lint fix-headers` repairs service headers.
 - **Deploy without clobbering.** `deploy` has the server parse every script, refuses when
-  someone changed an entity since your last deploy, and reads back what it imported.
-- **Take in a designer's work.** `adopt` compares a Composer export with the repository and
-  shows only what really changed.
-- **Use the server from the terminal.** Call services (as a test user, with their logs), read
-  logs, run SQL, copy DataTable rows, and manage permissions, localization, users, application
-  keys and file repositories.
-- **Build extensions and building blocks.** `ext` creates, builds and deploys Java and widget
-  extensions; `block` and `new building-block` work with the Solution Framework.
+  someone changed an entity since your last deploy, and reads back what it imported. `bundle`
+  writes one importable file, for a whole solution or only what changed since a revision.
+- **Use the server from the terminal.** `call` runs read services and plans writes until you
+  give `--apply` (as a test user, with their logs); read logs, run SQL, copy DataTable rows, and
+  keep [permissions](documentation/USER_GUIDE.md#a-permission-policy), localization tables,
+  users, application keys (`appkey`) and file repositories in step with Git.
+- **Build extensions and building blocks.** `ext new` starts a Java or widget extension that
+  `ext` builds and deploys; `block` and `new building-block` work with the
+  [Solution Framework](documentation/USER_GUIDE.md#creating-a-building-block).
+- **Work with an AI agent.** `mcp` serves the same tools over [MCP](documentation/MCP_SERVER.md).
 - **Look things up offline.** `guide` lists platform quirks verified on a live server; `help`
   and `javadoc` search the ThingWorx help center and Java API.
 

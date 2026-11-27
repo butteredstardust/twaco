@@ -1177,9 +1177,7 @@ impl<'a> Run<'a> {
             }
             "ptcsdatepicker" => self.native(widget),
             "ptcsdropdown" | "ptcslist" => self.picker(widget),
-            // A grid's column formats are kept exactly as they are when adopting.
-            "ptcsgrid" if self.exact => self.native(widget),
-            "ptcsgrid" => self.grid(widget),
+            "ptcsgrid" => self.native(widget),
             "ptcschartline" | "ptcschartbar" | "ptcschartpie" | "ptcschartcombo"
             | "ptcschartpareto" | "ptcschartwaterfall" => self.chart(widget),
             "ptcscollection" => self.collection(widget),
@@ -1993,10 +1991,6 @@ impl<'a> Run<'a> {
             body,
             props,
         )
-    }
-
-    fn grid(&mut self, widget: &Value) -> Value {
-        self.native(widget)
     }
 
     fn chart(&mut self, widget: &Value) -> Value {

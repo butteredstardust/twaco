@@ -7473,7 +7473,7 @@
   },
   {
     "name": "mashup_migrate",
-    "description": "Plan replacement of legacy widgets using Composer 10.2 migration mappings, repointing properties, bindings and events. Every dropped property or connection is reported. Widgets with no migrator are kept as they are and listed by name. dry_run defaults to true; apply takes the workspace lock and atomically writes entity and managed content sidecar. Layout and widget IDs are retained.",
+    "description": "Plan replacement of legacy widgets and repoint properties, bindings and events. Each replacement identifies its source as composer or twaco. Every dropped property or connection is reported. Widgets with no migrator are kept as they are and listed by name. dry_run defaults to true; apply takes the workspace lock and atomically writes entity and managed content sidecar. Layout and widget IDs are retained.",
     "inputSchema": {
       "required": [
         "mashup"

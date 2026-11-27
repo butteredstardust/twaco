@@ -431,6 +431,10 @@ own identity, dynamic target, snapshot, multiple triggers or outgoing bindings.
 
 A `grid` also accepts `column_config`, the native `ColumnFormat` JSON value or JSON text,
 carried verbatim. Use either `columns` (the checked column recipe) or `column_config`.
+When deriving a spec, twaco tries the recipe for a grid with a service feed. It emits
+`columns:` only when rebuilding preserves the stored grid properties and the native spec's
+wiring and layout. Grids with formatting or extra native options the recipe cannot reproduce
+keep `column_config:`.
 `selection: none|single|multiple` writes `RowSelection`; `editable: true|false` writes
 `IsEditable`. Column editors and grid controls remain in the column configuration and `props`.
 Stored `styles` and events such as `SelectedRowsChanged` use the common syntax. Derivation

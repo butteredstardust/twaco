@@ -351,7 +351,7 @@ mashup unbind <mashup> --from <address> --to <address> [--apply] [--json]
     --from <address>        source address from mashup describe
     --to <address>          target address from mashup describe
 mashup migrate <mashup> [--apply] [--json]
-                            replace legacy widgets using Composer migration mappings; plan unless --apply
+                            replace legacy widgets using Composer or twaco mappings; plan unless --apply
 mashup off <mashup> --event <address> --invoke <address> [--apply] [--json]
                             remove exactly one event handler; plan unless --apply
     --event <address>       event address from mashup describe
