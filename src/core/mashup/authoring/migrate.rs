@@ -493,6 +493,10 @@ fn migrate_widget(
             deleted.extend(
                 original
                     .keys()
+                    .filter(|name| {
+                        !catalog.base_properties.contains_key(*name)
+                            && !matches!(name.as_str(), "LastContainer" | "ResponsiveLayout")
+                    })
                     .filter(|name| delete_patterns.iter().any(|pattern| pattern.is_match(name)))
                     .cloned(),
             );
@@ -500,7 +504,14 @@ fn migrate_widget(
                 if old == "Type" || old == "__TypeDisplayName" {
                     continue;
                 }
-                if let Some(mapping) = declared.get(old) {
+                if catalog.base_properties.contains_key(old) {
+                    props.insert(old.clone(), value.clone());
+                } else if matches!(old.as_str(), "LastContainer" | "ResponsiveLayout") {
+                    // Composer stores placement on visual widgets outside their property contracts.
+                    if !contract.function || target_supports(contract, &original_value, old) {
+                        props.insert(old.clone(), value.clone());
+                    }
+                } else if let Some(mapping) = declared.get(old) {
                     let mut copied = false;
                     for part in mapping_parts(mapping) {
                         if let Some(new) = destination(part) {
@@ -848,6 +859,26 @@ mod tests {
         assert_eq!(map["TargetProperty"], "NumericValue");
         assert_eq!(map["TargetPropertyBaseType"], "NUMBER");
         assert!(plan.warnings.iter().any(|w| w.contains("OldStyle")));
+    }
+
+    #[test]
+    fn migration_keeps_shared_widget_and_layout_properties() {
+        let mut plan = plan();
+        let mut endpoints = BTreeMap::new();
+        let mut widget = json!({"Properties":{"Type":"numericentry","Id":"entry-1","LastContainer":"center","ResponsiveLayout":true,"Visible":false,"OldStyle":"Acme.Style"},"Widgets":[]});
+        migrate_widget(&mut widget, "flexcontainer", &mut plan, &mut endpoints).unwrap();
+        let props = &widget["Properties"];
+        assert_eq!(props["LastContainer"], "center");
+        assert_eq!(props["ResponsiveLayout"], true);
+        assert_eq!(props["Visible"], false);
+        assert_eq!(plan.migrations[0].dropped, ["OldStyle"]);
+        assert_eq!(
+            plan.warnings
+                .iter()
+                .filter(|w| w.contains("dropped property"))
+                .count(),
+            1
+        );
     }
 
     #[test]

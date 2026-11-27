@@ -126,6 +126,7 @@ fn default_matches_type(schema: &Value, value: &Value) -> bool {
     match schema["type"].as_str() {
         Some("string") => value.is_string(),
         Some("boolean") => value.is_boolean(),
+        Some("number") => value.is_number(),
         Some("integer") => value.as_u64().is_some(),
         Some("object") => value.is_object(),
         Some("array") => value.is_array(),
@@ -159,7 +160,10 @@ fn assert_schema_hygiene(tool: &str, path: &str, schema: &Value) {
         .as_str()
         .unwrap_or_else(|| panic!("{tool} {path} has no type"));
     assert!(
-        matches!(kind, "string" | "boolean" | "integer" | "object" | "array"),
+        matches!(
+            kind,
+            "string" | "boolean" | "integer" | "number" | "object" | "array"
+        ),
         "{tool} {path} has unsupported type `{kind}`"
     );
     if let Some(default) = schema.get("default") {
@@ -847,12 +851,39 @@ fn typed_requests_accept_and_reject_what_the_hand_written_schemas_did() {
                 "{name}: {arguments}: hand-written {old:?}, typed {typed:?}"
             );
             if let (Err(old), Err(typed)) = (&old, &typed) {
-                assert_eq!(old, typed, "{name}: {arguments}");
+                let added = additional_request_arguments(name);
+                if arguments.get("unknown_argument").is_some() && !added.is_empty() {
+                    let (_, listed) = typed.split_once(" (it takes: ").unwrap();
+                    let listed = listed.trim_end_matches(')').split(", ");
+                    let legacy_list = listed
+                        .filter(|argument| !added.contains(argument))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    assert_eq!(old, &format!("this tool takes no argument `unknown_argument` (it takes: {legacy_list})"), "{name}: {arguments}");
+                } else {
+                    assert_eq!(old, typed, "{name}: {arguments}");
+                }
             }
             checked += 1;
         }
     }
     assert!(checked > 100, "only {checked} inputs were compared");
+}
+
+fn additional_request_arguments(tool: &str) -> &'static [&'static str] {
+    match tool {
+        "entity_edit" => &[
+            "data_change_type",
+            "data_change_threshold",
+            "no_data_change_threshold",
+            "events",
+            "stateful",
+            "distributed",
+        ],
+        "mashup_add" => &["tabs", "tab_style", "tab_width"],
+        "mashup_bind" | "mashup_set" => &["force"],
+        _ => &[],
+    }
 }
 
 /// What a client can read from a property of a schema, without the order of its keys.
@@ -900,11 +931,13 @@ fn generated_schemas_mean_what_the_hand_written_ones_did() {
     for (generated, tool) in generated.iter().zip(&hand_written) {
         let name = tool["name"].as_str().unwrap();
         if name != "widgets" {
-            assert_eq!(
-                meaning(&generated["inputSchema"]),
-                meaning(&tool["inputSchema"]),
-                "{name}"
-            );
+            let mut input = generated["inputSchema"].clone();
+            if let Some(properties) = input.get_mut("properties").and_then(Value::as_object_mut) {
+                for key in additional_request_arguments(name) {
+                    properties.remove(*key);
+                }
+            }
+            assert_eq!(meaning(&input), meaning(&tool["inputSchema"]), "{name}");
         }
         for key in ["description", "annotations"] {
             // These descriptions evolved with selectors, formatting, form warnings and failure handling.
@@ -1608,6 +1641,7 @@ fn every_tool_is_listed_with_a_schema_and_honest_annotations() {
             "block_version",
             "network_write",
             "entity_edit",
+            "data_shape_field",
             "mashup_new",
             "mashup_tokens",
             "mashup_templates",
@@ -5606,4 +5640,103 @@ fn mashup_migrate_mcp_defaults_to_a_plan() {
     assert_eq!(result["structuredContent"]["dry_run"], true);
     assert_eq!(result["structuredContent"]["applied"], false);
     assert_eq!(result["structuredContent"]["planned"], 0);
+}
+
+#[test]
+fn brief99_mcp_data_shape_field_plans_then_follows_apply() {
+    let (_dir, root) = solution_dir();
+    let shape = "P.Rows_DS";
+    let new = call(
+        &root,
+        "entity_new",
+        json!({"kind": "data-shape", "name": shape, "field": ["uid:STRING:primary"], "dry_run": false}),
+    );
+    assert_eq!(new["isError"], false, "{new}");
+    let sidecar = root.join(format!("src/{shape}/fields.json"));
+    let before = std::fs::read(&sidecar).unwrap();
+    let mut request = json!({"action":"add", "entity":shape, "field":"Size:INTEGER"});
+    let plan = call(&root, "data_shape_field", request.clone());
+    assert_eq!(plan["isError"], false, "{plan}");
+    assert_eq!(plan["structuredContent"]["applied"], false, "{plan}");
+    assert_eq!(std::fs::read(&sidecar).unwrap(), before);
+    request["dry_run"] = json!(false);
+    let applied = call(&root, "data_shape_field", request);
+    assert_eq!(applied["isError"], false, "{applied}");
+    assert_eq!(applied["structuredContent"]["applied"], true, "{applied}");
+    assert!(std::fs::read_to_string(&sidecar).unwrap().contains("Size"));
+    let removed = call(
+        &root,
+        "data_shape_field",
+        json!({"action":"remove", "entity":shape, "field":"Size", "dry_run":false}),
+    );
+    assert_eq!(removed["isError"], false, "{removed}");
+    assert_eq!(std::fs::read(&sidecar).unwrap(), before);
+}
+
+#[test]
+fn brief99_mcp_authors_subscription_property_and_tab_options() {
+    let (_dir, root) = solution_dir();
+    let invoke = |tool, arguments| {
+        let reply = call(&root, tool, arguments);
+        assert_eq!(reply["isError"], false, "{reply}");
+        let result = reply["structuredContent"].clone();
+        assert!(
+            jsonschema::draft202012::is_valid(&output_schema_of(tool), &result),
+            "{result}"
+        );
+        result
+    };
+    invoke(
+        "entity_new",
+        json!({"kind":"thing","name":"Acme.Watcher","dry_run":false}),
+    );
+    invoke(
+        "entity_edit",
+        json!({"entity":"Acme.Watcher","action":"property_add","name":"Speed","type":"NUMBER","data_change_type":"ALWAYS","data_change_threshold":2.5,"dry_run":false}),
+    );
+    let xml_path = root.join("Things/Acme.Watcher.xml");
+    let before = std::fs::read_to_string(&xml_path).unwrap();
+    assert!(before.contains(r#"aspect.dataChangeType="ALWAYS""#));
+    assert!(before.contains(r#"aspect.dataChangeThreshold="2.5""#));
+    let mut args = json!({"entity":"Acme.Watcher","action":"subscription_add","name":"Watch","events":["me:DataChange:Speed","ThingStart=Start"],"stateful":true,"distributed":true,"then":"logger.info('Acme');"});
+    let plan = invoke("entity_edit", args.clone());
+    assert_eq!(plan["applied"], false);
+    assert!(plan["warnings"].to_string().contains("clustered"));
+    assert_eq!(std::fs::read_to_string(&xml_path).unwrap(), before);
+    args["dry_run"] = json!(false);
+    invoke("entity_edit", args);
+    let after = std::fs::read_to_string(&xml_path).unwrap();
+    assert!(after.contains(r#"aspect.isStateful="true""#));
+    assert!(after.contains(r#"aspect.isDistributed="true""#));
+    assert!(after.contains(r#"alias="Me_Speed""#));
+    assert!(after.contains(r#"alias="Start""#));
+
+    invoke("mashup_new", json!({"name":"Acme.View","dry_run":false}));
+    let tabs = invoke(
+        "mashup_add",
+        json!({"mashup":"Acme.View","widget":"ptcstabset","tabs":["One","Two","Three"],"tab_width":"fixed","tab_style":"contained-tabs","dry_run":false}),
+    );
+    let widget = tabs["id"].as_str().unwrap();
+    let content = std::fs::read_to_string(root.join("src/Acme.View/mashup/content.json")).unwrap();
+    for (key, expected) in [
+        ("TabWidthConfig", "fixed"),
+        ("TabStyle", "contained-tabs"),
+        ("Tab3Name", "Three"),
+    ] {
+        assert!(content.contains(&format!("\"{key}\": \"{expected}\"")));
+    }
+    for (tool, mut arguments) in [
+        (
+            "mashup_set",
+            json!({"mashup":"Acme.View", "widget":widget, "properties":{"TabWidthConfig":"custom"}}),
+        ),
+        (
+            "mashup_bind",
+            json!({"mashup":"Acme.View", "from":"literal:custom", "to":format!("ui:{widget}.TabWidthConfig")}),
+        ),
+    ] {
+        assert_eq!(call(&root, tool, arguments.clone())["isError"], true);
+        arguments["force"] = json!(true);
+        assert_eq!(invoke(tool, arguments)["applied"], false);
+    }
 }

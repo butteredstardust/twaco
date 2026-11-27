@@ -228,7 +228,7 @@ fn print_detail(detail: &WidgetDetail) {
     println!("aliases: {}", detail.aliases.join(", "));
     println!("properties:");
     for property in &detail.properties {
-        println!(
+        print!(
             "  {} {}{}{}",
             property.name,
             if property.base_type.is_empty() {
@@ -243,6 +243,22 @@ fn print_detail(detail: &WidgetDetail) {
                 .map(|value| format!(" (default {value})"))
                 .unwrap_or_default()
         );
+        if !property.values.is_empty() {
+            let values = property
+                .values
+                .iter()
+                .map(|entry| {
+                    let value = entry
+                        .value
+                        .as_str()
+                        .map_or_else(|| entry.value.to_string(), str::to_owned);
+                    format!("{value} ({:?})", entry.label)
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            print!("; allowed: {values}");
+        }
+        println!();
     }
     println!("events: {}", detail.events.join(", "));
     println!("services: {}", detail.services.join(", "));

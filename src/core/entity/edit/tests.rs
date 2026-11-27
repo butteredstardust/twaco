@@ -1150,6 +1150,8 @@ fn property_add_writes_the_mined_definition_and_nothing_else() {
     let after = file(&solution, "Things", "Acme.Orders.Press");
     assert!(after.contains("name=\"Label\"\n                     ordinal=\"2\""));
     let label = Definition {
+        data_change_type: None,
+        data_change_threshold: None,
         base_type: "STRING".into(),
         default: None,
         persistent: false,
@@ -1242,6 +1244,8 @@ fn a_property_of_a_template_or_shape_gives_every_thing_that_has_it_a_stored_valu
 fn stored_values_follow_the_server_rules_for_each_type() {
     let stored = |base_type: &str, default: Option<&str>, persistent: bool| {
         Definition {
+            data_change_type: None,
+            data_change_threshold: None,
             base_type: base_type.into(),
             default: default.map(Into::into),
             persistent,
@@ -1688,7 +1692,9 @@ fn subscriptions_are_written_as_new_timer_writes_them() {
     );
     let add = |name: &str, event: &str, property: Option<&str>| Action::SubscriptionAdd {
         name: name.into(),
-        event: event.into(),
+        events: vec![event.into()],
+        stateful: false,
+        distributed: false,
         source: None,
         source_property: property.map(Into::into),
         code: "logger.info(me.Speed);".into(),
@@ -1742,7 +1748,9 @@ fn subscriptions_are_written_as_new_timer_writes_them() {
     });
     let tick = Action::SubscriptionAdd {
         name: "OnTick".into(),
-        event: "Timer".into(),
+        events: vec!["Timer".into()],
+        stateful: false,
+        distributed: false,
         source: Some("Acme.Orders.Tick_TM".into()),
         source_property: None,
         code: "me.Refresh();".into(),
@@ -3837,7 +3845,9 @@ fn subscription_uses_package_events_from_platform_cache_and_refuses_plain_unknow
     });
     let action = || Action::SubscriptionAdd {
         name: "OnMessage".into(),
-        event: "MqttMessage".into(),
+        events: vec!["MqttMessage".into()],
+        stateful: false,
+        distributed: false,
         source: None,
         source_property: None,
         code: "".into(),
@@ -3873,7 +3883,9 @@ fn subscription_warns_for_extension_java_events_unknown_offline() {
         "Acme.Orders.Broker",
         Action::SubscriptionAdd {
             name: "OnMessage".into(),
-            event: "MqttMessage".into(),
+            events: vec!["MqttMessage".into()],
+            stateful: false,
+            distributed: false,
             source: None,
             source_property: None,
             code: "".into(),
@@ -3954,4 +3966,271 @@ fn service_set_refuses_a_missing_service_an_override_and_an_unsynced_sidecar() {
         "{error}"
     );
     assert_eq!(std::fs::read_to_string(&script).unwrap(), "result = 99;");
+}
+
+#[test]
+fn brief99_subscriptions_support_multiple_sources_and_refuse_duplicate_aliases() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    let press = "Acme.Orders.Press";
+    run(
+        &solution,
+        press,
+        Action::PropertyAdd(property("Speed", "NUMBER")),
+    );
+    new(
+        &solution,
+        Kind::Scheduler,
+        "Acme.Orders.Scheduler",
+        |request| {
+            request.cron = Some("0 0 * * * ?".into());
+            request.run_as = Some("Administrator".into());
+        },
+    );
+    let add = |events: &[&str], stateful, distributed| Action::SubscriptionAdd {
+        name: "Watch".into(),
+        events: events.iter().map(|event| (*event).into()).collect(),
+        source: None,
+        source_property: None,
+        stateful,
+        distributed,
+        code: r#"logger.info(events["Me_Speed"].eventData);"#.into(),
+    };
+    let before = file(&solution, "Things", press);
+    let events = [
+        "me:DataChange:Speed",
+        "Acme.Orders.Scheduler:ScheduledEvent",
+        "ThingStart=Started",
+    ];
+    let preview = plan_of(&solution, press, add(&events, true, true)).unwrap();
+    assert!(preview
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("clustered")));
+    assert_eq!(file(&solution, "Things", press), before);
+    let duplicate = plan_of(
+        &solution,
+        press,
+        add(&["ThingStart", "ThingStart"], false, false),
+    )
+    .unwrap_err();
+    assert!(duplicate
+        .to_string()
+        .contains("duplicate subscription event alias Me_ThingStart"));
+    run(&solution, press, add(&events, true, true));
+    let after = file(&solution, "Things", press);
+    let tree = roxmltree::Document::parse(&after).unwrap();
+    let subscription = tree
+        .descendants()
+        .find(|node| node.has_tag_name("Subscription"))
+        .unwrap();
+    assert_eq!(subscription.attribute("version"), Some("2"));
+    assert_eq!(subscription.attribute("aspect.isStateful"), Some("true"));
+    assert_eq!(subscription.attribute("aspect.isDistributed"), Some("true"));
+    let children: Vec<_> = subscription
+        .children()
+        .filter(roxmltree::Node::is_element)
+        .collect();
+    assert!(children[0].has_tag_name("ServiceImplementation"));
+    assert!(children[1].has_tag_name("Events"));
+    assert_eq!(
+        children[1]
+            .children()
+            .filter_map(|node| node.attribute("alias"))
+            .collect::<Vec<_>>(),
+        [
+            "Me_Speed",
+            "Acme.Orders.Scheduler_ScheduledEvent",
+            "Started"
+        ],
+    );
+    let index = Index::build(&solution);
+    let source = EntityKey::new("Things", "Acme.Orders.Scheduler").unwrap();
+    let dependents = index.dependents(
+        &source,
+        &DependentOptions {
+            member: Some("ScheduledEvent".into()),
+            ..DependentOptions::default()
+        },
+    );
+    assert_eq!(dependents[0].label, format!("Things/{press}"));
+    assert_eq!(dependents[0].members, ["Watch"]);
+    let local = EntityKey::new("Things", press).unwrap();
+    let dependents = index.dependents(
+        &local,
+        &DependentOptions {
+            member: Some("Speed".into()),
+            ..DependentOptions::default()
+        },
+    );
+    assert!(dependents
+        .iter()
+        .any(|dependent| dependent.members == ["Watch"]));
+    let still_used = plan_of(
+        &solution,
+        press,
+        Action::PropertyRemove {
+            name: "Speed".into(),
+            force: false,
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(still_used, EditError::InUse(_)));
+}
+
+#[test]
+fn brief99_property_data_change_aspects_have_checked_types_and_can_be_cleared() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    let template = "Acme.Orders.Machine_TT";
+    let mut speed = property("Speed", "NUMBER");
+    speed.data_change_type = Some("ON".into());
+    speed.data_change_threshold = Some("2.5".into());
+    run(&solution, template, Action::PropertyAdd(speed));
+    let before = file(&solution, "ThingTemplates", template);
+    assert!(before.contains(
+        "aspect.dataChangeThreshold=\"2.5\"\n                     aspect.dataChangeType=\"ON\""
+    ));
+    for (base_type, mode, threshold, message) in [
+        ("STRING", "VALUE", "2.5", "NUMBER, INTEGER or LONG"),
+        ("NUMBER", "INVALID", "1", "ALWAYS, VALUE, ON, OFF or NEVER"),
+        ("INTEGER", "OFF", "NaN", "finite number"),
+    ] {
+        let mut invalid = property("Other", base_type);
+        invalid.data_change_type = Some(mode.into());
+        invalid.data_change_threshold = Some(threshold.into());
+        let error = plan_of(&solution, template, Action::PropertyAdd(invalid)).unwrap_err();
+        assert!(error.to_string().contains(message), "{error}");
+    }
+    let mut set = Property {
+        name: "Speed".into(),
+        data_change_type: Some("NEVER".into()),
+        no_data_change_threshold: true,
+        ..Property::default()
+    };
+    run(
+        &solution,
+        template,
+        Action::PropertySet {
+            property: set.clone(),
+            force: false,
+        },
+    );
+    let after = file(&solution, "ThingTemplates", template);
+    assert_eq!(
+        after,
+        before
+            .replace(
+                "\n                     aspect.dataChangeThreshold=\"2.5\"",
+                ""
+            )
+            .replace("dataChangeType=\"ON\"", "dataChangeType=\"NEVER\"")
+    );
+    set.data_change_type = None;
+    let unchanged = plan_of(
+        &solution,
+        template,
+        Action::PropertySet {
+            property: set,
+            force: false,
+        },
+    )
+    .unwrap();
+    assert!(unchanged.changes.is_empty());
+}
+
+#[test]
+fn brief99_data_shape_fields_preserve_xml_and_sync_sidecars() {
+    let (_dir, solution) = fixture();
+    let shape = "Acme.Orders.Record_DS";
+    new(&solution, Kind::DataShape, shape, |request| {
+        request.fields = vec!["uid:STRING:primary".into()]
+    });
+    let before = file(&solution, "DataShapes", shape);
+    let action = Action::FieldAdd {
+        field: "details:INFOTABLE".into(),
+        description: Some("Details & notes".into()),
+        data_shape: Some(shape.into()),
+    };
+    assert_eq!(
+        plan_of(&solution, shape, action.clone())
+            .unwrap()
+            .changes
+            .len(),
+        2
+    );
+    assert_eq!(file(&solution, "DataShapes", shape), before);
+    run(&solution, shape, action.clone());
+    let after = file(&solution, "DataShapes", shape);
+    assert!(after.contains("aspect.dataShape=\"Acme.Orders.Record_DS\""));
+    assert!(after.contains("description=\"Details &amp; notes\""));
+    assert!(after.contains("name=\"details\"\n                 ordinal=\"2\""));
+    assert!(matches!(
+        plan_of(&solution, shape, action),
+        Err(EditError::Exists(_))
+    ));
+    let unknown = Action::FieldAdd {
+        field: "x:NOPE".into(),
+        description: None,
+        data_shape: None,
+    };
+    assert!(plan_of(&solution, shape, unknown)
+        .unwrap_err()
+        .to_string()
+        .contains("known base type"));
+    run(
+        &solution,
+        shape,
+        Action::FieldRemove {
+            name: "details".into(),
+        },
+    );
+    assert_eq!(file(&solution, "DataShapes", shape), before);
+    let removal = plan_of(&solution, shape, Action::FieldRemove { name: "uid".into() }).unwrap();
+    assert!(removal
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("last primary key")));
+    assert_in_step(&solution);
+}
+
+#[test]
+fn brief99_data_shape_add_updates_accumulated_shapes_and_removal_names_the_stores() {
+    let (_dir, solution) = fixture();
+    let shape = "Acme.Orders.Record_DS";
+    new(&solution, Kind::DataShape, shape, |request| {
+        request.fields = vec!["uid:STRING:primary".into()]
+    });
+    for (kind, name) in [
+        (Kind::DataTable, "Acme.Orders.Rows_DT"),
+        (Kind::Stream, "Acme.Orders.Events_ST"),
+    ] {
+        new(&solution, kind, name, |request| {
+            request.data_shape = Some(shape.into())
+        });
+    }
+    run(
+        &solution,
+        shape,
+        Action::FieldAdd {
+            field: "value:NUMBER".into(),
+            description: None,
+            data_shape: None,
+        },
+    );
+    assert_in_step(&solution);
+    let error = plan_of(
+        &solution,
+        shape,
+        Action::FieldRemove {
+            name: "value".into(),
+        },
+    )
+    .unwrap_err();
+    assert!(matches!(error, EditError::InUse(_)));
+    let message = error.to_string();
+    assert!(
+        message.contains("Acme.Orders.Rows_DT") && message.contains("Acme.Orders.Events_ST"),
+        "{message}"
+    );
 }

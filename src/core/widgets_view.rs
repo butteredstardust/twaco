@@ -1,6 +1,6 @@
 //! A compact, binding-oriented view of the embedded widget catalogue.
 
-use super::widgets::{catalog, CatalogError, PropertyContract, Widget};
+use super::widgets::{catalog, CatalogError, PropertyContract, PropertyValue, Widget};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
@@ -23,6 +23,8 @@ pub struct PropertyRow {
     pub base_type: String,
     pub direction: String,
     pub default: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub values: Vec<PropertyValue>,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -185,6 +187,20 @@ fn properties(widget: &Widget) -> Vec<PropertyRow> {
             base_type: contract.base_type.clone().unwrap_or_default(),
             direction: direction(contract),
             default: widget.defaults.get(name).cloned(),
+            values: if contract.values.is_empty() {
+                contract
+                    .options
+                    .iter()
+                    .map(|value| PropertyValue {
+                        value: value.clone(),
+                        label: value
+                            .as_str()
+                            .map_or_else(|| value.to_string(), str::to_owned),
+                    })
+                    .collect()
+            } else {
+                contract.values.clone()
+            },
         })
         .collect()
 }
@@ -255,6 +271,42 @@ mod tests {
                 .any(|w| w.type_id == "ptcsdatepicker"));
         }
         assert!(list(Some("picker nonexistent")).is_empty());
+    }
+
+    #[test]
+    fn brief99_widget_detail_lists_composer_enum_values_and_labels() {
+        let grid = detail("ptcsgrid").unwrap();
+        let lazy = grid
+            .properties
+            .iter()
+            .find(|p| p.name == "RowLazyLoading")
+            .unwrap();
+        assert_eq!(
+            lazy.values
+                .iter()
+                .map(|item| item.value.as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["disabled", "all", "auto", "manual"]
+        );
+        assert_eq!(lazy.values[2].label, "On-Demand");
+        let tabs = detail("ptcstabset").unwrap();
+        let width = tabs
+            .properties
+            .iter()
+            .find(|p| p.name == "TabWidthConfig")
+            .unwrap();
+        assert_eq!(
+            width
+                .values
+                .iter()
+                .map(|item| item.value.as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["auto", "even", "fixed"]
+        );
+        assert_eq!(
+            serde_json::to_value(lazy).unwrap()["values"][2]["label"],
+            "On-Demand"
+        );
     }
 
     #[test]
@@ -361,7 +413,7 @@ mod discovery_tests {
         assert!(tabs
             .property("TabStyle")
             .unwrap()
-            .options
-            .contains(&serde_json::json!("contained-tabs")));
+            .allowed_values()
+            .any(|value| value == "contained-tabs"));
     }
 }

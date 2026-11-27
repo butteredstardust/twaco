@@ -539,7 +539,7 @@ pub(crate) fn validate_cron(text: &str) -> Result<String, NewError> {
     Ok(text.to_string())
 }
 
-fn parse_fields(values: &[String]) -> Result<Vec<Field>, NewError> {
+pub(super) fn parse_fields(values: &[String]) -> Result<Vec<Field>, NewError> {
     if values.is_empty() {
         return Err(NewError::Invalid(
             "a data-shape needs at least one --field name:TYPE[:primary] (name:INFOTABLE:DataShape for a nested table)".into(),
@@ -570,6 +570,10 @@ fn parse_fields(values: &[String]) -> Result<Vec<Field>, NewError> {
         aspects.insert("isPrimaryKey".into(), Aspect::Bool(primary));
         Ok(Field { name: parts[0].into(), base_type: parts[1].into(), ordinal: (index + 1).to_string(), description: String::new(), aspects })
     }).collect()
+}
+
+pub(super) fn field_xml(field: &Field) -> Result<String, IllegalXmlChar> {
+    Ok(format!("                <FieldDefinition\n{}                 aspect.isPrimaryKey=\"{}\"\n                 baseType=\"{}\"\n                 description=\"{}\"\n                 name=\"{}\"\n                 ordinal=\"{}\"></FieldDefinition>\n", match field.aspects.get("dataShape") { Some(Aspect::Text(shape)) => format!("                 aspect.dataShape=\"{}\"\n", escape(shape)?), _ => String::new() }, if field.aspects.get("isPrimaryKey") == Some(&Aspect::Bool(true)) { "true" } else { "false" }, field.base_type, escape(&field.description)?, escape(&field.name)?, field.ordinal))
 }
 
 fn permissions(visibility: &[Visibility]) -> Result<String, IllegalXmlChar> {
@@ -646,7 +650,27 @@ pub(crate) fn subscription_xml(
 ) -> Result<String, IllegalXmlChar> {
     let (name, event) = (escape(name)?, escape(event)?);
     let (source, source_property) = (escape(source)?, escape(source_property)?);
-    Ok(format!("                    <Subscription\n                     description=\"\"\n                     enabled=\"true\"\n                     eventName=\"{event}\"\n                     name=\"{name}\"\n                     source=\"{source}\"\n                     sourceProperty=\"{source_property}\"\n                     sourceType=\"Thing\">\n                        <ServiceImplementation\n                         description=\"\"\n                         handlerName=\"Script\"\n                         name=\"{name}\">\n                            <ConfigurationTables>\n                                <ConfigurationTable\n                                 dataShapeName=\"\"\n                                 description=\"\"\n                                 isMultiRow=\"false\"\n                                 name=\"Script\"\n                                 ordinal=\"0\">\n                                    <DataShape>\n                                        <FieldDefinitions>\n                                            <FieldDefinition\n                                             baseType=\"STRING\"\n                                             description=\"code\"\n                                             name=\"code\"\n                                             ordinal=\"0\"></FieldDefinition>\n                                        </FieldDefinitions>\n                                    </DataShape>\n                                    <Rows>\n                                        <Row>\n                                            <code>{}</code>\n                                        </Row>\n                                    </Rows>\n                                </ConfigurationTable>\n                            </ConfigurationTables>\n                        </ServiceImplementation>\n                    </Subscription>", cdata(code)))
+    Ok(format!("                    <Subscription\n                     description=\"\"\n                     enabled=\"true\"\n                     eventName=\"{event}\"\n                     name=\"{name}\"\n                     source=\"{source}\"\n                     sourceProperty=\"{source_property}\"\n                     sourceType=\"Thing\">\n{}\n                    </Subscription>", subscription_implementation(&name, code)))
+}
+
+pub(crate) fn subscription_v2_xml(
+    name: &str,
+    events: &[(String, &str, &str, &str)],
+    stateful: bool,
+    distributed: bool,
+    code: &str,
+) -> Result<String, IllegalXmlChar> {
+    let name = escape(name)?;
+    let mut out = format!("                    <Subscription\n                     aspect.isDistributed=\"{distributed}\"\n                     aspect.isStateful=\"{stateful}\"\n                     description=\"\"\n                     enabled=\"true\"\n                     name=\"{name}\"\n                     version=\"2\">\n{}\n                        <Events>", subscription_implementation(&name, code));
+    for (alias, event, source, property) in events {
+        out.push_str(&format!("\n                            <Event alias=\"{}\" eventName=\"{}\" source=\"{}\" sourceProperty=\"{}\" sourceType=\"Thing\"/>", escape(alias)?, escape(event)?, escape(source)?, escape(property)?));
+    }
+    out.push_str("\n                        </Events>\n                    </Subscription>");
+    Ok(out)
+}
+
+fn subscription_implementation(name: &str, code: &str) -> String {
+    format!("                        <ServiceImplementation\n                         description=\"\"\n                         handlerName=\"Script\"\n                         name=\"{name}\">\n                            <ConfigurationTables>\n                                <ConfigurationTable\n                                 dataShapeName=\"\"\n                                 description=\"\"\n                                 isMultiRow=\"false\"\n                                 name=\"Script\"\n                                 ordinal=\"0\">\n                                    <DataShape>\n                                        <FieldDefinitions>\n                                            <FieldDefinition\n                                             baseType=\"STRING\"\n                                             description=\"code\"\n                                             name=\"code\"\n                                             ordinal=\"0\"></FieldDefinition>\n                                        </FieldDefinitions>\n                                    </DataShape>\n                                    <Rows>\n                                        <Row>\n                                            <code>{}</code>\n                                        </Row>\n                                    </Rows>\n                                </ConfigurationTable>\n                            </ConfigurationTables>\n                        </ServiceImplementation>", cdata(code))
 }
 
 fn local_shape(subscription: Option<(&str, &str, &str)>) -> Result<String, IllegalXmlChar> {
@@ -1342,7 +1366,7 @@ fn make_xml(
         )?,
         Kind::ThingShape => format!("{}        <ThingShape\n         aspect.isSystemObject=\"false\"\n         className=\"\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\">\n            <PropertyDefinitions></PropertyDefinitions>\n            <ServiceDefinitions></ServiceDefinitions>\n            <EventDefinitions></EventDefinitions>\n            <ServiceMappings></ServiceMappings>\n            <ServiceImplementations></ServiceImplementations>\n            <Subscriptions></Subscriptions>\n{common}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n            <InstanceRunTimePermissions></InstanceRunTimePermissions>\n        </ThingShape>\n{}", header("ThingShapes"), footer("ThingShapes")),
         Kind::DataShape => {
-            let field_xml: String = fields.iter().map(|field| Ok(format!("                <FieldDefinition\n{}                 aspect.isPrimaryKey=\"{}\"\n                 baseType=\"{}\"\n                 description=\"{}\"\n                 name=\"{}\"\n                 ordinal=\"{}\"></FieldDefinition>\n", match field.aspects.get("dataShape") { Some(Aspect::Text(shape)) => format!("                 aspect.dataShape=\"{}\"\n", escape(shape)?), _ => String::new() }, if field.aspects.get("isPrimaryKey") == Some(&Aspect::Bool(true)) { "true" } else { "false" }, field.base_type, escape(&field.description)?, escape(&field.name)?, field.ordinal))).collect::<Result<_, IllegalXmlChar>>()?;
+            let field_xml: String = fields.iter().map(field_xml).collect::<Result<_, _>>()?;
             format!("{}        <DataShape\n         baseDataShape=\"{}\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         homeMashup=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\">\n{common}\n            <FieldDefinitions>\n{field_xml}            </FieldDefinitions>\n        </DataShape>\n{}", header("DataShapes"), escape(request.base.as_deref().unwrap_or(""))?, footer("DataShapes"))
         }
         Kind::ThingTemplate => format!("{}        <ThingTemplate\n         aspect.isSystemObject=\"false\"\n         baseThingTemplate=\"{}\"\n         description=\"{desc}\"\n         documentationContent=\"\"\n         effectiveThingPackage=\"ConfiguredThing\"\n         homeMashup=\"\"\n         inheritedValueStream=\"\"\n         name=\"{name}\"\n         projectName=\"{project}\"\n         tags=\"\"\n         thingPackage=\"\"\n         valueStream=\"\">\n{common}\n            <PropertyBindings></PropertyBindings>\n            <RemotePropertyBindings></RemotePropertyBindings>\n            <RemoteServiceBindings></RemoteServiceBindings>\n            <RemoteEventBindings></RemoteEventBindings>\n            <AlertConfigurations></AlertConfigurations>\n{}\n{}\n            <SharedConfigurationTables></SharedConfigurationTables>\n            <InstanceDesignTimePermissions>\n                <Create></Create>\n                <Read></Read>\n                <Update></Update>\n                <Delete></Delete>\n                <Metadata></Metadata>\n            </InstanceDesignTimePermissions>\n            <InstanceRunTimePermissions></InstanceRunTimePermissions>\n            <InstanceVisibilityPermissions>\n                <Visibility></Visibility>\n            </InstanceVisibilityPermissions>\n        </ThingTemplate>\n{}", header("ThingTemplates"), escape(request.base.as_deref().unwrap_or("GenericThing"))?, local_shape(None)?, shapes(&request.shapes)?, footer("ThingTemplates")),

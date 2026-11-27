@@ -44,6 +44,7 @@ impl Builder<'_> {
                     key.collection(),
                     "Things"
                         | "ThingTemplates"
+                        | "ThingShapes"
                         | "Networks"
                         | "Menus"
                         | "Groups"
@@ -70,6 +71,38 @@ impl Builder<'_> {
             let Some(entity) = crate::core::sidecar::entity_element(&tokens, &src) else {
                 continue;
             };
+            if matches!(
+                collection.as_str(),
+                "Things" | "ThingTemplates" | "ThingShapes"
+            ) {
+                for index in crate::core::subscriptions::tags(&tokens, &src, entity) {
+                    let subscription = crate::core::subscriptions::read(&tokens, &src, index);
+                    for event in subscription.events {
+                        let (target_collection, target) = if event.source.is_empty() {
+                            (
+                                collection.as_str(),
+                                self.graph[from]
+                                    .key()
+                                    .expect("entity node")
+                                    .name()
+                                    .to_string(),
+                            )
+                        } else if event.source_type == "Thing" || event.source_type.is_empty() {
+                            ("Things", event.source.clone())
+                        } else {
+                            continue;
+                        };
+                        self.link(
+                            from,
+                            target_collection,
+                            &target,
+                            EdgeKind::SubscriptionEvent,
+                            Some(&subscription.name),
+                            Some(event.member()),
+                        );
+                    }
+                }
+            }
             match collection.as_str() {
                 "Things" | "ThingTemplates" => {
                     if let Some(stream) = attribute(&tokens, &src, entity, "valueStream") {

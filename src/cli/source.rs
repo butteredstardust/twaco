@@ -782,9 +782,7 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
         Err(error) => {
             print_notices(&notices);
             if let Some(gates) = error.gates() {
-                println!("gates:");
-                print_check_report(gates, false);
-                println!();
+                print_deploy_gates(gates);
             }
             if matches!(error, commands::deploy::DeployCommandError::Backup { .. }) {
                 eprintln!(
@@ -930,6 +928,13 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
             println!("gates:");
             print_gate_lines(&report);
             print_blocking(&report);
+            if report
+                .gates
+                .iter()
+                .any(|gate| gate.name == "structure" && !gate.gates_the_run)
+            {
+                print_deploy_structure_findings(&report);
+            }
             eprintln!("{} gates block deploy", style::prefix());
             println!("deploy stopped: gates failed; nothing was sent");
             FAILED
@@ -943,9 +948,7 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
             ..
         } => {
             if let Some(gates) = gates {
-                println!("gates:");
-                print_check_report(&gates, false);
-                println!();
+                print_deploy_gates(&gates);
             }
             for note in notes {
                 println!("{note}");
@@ -964,12 +967,31 @@ pub(crate) fn deploy_cmd(solution: &Solution, args: &Deploy) -> u8 {
     }
 }
 
+fn print_deploy_gates(gates: &twaco::core::check::CheckReport) {
+    println!("gates:");
+    print_check_report(gates, false);
+    print_deploy_structure_findings(gates);
+    println!();
+}
+
+fn print_deploy_structure_findings(gates: &twaco::core::check::CheckReport) {
+    for finding in gates.structure_findings() {
+        println!("  {finding}");
+    }
+}
+
 fn deploy_json(
     result: Result<commands::deploy::DeployOutcome, commands::deploy::DeployCommandError>,
     apply: bool,
 ) -> (serde_json::Value, u8) {
     use serde_json::json;
-    match result {
+    let gates = match &result {
+        Ok(commands::deploy::DeployOutcome::Complete { gates, .. }) => gates.as_ref(),
+        Ok(commands::deploy::DeployOutcome::GatesBlocked { report, .. }) => Some(report),
+        Err(error) => error.gates(),
+    };
+    let findings = gates.map_or_else(Vec::new, |gates| gates.structure_findings());
+    let (mut value, code) = match result {
         Ok(commands::deploy::DeployOutcome::Complete {
             report,
             notes,
@@ -978,8 +1000,7 @@ fn deploy_json(
             ..
         }) => {
             let plans: Vec<_> = report.plans.iter().map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "decision": format!("{:?}", p.decision), "warnings": p.warnings, "removed_members": p.removed_members, "server_owned": p.server_owned, "cleared": p.cleared, "repository_values": p.repository_values})).collect();
-            (
-                json!({"ok": true, "dry_run": !apply, "projects": notes, "scripts_parsed": report.scripts_checked, "plans": plans,
+            let result = json!({"ok": true, "dry_run": !apply, "projects": notes, "scripts_parsed": report.scripts_checked, "plans": plans,
                 "warnings": report.plans.iter().flat_map(|p| p.warnings.clone()).collect::<Vec<_>>(),
                 "server_owned": report.plans.iter().filter(|p| !p.server_owned.is_empty() || !p.cleared.is_empty() || !p.repository_values.is_empty()).map(|p| json!({"entity": format!("{}/{}", p.collection, p.name), "parts": p.server_owned, "clears": p.cleared, "repository_values": p.repository_values})).collect::<Vec<_>>(),
                 "imported": report.imported, "unchanged_projects": report.unchanged, "kept": report.kept.len(), "backup": backup,
@@ -987,9 +1008,8 @@ fn deploy_json(
                 "localization": localization.map(|l| l.tables.iter().map(|t| json!({"table": t.table, "create": t.create, "set": t.set.len(), "imported": l.applied})).collect::<Vec<_>>()),
                 "network_connections": report.network_changes.iter().map(|n| json!({"name": n.name, "adds": n.adds, "moves": n.moves, "removes": n.removes})).collect::<Vec<_>>(),
                 "agents_narrowed_first": report.agents_narrowed.iter().map(agent_narrowing_json).collect::<Vec<_>>(),
-                "building_blocks": report.blocks.iter().map(block_step_json).collect::<Vec<_>>() }),
-                OK,
-            )
+                "building_blocks": report.blocks.iter().map(block_step_json).collect::<Vec<_>>() });
+            (result, OK)
         }
         Ok(commands::deploy::DeployOutcome::GatesBlocked { report, .. }) => (
             json!({"ok":false,"deployed":false,"stage":"gates","findings":report.findings(),"broken":report.broken(),"blocking_gates":report.blocking(8)}),
@@ -1010,7 +1030,11 @@ fn deploy_json(
             };
             (value, code)
         }
+    };
+    if !findings.is_empty() {
+        value["structure_findings"] = json!(findings);
     }
+    (value, code)
 }
 
 /// The localization tables a whole-solution deploy carries.

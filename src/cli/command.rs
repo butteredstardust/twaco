@@ -57,6 +57,8 @@ pub(crate) enum Command {
     #[command(subcommand)]
     Thing(super::entity_edit::Thing),
     #[command(subcommand)]
+    DataShape(super::entity_edit::DataShape),
+    #[command(subcommand)]
     Group(super::entity_edit::Membership),
     #[command(subcommand)]
     Role(super::entity_edit::Membership),
@@ -167,6 +169,7 @@ impl Command {
                 super::entity_edit::Thing::Subscription(_) => "thing subscription",
                 super::entity_edit::Thing::Shape(_) => "thing shape",
             },
+            Command::DataShape(_) => "data-shape field",
             Command::Group(_) => "group member",
             Command::Role(_) => "role member",
             Command::Timer(_) => "timer set",
@@ -279,6 +282,7 @@ impl Command {
             | Command::Logs(_)
             | Command::Settings(_)
             | Command::Thing(_)
+            | Command::DataShape(_)
             | Command::Timer(_)
             | Command::Scheduler(_)
             | Command::Style(_)

@@ -348,6 +348,7 @@ pub(crate) enum SqlChoice {
 pub struct SqlScript {
     pub path: PathBuf,
     pub text: String,
+    pub write_error: Option<String>,
 }
 
 /// Post-apply checks. Findings are reported without rolling back a completed rename.
@@ -915,11 +916,16 @@ pub fn summary_json(
         "follow_up": outcome.follow_up,
         "sql": outcome.sql.as_ref().map(|script| {
             let relative = script.path.strip_prefix(&solution.root).unwrap_or(&script.path);
-            serde_json::json!({
+            let mut result = serde_json::json!({
                 "path": relative.display().to_string().replace(std::path::MAIN_SEPARATOR, "/"),
                 "bytes": script.text.len(),
-                "written": outcome.applied.is_some(),
-            })
+                "written": outcome.applied.is_some() && script.write_error.is_none(),
+            });
+            if let Some(error) = &script.write_error {
+                result["write_error"] = serde_json::json!(error);
+                result["text"] = serde_json::json!(script.text);
+            }
+            result
         }),
         "skipped": plan.skipped.len(),
     })

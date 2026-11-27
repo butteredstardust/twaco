@@ -44,7 +44,11 @@ impl Builder<'_> {
             let Ok(scripts) = sidecar::script_services(&bytes) else {
                 continue;
             };
-            for service in scripts {
+            let subscriptions = sidecar::subscription_scripts(&bytes).unwrap_or_default();
+            for service in scripts
+                .into_iter()
+                .chain(subscriptions.into_iter().map(|(script, _)| script))
+            {
                 self.scan_script(&key, from, &service.name, &service.script, &names);
             }
         }

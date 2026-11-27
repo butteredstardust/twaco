@@ -17,6 +17,7 @@ fn validate_value(schema: &Value, value: &Value, path: &str) -> Result<(), Strin
     let fits = match schema["type"].as_str() {
         Some("string") => value.is_string(),
         Some("boolean") => value.is_boolean(),
+        Some("number") => value.is_number(),
         Some("integer") => value
             .as_u64()
             .is_some_and(|n| schema["minimum"].as_u64().is_none_or(|min| n >= min)),

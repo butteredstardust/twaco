@@ -510,6 +510,7 @@ pub(crate) fn validate_theme(solution: &Solution, theme: &str) -> Result<String,
 /// deliberately non-portable permission material are spliced.
 fn plan_copy(solution: &Solution, request: &NewRequest) -> Result<NewPlan, AuthoringError> {
     let from = request.from.as_deref().expect("checked");
+    let from = from.strip_prefix("Mashups/").unwrap_or(from);
     // A copy keeps the reference's design; a flag that would shape a new one has no meaning.
     let conflicting = [
         (request.template != "blank", "--template"),
@@ -1241,11 +1242,7 @@ fn build_tabs(
             "a tab set has at most 16 tabs".into(),
         ));
     }
-    let catalog = widgets::catalog();
-    let container = catalog
-        .by_type("flexcontainer")
-        .expect("the catalogue has the flex container; a test checks it");
-    let contained = catalog
+    let contained = widgets::catalog()
         .by_type("mashupcontainer")
         .expect("the catalogue has the contained mashup; a test checks it");
     let tabset_name = document.at(&tabset.path)["Properties"]["DisplayName"]
@@ -1253,16 +1250,7 @@ fn build_tabs(
         .unwrap_or_default()
         .to_string();
     for (index, (_, child)) in tabs.iter().enumerate() {
-        let number = document.allocate();
-        let mut tab = mashup::edit::new_widget(container, number, true);
-        tab["Properties"]["DisplayName"] = json!(format!("{tabset_name} #{}", index + 1));
-        tab["Properties"]["ExpandCollapseTabLocation"] = json!("inside");
-        tab["Properties"]["Margin"] = json!("");
-        mashup::edit::insert_sorted(
-            mashup::edit::properties_mut(&mut tab),
-            "userCannotRemove",
-            json!(true),
-        );
+        let mut tab = tab_container(document, &tabset_name, index + 1);
         if let Some(child) = child {
             if child == mashup {
                 return Err(AuthoringError::Refused(
@@ -1364,25 +1352,13 @@ pub(super) fn sync_tabs(
             .remove_widget(&child)
             .map_err(AuthoringError::Edit)?;
     }
-    let catalog = widgets::catalog();
-    let container = catalog
-        .by_type("flexcontainer")
-        .expect("the catalogue has the flex container; a test checks it");
     let tabset_name = document.at(&path)["Properties"]["DisplayName"]
         .as_str()
         .unwrap_or_default()
         .to_string();
     let mut added = Vec::new();
     for index in existing..count {
-        let mut tab = mashup::edit::new_widget(container, document.allocate(), true);
-        tab["Properties"]["DisplayName"] = json!(format!("{tabset_name} #{}", index + 1));
-        tab["Properties"]["ExpandCollapseTabLocation"] = json!("inside");
-        tab["Properties"]["Margin"] = json!("");
-        mashup::edit::insert_sorted(
-            mashup::edit::properties_mut(&mut tab),
-            "userCannotRemove",
-            json!(true),
-        );
+        let tab = tab_container(document, &tabset_name, index + 1);
         added.push(
             tab["Properties"]["Id"]
                 .as_str()
@@ -1422,6 +1398,22 @@ pub(super) fn sync_tabs(
     document.set_property(&path, "Items", Value::Array(items));
     document.set_property(&path, "NumberOfTabs", json!(count));
     Ok(added)
+}
+
+fn tab_container(document: &mut MashupDocument, tabset: &str, number: usize) -> Value {
+    let container = widgets::catalog()
+        .by_type("flexcontainer")
+        .expect("the catalogue has the flex container");
+    let mut tab = mashup::edit::new_widget(container, document.allocate(), true);
+    tab["Properties"]["DisplayName"] = json!(format!("{tabset} #{number}"));
+    tab["Properties"]["ExpandCollapseTabLocation"] = json!("inside");
+    tab["Properties"]["Margin"] = json!("");
+    mashup::edit::insert_sorted(
+        mashup::edit::properties_mut(&mut tab),
+        "userCannotRemove",
+        json!(true),
+    );
+    tab
 }
 
 fn remove_content_css(assets: &mut mashup::Assets) {

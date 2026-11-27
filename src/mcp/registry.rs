@@ -554,9 +554,16 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ).with_output::<outputs::NetworkWriteResult>(),
         solution_tool::<refactor_requests::EntityEditRequest>(
             "entity_edit",
-            "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a local script service and its sidecars, or override or revert an inherited service with its script-only sidecar while keeping its run-time permissions; add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, Group/Role/PermissionGroup members (member_add/member_remove with name and type), entity descriptions, Menu-level icons, a menu's items (including sub-Menus, titles, destinations, icons and defaults), menu_nest (a root Menu of sub-Menu links plus one leaf Menu per group, written together), or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+            "Change an existing entity in the repository. Property edits can set the data-change mode and numeric threshold. A script subscription can listen to several events and opt into stateful or clustered distributed execution. Edit: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a local script service and its sidecars, or override or revert an inherited service with its script-only sidecar while keeping its run-time permissions; add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, Group/Role/PermissionGroup members (member_add/member_remove with name and type), entity descriptions, Menu-level icons, a menu's items (including sub-Menus, titles, destinations, icons and defaults), menu_nest (a root Menu of sub-Menu links plus one leaf Menu per group, written together), or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
             false,
             refactor::entity_edit_tool,
+        )
+        .with_output::<outputs::EntityEditResult>(),
+        solution_tool::<refactor_requests::DataShapeFieldRequest>(
+            "data_shape_field",
+            "Add or remove a field in a DataShape's XML and fields.json in one transaction. Remove reports references and refuses fields used by DataTables or Streams. dry_run defaults to true.",
+            false,
+            refactor::data_shape_field_tool,
         )
         .with_output::<outputs::EntityEditResult>(),
         solution_tool::<refactor_requests::MashupNewRequest>(
@@ -614,7 +621,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         .with_output::<outputs::MashupAddResult>(),
         solution_tool::<refactor_requests::MashupBindRequest>(
             "mashup_bind",
-            "Add one data binding to an existing mashup. Addresses are exactly those mashup describe prints: ui:<widget>.<Property>, mashup:<Parameter>, and data:<Entity>.<Service> with an optional [as alias], [SelectedRows], field or parameter. SelectedRows fields targeting non-grid widgets warn that a row must first be selected, even for one-row results. A missing Thing call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+            "Add one data binding or set a widget property with literal:<value> as its source. force allows a literal outside Composer select options. Addresses are exactly those mashup describe prints: ui:<widget>.<Property>, mashup:<Parameter>, and data:<Entity>.<Service> with an optional [as alias], [SelectedRows], field or parameter. SelectedRows fields targeting non-grid widgets warn that a row must first be selected, even for one-row results. A missing Thing call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
             false,
             refactor::mashup_bind_tool,
         )
@@ -687,7 +694,7 @@ static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
         ).with_output::<outputs::MashupMigrateResult>(),
         root_tool::<refactor_requests::WidgetsRequest>(
             "widgets",
-            "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's editable and bindable properties with base type and direction (in, out, in/out), its events and services. platform refreshes .twaco/widgets.json using read-only server GETs (profile optional); webapp refreshes from a local webapp folder. Refresh takes no widget or search and holds the workspace lock.",
+            "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's editable and bindable properties with base type and direction (in, out, in/out), its events and services. Select properties include their allowed values and Composer labels. platform refreshes .twaco/widgets.json using read-only server GETs (profile optional); webapp refreshes from a local webapp folder. Refresh takes no widget or search and holds the workspace lock.",
             false,
             refactor::widgets_tool,
         )
@@ -1122,6 +1129,7 @@ pub(crate) const GROUPS: &[(&str, &[&str])] = &[
             "network",
             "network_write",
             "entity_edit",
+            "data_shape_field",
             "new_building_block",
             "block",
             "block_version",

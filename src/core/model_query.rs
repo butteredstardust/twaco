@@ -95,6 +95,10 @@ pub struct Inspection {
     /// Properties whose value was asked for but the server did not return (no read permission).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub unreadable: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub subscriptions: Vec<super::subscriptions::Subscription>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subscription_note: Option<&'static str>,
 }
 
 /// The members of an entity as the server has it, each with its source, and property values if
@@ -157,11 +161,34 @@ pub fn inspect(
             });
         }
     }
-    if let (Some(wanted), true) = (member, members.is_empty()) {
+    let (mut subscriptions, subscription_note) =
+        if matches!(collection, "Things" | "ThingTemplates" | "ThingShapes") {
+            let key = super::entity::key::EntityKey::new(collection, name)
+                .map_err(|error| error.to_string())?;
+            match remote.entity_export(&key) {
+                Ok(Some(bytes)) => match read_subscriptions(&bytes, member) {
+                    Some(subscriptions) => (subscriptions, None),
+                    None => (
+                        Vec::new(),
+                        Some("subscriptions could not be read from the export"),
+                    ),
+                },
+                Ok(None) => (Vec::new(), None),
+                Err(_) => (
+                    Vec::new(),
+                    Some("subscriptions could not be exported with this profile"),
+                ),
+            }
+        } else {
+            (Vec::new(), None)
+        };
+    if let (Some(wanted), true) = (member, members.is_empty() && subscriptions.is_empty()) {
+        let note = subscription_note.map_or(String::new(), |note| format!("; {note}"));
         return Err(format!(
-            "{entity} has no property, service or event {wanted} on the server"
+            "{entity} has no property, service, event or subscription {wanted} on the server{note}"
         ));
     }
+    subscriptions.sort_by(|a, b| a.name.cmp(&b.name));
     members.sort_by(|a, b| (a.kind, &a.name).cmp(&(b.kind, &b.name)));
     let mut sources = BTreeMap::new();
     for found in &members {
@@ -174,7 +201,24 @@ pub fn inspect(
         members,
         sources,
         unreadable,
+        subscriptions,
+        subscription_note,
     })
+}
+
+fn read_subscriptions(
+    bytes: &[u8],
+    member: Option<&str>,
+) -> Option<Vec<super::subscriptions::Subscription>> {
+    let tokens = super::scan::tokenize(bytes).ok()?;
+    let entity = super::sidecar::entity_element(&tokens, bytes)?;
+    Some(
+        super::subscriptions::tags(&tokens, bytes, entity)
+            .into_iter()
+            .map(|index| super::subscriptions::read(&tokens, bytes, index))
+            .filter(|subscription| member.is_none_or(|name| name == subscription.name))
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -220,6 +264,38 @@ mod tests {
             (found.total, found.things, found.truncated),
             (0, Vec::new(), false)
         );
+    }
+
+    #[test]
+    fn brief99_inspect_reads_both_subscription_versions_from_export() {
+        struct Export;
+        impl Remote for Export {
+            fn call(
+                &self,
+                _: &ServiceTarget,
+                service: &str,
+                _: &Value,
+            ) -> Result<Option<Value>, ServerError> {
+                assert_eq!(service, "GetMetadataAsJSON");
+                Ok(Some(json!({})))
+            }
+            fn entity_export(
+                &self,
+                _: &crate::core::entity::key::EntityKey,
+            ) -> Result<Option<Vec<u8>>, ServerError> {
+                Ok(Some(br#"<Entities><Things><Thing name="Acme.T"><ThingShape><Subscriptions><Subscription name="Legacy" eventName="ThingStart" source="" sourceProperty="" sourceType="Thing"/><Subscription name="Multi" version="2" aspect.isStateful="true" aspect.isDistributed="false"><Events><Event alias="Speed" eventName="DataChange" source="" sourceProperty="Speed" sourceType="Thing"/><Event alias="Clock" eventName="Timer" source="Acme.Clock" sourceProperty="" sourceType="Thing"/></Events></Subscription></Subscriptions></ThingShape></Thing></Things></Entities>"#.to_vec()))
+            }
+        }
+        let found = inspect(&Export, "Things", "Acme.T", None, false).unwrap();
+        let json = serde_json::to_value(found).unwrap();
+        assert_eq!(json["subscriptions"][0]["events"][0]["event"], "ThingStart");
+        assert_eq!(
+            json["subscriptions"][1]["events"][1]["source"],
+            "Acme.Clock"
+        );
+        let selected = inspect(&Export, "Things", "Acme.T", Some("Multi"), false).unwrap();
+        assert_eq!(selected.subscriptions.len(), 1);
+        assert!(selected.subscriptions[0].stateful);
     }
 
     #[test]

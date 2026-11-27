@@ -79,6 +79,7 @@ until `--apply`; `sync` and `deploy` take them to the server.
 | Subscription | `thing subscription add` | the entity's XML | remove and add | `thing subscription remove` |
 | Thing, ThingTemplate, ThingShape | `new thing`, `new thing-template`, `new thing-shape` | `catalog`, `impact`, `entity get` | `thing shape add\|remove`, `retemplate`, `reproject`, `rename entity` | `entity delete` |
 | DataShape | `new data-shape` | `src/<DataShape>/fields.json` | edit `fields.json` + `sync` (its DataTables and Streams follow); `rename field` | `entity delete` |
+| DataShape fields | `data-shape field add` | `impact --member`, `fields.json` | `fields.json` + `sync` | `data-shape field remove` |
 | DataTable, Stream, ValueStream | `new data-table`, `new stream`, `new value-stream` | `datatable.json`, `db query` | `datatable.json` + `sync`; `datatable copy` for rows | `entity delete` |
 | Mashup | `mashup new` (14 templates), `mashup add-contained` | `mashup describe`, `why`, `diff`, `validate` | `mashup add`, `bind`, `on`, `param`, `event`, `recipe` | `entity delete` |
 | Timer, Scheduler | `new timer`, `new scheduler` | the entity's XML | `timer set`, `scheduler set` | `entity delete` |
@@ -399,7 +400,7 @@ gates (`checks-v1`). To take up the full house style from either preset:
 | localization tokens | an entity names a `[[token]]` under one of the solution's token prefixes that no Default table file holds (the label would show the raw text), a language table holds a token Default lacks, a token is in one table twice, or a table file cannot be read. Tokens outside the prefixes are the platform's or an extension's and are not checked. Notes, which never fail it: per language table, the solution's tokens it lacks (they show the Default text), and Default tokens no entity names as `[[token]]` or as a bare name |
 | result shapes | a service's script builds its result with `CreateInfoTableFromDataShape` from another DataShape than its definition declares, named by a literal or a `const` holding one (a mashup bound to the declared shape finds other fields), or adds a row to the result with `AddRow({...})` setting a field the declared DataShape does not have (ThingWorx drops it). A name computed at run time, a spread or a computed key, and a DataShape deriving from another are not checked |
 | requirements | `requirements.toml` exists and a collected dependency is undeclared or its version is declared lower; skipped when absent. Runs offline; list `requirements` in `[gates] advisory` to report without blocking |
-| structure | an entity export disagrees with the XSD selected by `[gates] structure_xsd` or `TWACO_STRUCTURE_XSD`. It is offline and advisory; the vendor XSD stays outside the repository |
+| structure | subscription attributes or event rows are invalid, or an entity export disagrees with the XSD selected by `[gates] structure_xsd` or `TWACO_STRUCTURE_XSD`. The gate is offline and advisory. Deploy reports its findings |
 | ai references | an MCP namespace tool or service resource calls a service its Thing, template or shape, what they inherit, or (for a platform template or shape) the platform cache does not declare, or names a provider of the wrong kind; an AI agent references an MCP namespace that is neither in the repository nor `AgentUtilities`, allows a tool, resource or prompt its namespace does not define, names a taxonomy type of the wrong kind, or a hierarchy resolver that does not implement `HierarchyResolver`; an MCP File resource or a skill names a file the `[repositories]` mirror of that file repository does not hold (the import refuses such a namespace). A provider, taxonomy type or resolver under one of the solution's projects that the repository lacks is a note, which does not fail the run: another project may share the prefix. Names outside the solution's projects may be another solution's and are not judged |
 | your hooks | a `[[check]]` command fails ([Configuration](CONFIGURATION.md#check-your-own-gates)) |
 | live parse | with `--live` or `[gates] live`: the server's own parser rejects a script |
@@ -819,7 +820,9 @@ twaco deploy --apply
 ```
 
 `--sql` (or `--sql-dir <folder>`) writes the migration into `sql/` and `--no-sql` says the tables
-are not in use. The script is one guarded, re-runnable transaction: the column (or table) rename,
+are not in use. A folder outside the solution, such as `--sql-dir ../migrations`, receives the
+script after the repository rename commits. If writing that file fails, the result gives the
+destination and SQL. The script is one guarded, re-runnable transaction: the column (or table) rename,
 the index, key and sequence names DBConnection derived from it, and, for an entity or prefix
 rename, a plain substring replace of the old name in every text column of the DBConnection tables,
 because rows name entities (a card stores the mashup it renders). A field rename also edits the
@@ -1296,7 +1299,7 @@ Keep design kits in the solution: copy a reference page, retarget its calls, the
 manager when it has one.
 
 ```sh
-twaco mashup new Acme.App.Orders_MU --from Acme.App.Reference_MU --apply
+twaco mashup new Acme.App.Orders_MU --from Mashups/Acme.App.Reference_MU --apply
 twaco mashup source retarget Acme.App.Orders_MU --from Acme.App.Reference.Manager --to Acme.App.Orders.Manager --apply
 twaco mashup param set Acme.App.Orders_MU Manager --default Acme.App.Orders.Manager --apply
 ```

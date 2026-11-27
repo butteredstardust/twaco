@@ -877,6 +877,7 @@ impl Parts {
                     target: declared.target,
                     editable: declared.editable,
                     options: declared.options,
+                    values: Vec::new(),
                 },
             );
         }

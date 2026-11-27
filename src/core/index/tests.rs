@@ -726,6 +726,56 @@ fn edge(index: &Index, from: &str, to: &str, kind: EdgeKind) -> Vec<Edge> {
         .collect()
 }
 
+#[test]
+fn subscription_impact_names_local_and_external_listeners_for_each_member() {
+    let (_dir, root) = scratch("subscriptions");
+    write(&root, "twaco.toml", "[[project]]\nname='Acme'\n");
+    let source = r#"<ThingShape><Subscriptions><Subscription name="Local" eventName="DataChange" source="" sourceProperty="Speed" sourceType="Thing"/></Subscriptions></ThingShape>"#;
+    let watcher = r#"<ThingShape><Subscriptions><Subscription name="Remote" version="2"><Events><Event alias="Speed" eventName="DataChange" source="Acme.Source" sourceProperty="Speed" sourceType="Thing"/><Event alias="Temperature" eventName="DataChange" source="Acme.Source" sourceProperty="Temperature" sourceType="Thing"/></Events></Subscription></Subscriptions></ThingShape>"#;
+    for (name, body) in [("Acme.Source", source), ("Acme.Watcher", watcher)] {
+        write(
+            &root,
+            &format!("Things/{name}.xml"),
+            &entity("Things", "Thing", name, "Acme", "", body),
+        );
+    }
+    let index = Index::build(&Solution::load(&root.join("twaco.toml")).unwrap());
+    let source = key("Things", "Acme.Source");
+    let dependents = |member: &str| {
+        index
+            .dependents(
+                &source,
+                &DependentOptions {
+                    member: Some(member.into()),
+                    ..Default::default()
+                },
+            )
+            .into_iter()
+            .map(|dependent| {
+                assert_eq!(dependent.path[0].kind, EdgeKind::SubscriptionEvent);
+                (dependent.label, dependent.members)
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        dependents("Speed"),
+        [
+            ("Things/Acme.Source".to_string(), vec!["Local".to_string()]),
+            (
+                "Things/Acme.Watcher".to_string(),
+                vec!["Remote".to_string()]
+            )
+        ]
+    );
+    assert_eq!(
+        dependents("Temperature"),
+        [(
+            "Things/Acme.Watcher".to_string(),
+            vec!["Remote".to_string()]
+        )]
+    );
+}
+
 fn implementation(name: &str, script: &str) -> String {
     format!(
         r#"<ServiceImplementation name="{name}" handlerName="Script"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[{script}]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation>"#

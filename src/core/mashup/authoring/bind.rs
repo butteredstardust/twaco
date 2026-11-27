@@ -17,6 +17,7 @@ pub struct BindRequest {
     pub mashup: String,
     pub from: String,
     pub to: String,
+    pub force: bool,
 }
 
 #[derive(Debug)]
@@ -39,6 +40,14 @@ pub(crate) fn plan_bind(
 ) -> Result<BindPlan, AuthoringError> {
     let loaded = load_existing(solution, &request.mashup)?;
     let mut document = parse_loaded(&loaded)?;
+    if let Some(literal) = request.from.strip_prefix("literal:") {
+        return plan_literal(solution, request, loaded, &document, literal);
+    }
+    if request.force {
+        return Err(AuthoringError::Invalid(
+            "--force is for bindings from literal:<value>".into(),
+        ));
+    }
     let parameters =
         mashup_parameters(&loaded.entity_before).map_err(AuthoringError::Unreadable)?;
     let (model, _) = types::load_model(solution);
@@ -63,6 +72,52 @@ pub(crate) fn plan_bind(
         new_source: result.new_source,
         warnings: result.warnings,
         refreshed: result.refreshed,
+    })
+}
+
+/// A literal is persisted as the widget's initial value, with the same checks as mashup set.
+fn plan_literal(
+    solution: &Solution,
+    request: &BindRequest,
+    loaded: super::ExistingMashup,
+    document: &MashupDocument,
+    literal: &str,
+) -> Result<BindPlan, AuthoringError> {
+    let target = mashup::address::imply_ui(document, &request.to);
+    let Ok(mashup::address::Address::Ui { widget, property }) = parse_address(&target) else {
+        return Err(AuthoringError::Invalid(
+            "literal:<value> needs a ui:<widget>.<property> target".into(),
+        ));
+    };
+    let value =
+        serde_json::from_str(literal).unwrap_or_else(|_| Value::String(literal.to_string()));
+    let set = super::SetRequest {
+        mashup: request.mashup.clone(),
+        widget,
+        properties: vec![(property, value)],
+        force: request.force,
+        style_from: None,
+        styles: Vec::new(),
+    };
+    let unchanged = EditPlan {
+        command: "mashup bind",
+        mashup: loaded.mashup.clone(),
+        entity_path: loaded.entity_path.clone(),
+        entity_before: loaded.entity_before.clone(),
+        entity_after: loaded.entity_before.clone(),
+        sidecars: None,
+    };
+    let result = super::set::plan_set_loaded(solution, &set, loaded, None)?;
+    Ok(BindPlan {
+        edit: EditPlan {
+            command: "mashup bind",
+            ..result.edit.unwrap_or(unchanged)
+        },
+        from: request.from.clone(),
+        to: request.to.clone(),
+        new_source: None,
+        warnings: result.notes,
+        refreshed: Vec::new(),
     })
 }
 

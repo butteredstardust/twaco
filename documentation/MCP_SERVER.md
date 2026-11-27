@@ -66,7 +66,7 @@ the groups named, comma-separated; any other tool is unknown to that server. `co
 | Group | Tools |
 | --- | --- |
 | `core` | projects, types, check, status, sync, extract, fmt, push, deploy, bundle, catalog, impact, contract_diff, trace, unused, search, entity_get, docs, doctor, guide |
-| `entity` | entity_pull, entity_delete, entity_restore, entity_carry, entity_new, network, network_write, entity_edit, new_building_block, block, block_version, export, import, package |
+| `entity` | entity_pull, entity_delete, entity_restore, entity_carry, entity_new, network, network_write, entity_edit, data_shape_field, new_building_block, block, block_version, export, import, package |
 | `refactor` | rename, move_member, reproject, retemplate, adopt_report, adopt_apply, handoff |
 | `mashup` | mashup_new, mashup_templates, mashup_add, mashup_add_contained, mashup_bind, mashup_on, mashup_remove, mashup_move, mashup_unbind, mashup_off, widgets, mashup_param, mashup_recipe, mashup_event, mashup_validate, mashup_describe |
 | `permissions` | permissions, requirements_init, requirements_check, permissions_init, permissions_audit, permissions_apply, permissions_push |
@@ -192,14 +192,15 @@ in its text block. It has no `structuredContent`, which is kept for results that
 | `block` | no | The solution's building blocks, or one; with server true the framework's version, state, deploy order and deploy parameters |
 | `block_version` | workspace | Raise or set a block's componentVersion and Project packageVersion together, plan by default |
 | `entity_new` | workspace | Create an entity as a repository XML file (Things, templates, shapes, DataShapes, DataTables, styles, menus, Networks, ...); plan by default |
+| `data_shape_field` | workspace | Add or remove a DataShape field with its XML and fields.json together. Removal reports references and refuses fields used by DataTables or Streams. Plans by default |
 | `entity_edit` | workspace | Change an entity as Composer would: properties, script services, subscriptions, shapes, timers, schedulers, styles, states, menus, media; plan by default |
 | `network` | no | List Networks, show an asset hierarchy, or diff repository and server connections |
 | `network_write` | workspace | Add, move or remove a Network connection, import an asset CSV, or pull the server's connections; plan by default |
 | `mashup_new` | workspace | Create a responsive mashup from one of the embedded layout templates; plan by default |
 | `mashup_templates` | no | The embedded layout templates, or one template's slots |
-| `mashup_add` | workspace | Add a catalogue or extension-project widget to a mashup; plan by default |
+| `mashup_add` | workspace | Add a catalogue or extension-project widget. A tab set accepts `tabs`, `tab_style` and `tab_width`. Plans by default |
 | `mashup_add_contained` | workspace | Add a repository mashup as a contained mashup; plan by default |
-| `mashup_bind` | workspace | Add one data binding, by the addresses `mashup_describe` prints; plan by default |
+| `mashup_bind` | workspace | Add one data binding using `mashup_describe` addresses, or set a widget property with `literal:<value>`. Plans by default |
 | `mashup_on` | workspace | Run a data call or widget service when a mashup event fires; plan by default |
 | `mashup_remove` | workspace | Remove a widget or subtree; cascade only proven wiring; plan by default |
 | `mashup_move` | workspace | Move a widget and its subtree, keeping ids, properties and wiring; plan by default |
@@ -241,7 +242,7 @@ in its text block. It has no `structuredContent`, which is kept for results that
 | `search` | no | Find server entities by text in a name or description, type, project and when they last changed |
 | `entity_get` | no | One entity's XML as the server has it, returned rather than written |
 | `model_resolve` | no | How many Things implement a ThingTemplate or ThingShape on the server, and the first of them |
-| `entity_inspect` | no | An entity's members on the server, each with what declares it; with values, a Thing's property values |
+| `entity_inspect` | no | An entity's members and subscription triggers on the server. With values, also reports a Thing's property values |
 | `access_explain` | no | Whether a user may invoke a service: allowed, denied or unknown, with the reasons; never invokes it |
 | `export` | workspace* | Export from the server into a file of the solution |
 | `import` | server | Import a file of the solution, or a source-control tree |

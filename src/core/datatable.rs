@@ -68,6 +68,15 @@ fn thing_with_template(
     Some((start, end))
 }
 
+/// The declared row DataShape, even before a DataTable or Stream has accumulated its fields.
+pub(crate) fn storage_shape(src: &[u8]) -> Option<String> {
+    let tokens = scan::tokenize(src).ok()?;
+    let thing = data_or_stream_thing(&tokens, src)?;
+    let settings = table_named(&tokens, src, thing, "Settings")?;
+    let row = first_row(&tokens, src, settings)?;
+    child_text(&tokens, src, row, "dataShape")
+}
+
 /// The declared DataShape and raw accumulated shape of a DataTable or Stream.
 pub(crate) fn shape_and_accumulated(src: &[u8]) -> Option<(String, String)> {
     let tokens = scan::tokenize(src).ok()?;

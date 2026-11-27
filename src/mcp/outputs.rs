@@ -403,6 +403,8 @@ pub(crate) struct DeployResult {
     dry_run: Option<bool>,
     note: Option<String>,
     blocking_gates: Option<Vec<Value>>,
+    /// Structure findings reported during a deploy, even when the gate is advisory.
+    structure_findings: Option<Vec<String>>,
     projects: Option<Vec<Value>>,
     scripts_parsed: Option<u64>,
     entities: Option<Value>,
@@ -856,6 +858,8 @@ pub(crate) struct EntityInspectResult {
     sources: BTreeMap<String, u64>,
     /// Properties whose value the profile may not read.
     unreadable: Option<Vec<String>>,
+    subscriptions: Option<Vec<Value>>,
+    subscription_note: Option<String>,
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -1437,6 +1441,7 @@ pub(crate) struct MashupAddResult {
     id: String,
     containers: Vec<Value>,
     container_contents: Option<Vec<ContainerContents>>,
+    container_tree: Option<Vec<String>>,
     flipped: Option<Value>,
     wrapped: Vec<Value>,
     /// A contained mashup: the child and its visible parameters.

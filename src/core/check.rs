@@ -118,6 +118,27 @@ impl CheckReport {
             .collect()
     }
 
+    /// A summary of schema findings for deploy results, including advisory ones.
+    pub fn structure_findings(&self) -> Vec<String> {
+        let Some(gate) = self.gates.iter().find(|gate| gate.name == "structure") else {
+            return Vec::new();
+        };
+        const LIMIT: usize = 8;
+        let mut first: Vec<_> = gate
+            .findings
+            .iter()
+            .take(LIMIT)
+            .map(ToString::to_string)
+            .collect();
+        if gate.findings.len() > LIMIT {
+            first.push(format!(
+                "{} more structure findings; run twaco check --detail",
+                gate.findings.len() - LIMIT
+            ));
+        }
+        first
+    }
+
     pub fn findings(&self) -> usize {
         self.gates.iter().map(|g| g.findings.len()).sum()
     }

@@ -625,7 +625,8 @@ pub(crate) const USAGE: &[Usage] = &[
       --sql | --sql-dir <dir> | --no-sql
                               entity, prefix and field: a rename that touches DBConnection tables is
                               refused until you choose: --sql writes the migration script (default
-                              folder sql/, run it before the import), --no-sql says the tables are unused"#,
+                              folder sql/, run it before the import), --no-sql says the tables are unused
+                              --sql-dir accepts a folder outside the solution, written after apply"#,
     },
     Usage {
         path: "rename service",
@@ -708,7 +709,7 @@ pub(crate) const USAGE: &[Usage] = &[
   widgets --icons [<filter>] [--json]
   widgets (--platform [--profile <name>] | --webapp <webapp folder>) [--json]
                               the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
-                              aliases, containers and editable or bindable properties with defaults, events and services
+                              aliases, containers, property defaults and allowed values, events and services
       --icons                 the 215 CDS icon names a cds: value may take; twaco refuses any other
       --platform              read the server's widget files (GET only) into .twaco/widgets.json: the
                               contracts of legacy widgets (tree, collection, ...) and of installed
@@ -779,7 +780,8 @@ pub(crate) const USAGE: &[Usage] = &[
         path: "mashup add",
         group: 1,
         text: r#"  mashup add <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
-      [--in-column] [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]... [--apply] [--json]
+      [--in-column] [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]...
+      [--tabs <names>] [--tab-style <style>] [--tab-width <mode>] [--apply] [--json]
                               add a catalogue widget, or one an [[extension]] project defines, to a
                               mashup; plan unless --apply; a function widget (expression, validator,
                               navigation...) goes beside the layout
@@ -800,6 +802,9 @@ pub(crate) const USAGE: &[Usage] = &[
       --label <text>          set the widget's LabelText, Label, Text or Title property
       --prop <name=value>     set one simple default property, repeatable; an extension widget's
                               property with no default takes JSON
+      --tabs <names>          ptcstabset tab names, separated by commas (1 to 16)
+      --tab-style <style>     ptcstabset TabStyle setting
+      --tab-width <mode>      ptcstabset TabWidthConfig: auto, even or fixed
       --input <name:TYPE[=default]>
                               an expression's or validator's input, with a typed default; repeatable"#,
     },
@@ -844,9 +849,10 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "mashup set",
         group: 1,
-        text: r#"  mashup set <mashup> <widget> [--prop <name=value>]... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
+        text: r#"  mashup set <mashup> <widget> [--prop <name=value>]... [--style <setting>]... [--style-from <mashup:widget>] [--force] [--apply] [--json]
                               set checked properties or the style of one exact widget (at least one of
                               --prop, --style, --style-from); structured properties take JSON; plan unless --apply
+      --force                 allow a value outside the Composer select options
       --prop <name=value>     set one property, repeatable; objects and arrays are JSON
       --style-from <mashup:widget>
                               copy that widget's visual style (its entry in the root's StyleProperties);
@@ -916,9 +922,10 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "mashup bind",
         group: 1,
-        text: r#"  mashup bind <mashup> --from <address> --to <address> [--apply] [--json]
+        text: r#"  mashup bind <mashup> --from <address> --to <address> [--force] [--apply] [--json]
                               add one data binding to a mashup; plan unless --apply
-      --from <address>        source address from mashup describe
+      --from <address>        source address from mashup describe; literal:<value> sets a widget property
+      --force                 allow a literal outside the Composer select options
       --to <address>          target address from mashup describe
                               selected row example: data:Acme.Manager.Load[SelectedRows].name
                               hints when a selected-row field has no selecting widget"#,
@@ -1136,7 +1143,7 @@ pub(crate) const USAGE: &[Usage] = &[
       --spec <file>          compile a YAML page spec (page.kind: master creates a master with page_host), copy it to src/<Mashup>/page.yaml and record a generated baseline;
                               copy the declared page.css beside the spec
                               accepts only --project, --apply and --json
-      --from <address>        copy a repository mashup exactly, except identity and permissions
+      --from <address>        copy a repository mashup by name or Mashups/<name>; identity and permissions change
       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
@@ -1163,7 +1170,7 @@ pub(crate) const USAGE: &[Usage] = &[
       --spec <file>          compile a YAML page spec (page.kind: master creates a master with page_host), copy it to src/<Mashup>/page.yaml and record a generated baseline;
                               copy the declared page.css beside the spec
                               accepts only --project, --apply and --json
-      --from <address>        copy a repository mashup exactly, except identity and permissions
+      --from <address>        copy a repository mashup by name or Mashups/<name>; identity and permissions change
       --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
       --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
       --gadget                fixed dashboard gadget; default 1x1, 240px per cell
@@ -1269,17 +1276,31 @@ pub(crate) const USAGE: &[Usage] = &[
                               create a ThingWorx PermissionGroup without members as a repository file; plan unless --apply"#,
     },
     Usage {
+        path: "data-shape field",
+        group: 1,
+        text: r#"  data-shape field add <DataShape> <name:TYPE[:primary]> [--description <text>]
+      [--data-shape <DataShape>] [--apply] [--json]
+  data-shape field remove <DataShape> <name> [--apply] [--json]
+                              add or remove a field in the DataShape XML and fields.json together;
+                              removal reports references and refuses fields used by DataTables or Streams;
+                              plan unless --apply
+      --data-shape <DataShape> row shape for an INFOTABLE field"#,
+    },
+    Usage {
         path: "thing property",
         group: 1,
         text: r#"  thing property add <Entity> <name>:<TYPE> [--default <value>] [--persistent] [--logged]
       [--read-only] [--category <text>] [--units <text>] [--data-shape <DataShape>]
-      [--description <text>] [--apply] [--json]
+      [--description <text>] [--data-change-type <mode>] [--data-change-threshold <number>] [--apply] [--json]
   thing property set <Entity> <name>[:<TYPE>] [the add flags] [--no-default] [--no-persistent]
-      [--no-logged] [--no-read-only] [--force] [--apply] [--json]
+      [--no-logged] [--no-read-only] [--no-data-change-threshold] [--force] [--apply] [--json]
   thing property remove <Entity> <name> [--force] [--apply] [--json]
                               add, change or remove a property of a Thing, ThingTemplate or
                               ThingShape; a persistent one also writes the stored value of every
                               Thing that has it; plan unless --apply
+      --data-change-type      ALWAYS, VALUE, ON, OFF or NEVER
+      --data-change-threshold numeric threshold for NUMBER, INTEGER and LONG
+      --no-data-change-threshold remove a property's threshold
       --force                 remove or retype a property something still uses (they are listed)"#,
     },
     Usage {
@@ -1307,11 +1328,14 @@ pub(crate) const USAGE: &[Usage] = &[
     Usage {
         path: "thing subscription",
         group: 1,
-        text: r#"  thing subscription add <Entity> <name> --event <Event> [--source <Thing>]
-      [--source-property <property>] (--then <code> | --script <file.js>) [--apply] [--json]
+        text: r#"  thing subscription add <Entity> <name> --event <address>... [--source <Thing>]
+      [--source-property <property>] [--stateful] [--distributed] (--then <code> | --script <file.js>) [--apply] [--json]
   thing subscription remove <Entity> <name> [--apply] [--json]
                               add or remove a script subscription; no --source is the entity
-                              itself; plan unless --apply"#,
+                              itself; plan unless --apply
+      --event <address>       repeat Event or Source:Event[:property] (use me for self); append =alias to name the event
+      --stateful              Execute Events Sequentially
+      --distributed           distribute events across cluster nodes; single-node servers disable it"#,
     },
     Usage {
         path: "thing shape",

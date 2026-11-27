@@ -409,6 +409,7 @@ fn plan_collection(
         let added = plan_add(
             solution,
             &super::AddRequest {
+                tabs: Default::default(),
                 mashup: request.mashup.clone(),
                 widget: "ptcscollection".into(),
                 inputs: Vec::new(),

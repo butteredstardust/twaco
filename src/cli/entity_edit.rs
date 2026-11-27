@@ -50,6 +50,55 @@ pub(crate) struct ThingService {
     pub(crate) operands: Vec<String>,
 }
 
+#[derive(Debug, clap::Subcommand)]
+pub(crate) enum DataShape {
+    Field(DataShapeField),
+}
+
+#[derive(Debug, clap::Args)]
+#[group(skip)]
+pub(crate) struct DataShapeField {
+    #[arg(long = "description", value_name = "text")]
+    pub(crate) description: Option<String>,
+    #[arg(long = "data-shape", value_name = "DataShape")]
+    pub(crate) data_shape: Option<String>,
+    #[command(flatten)]
+    pub(crate) apply: Apply,
+    #[command(flatten)]
+    pub(crate) json: Json,
+    #[arg(id = "operands", value_name = "operand")]
+    pub(crate) operands: Vec<String>,
+}
+
+impl DataShape {
+    pub(crate) fn edit(&self) -> Edit {
+        let Self::Field(args) = self;
+        let found = (|| {
+            let [action, entity, field] = args.operands.as_slice() else {
+                return Err("data-shape field needs <add|remove> <DataShape> <field>".into());
+            };
+            let action = match action.as_str() {
+                "add" => Action::FieldAdd {
+                    field: field.clone(),
+                    description: args.description.clone(),
+                    data_shape: args.data_shape.clone(),
+                },
+                "remove" if args.description.is_some() || args.data_shape.is_some() => {
+                    return Err(
+                        "--description and --data-shape belong to data-shape field add".into(),
+                    );
+                }
+                "remove" => Action::FieldRemove {
+                    name: field.clone(),
+                },
+                other => return Err(format!("data-shape field {other}: say add or remove")),
+            };
+            Ok((entity.clone(), action))
+        })();
+        Edit::new(found, &args.apply, &args.json)
+    }
+}
+
 /// `twaco thing property add|set|remove <Entity> <name[:TYPE]>`.
 #[derive(Debug, clap::Args)]
 #[group(skip)]
@@ -59,6 +108,12 @@ pub(crate) struct ThingProperty {
     pub(crate) default: Option<String>,
     #[arg(long = "no-default")]
     pub(crate) no_default: bool,
+    #[arg(long = "data-change-type", value_name = "mode")]
+    pub(crate) data_change_type: Option<String>,
+    #[arg(long = "data-change-threshold", value_name = "number")]
+    pub(crate) data_change_threshold: Option<String>,
+    #[arg(long = "no-data-change-threshold")]
+    pub(crate) no_data_change_threshold: bool,
     #[arg(long = "persistent")]
     pub(crate) persistent: bool,
     #[arg(long = "no-persistent")]
@@ -94,7 +149,11 @@ pub(crate) struct ThingProperty {
 #[group(skip)]
 pub(crate) struct ThingSubscription {
     #[arg(long = "event", value_name = "address")]
-    pub(crate) event: Option<String>,
+    pub(crate) event: Vec<String>,
+    #[arg(long = "stateful")]
+    pub(crate) stateful: bool,
+    #[arg(long = "distributed")]
+    pub(crate) distributed: bool,
     #[arg(long = "source", value_name = "Thing")]
     pub(crate) source: Option<String>,
     #[arg(long = "source-property", value_name = "property")]
@@ -680,6 +739,9 @@ fn property(args: &ThingProperty) -> Result<(String, Action), String> {
                 units: args.units.clone(),
                 data_shape: args.data_shape.clone(),
                 description: args.description.clone(),
+                data_change_type: args.data_change_type.clone(),
+                data_change_threshold: args.data_change_threshold.clone(),
+                no_data_change_threshold: args.no_data_change_threshold,
             };
             if action == "add" {
                 Action::PropertyAdd(property)
@@ -706,10 +768,9 @@ fn subscription(args: &ThingSubscription) -> Result<(String, Action), String> {
     };
     let action = match action.as_str() {
         "add" => {
-            let event = args
-                .event
-                .clone()
-                .ok_or("thing subscription add needs --event <Event>")?;
+            if args.event.is_empty() {
+                return Err("thing subscription add needs --event <Event>".into());
+            }
             let code = match (&args.then, &args.script) {
                 (Some(code), None) => code.clone(),
                 (None, Some(path)) => std::fs::read_to_string(path)
@@ -718,9 +779,11 @@ fn subscription(args: &ThingSubscription) -> Result<(String, Action), String> {
             };
             Action::SubscriptionAdd {
                 name: name.clone(),
-                event,
+                events: args.event.clone(),
                 source: args.source.clone(),
                 source_property: args.source_property.clone(),
+                stateful: args.stateful,
+                distributed: args.distributed,
                 code,
             }
         }

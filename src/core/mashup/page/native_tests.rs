@@ -176,6 +176,7 @@ fn native_fields_match_command_properties() {
             .add(
                 &solution,
                 &authoring::AddRequest {
+                    tabs: Default::default(),
                     mashup: "Acme.Native_MU".into(),
                     widget: widget.into(),
                     inputs: vec![],
@@ -439,6 +440,7 @@ fn function_and_embed_paths_match_command_planners() {
         .add(
             &solution,
             &AddRequest {
+                tabs: Default::default(),
                 mashup: "Acme.Commands_MU".into(),
                 widget: "ptcscheckbox".into(),
                 inputs: vec![],
@@ -452,6 +454,7 @@ fn function_and_embed_paths_match_command_planners() {
         .add(
             &solution,
             &AddRequest {
+                tabs: Default::default(),
                 mashup: "Acme.Commands_MU".into(),
                 widget: "ptcsbutton".into(),
                 inputs: vec![],
@@ -468,6 +471,7 @@ fn function_and_embed_paths_match_command_planners() {
         .add(
             &solution,
             &AddRequest {
+                tabs: Default::default(),
                 mashup: "Acme.Commands_MU".into(),
                 widget: "expression2".into(),
                 inputs: vec!["Count:NUMBER".into()],

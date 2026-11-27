@@ -19,6 +19,13 @@ pub struct ContainerContents {
     pub holds: Vec<String>,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct TabSetOptions {
+    pub labels: Option<Vec<String>>,
+    pub style: Option<String>,
+    pub width: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct AddRequest {
     pub mashup: String,
@@ -28,6 +35,7 @@ pub struct AddRequest {
     pub placement: Option<Placement>,
     pub label: Option<String>,
     pub properties: Vec<(String, String)>,
+    pub tabs: TabSetOptions,
 }
 
 #[derive(Debug)]
@@ -35,6 +43,7 @@ pub struct AddPlan {
     pub edit: EditPlan,
     pub placed: mashup::edit::Placed,
     pub container_contents: Vec<ContainerContents>,
+    pub container_tree: Vec<String>,
     /// The widget's type, such as `ptcsgrid`.
     pub widget: String,
     /// Composer's label for it, such as `Grid`.
@@ -277,6 +286,59 @@ pub(super) fn plan_add_loaded(
                 }
             },
         }
+    };
+    let TabSetOptions {
+        labels,
+        style,
+        width,
+    } = &request.tabs;
+    let adjusted_request;
+    let request = if labels.is_some() || style.is_some() || width.is_some() {
+        if widget.type_id != "ptcstabset" {
+            return Err(AuthoringError::Invalid(
+                "--tabs, --tab-style and --tab-width are for ptcstabset".into(),
+            ));
+        }
+        let mut adjusted = request.clone();
+        if let Some(labels) = labels {
+            if !(1..=16).contains(&labels.len())
+                || labels.iter().any(|label| label.trim().is_empty())
+            {
+                return Err(AuthoringError::Invalid(
+                    "--tabs needs 1 to 16 nonempty, comma-separated tab names".into(),
+                ));
+            }
+            if adjusted.properties.iter().any(|(name, _)| {
+                name == "NumberOfTabs"
+                    || name == "Items"
+                    || (name.starts_with("Tab") && name.ends_with("Name"))
+            }) {
+                return Err(AuthoringError::Invalid(
+                    "--tabs already sets NumberOfTabs, Items and Tab<n>Name".into(),
+                ));
+            }
+            adjusted
+                .properties
+                .push(("NumberOfTabs".into(), labels.len().to_string()));
+            adjusted.properties.extend(
+                labels
+                    .iter()
+                    .enumerate()
+                    .map(|(i, label)| (format!("Tab{}Name", i + 1), label.trim().into())),
+            );
+        }
+        for (name, value) in [("TabStyle", style), ("TabWidthConfig", width)] {
+            if let Some(value) = value {
+                if adjusted.properties.iter().any(|(key, _)| key == name) {
+                    return Err(AuthoringError::Invalid(format!("give {name} only once")));
+                }
+                adjusted.properties.push((name.into(), value.clone()));
+            }
+        }
+        adjusted_request = adjusted;
+        &adjusted_request
+    } else {
+        request
     };
     let placed = if widget.function {
         add_function_widget(&mut document, widget, request)?
@@ -528,31 +590,10 @@ pub(super) fn plan_add_loaded(
                 ));
             }
         };
-        if let Some(contract) = widget.property(name) {
-            if !property_editable(widget, name) {
-                return Err(AuthoringError::Refused(format!("{name} is not editable")));
-            }
-            if !contract.options.is_empty()
-                && !contract.options.iter().any(|option| {
-                    option == &value
-                        || option
-                            .as_str()
-                            .zip(value.as_str())
-                            .is_some_and(|(a, b)| a.eq_ignore_ascii_case(b))
-                })
-            {
-                return Err(AuthoringError::Invalid(format!(
-                    "{name} for {} must be one of {}",
-                    widget.type_id,
-                    contract
-                        .options
-                        .iter()
-                        .map(Value::to_string)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )));
-            }
+        if widget.property(name).is_some() && !property_editable(widget, name) {
+            return Err(AuthoringError::Refused(format!("{name} is not editable")));
         }
+        check_property_options(widget, name, &value, false)?;
         let path = document
             .find(&placed.id)
             .map_err(AuthoringError::Edit)?
@@ -688,7 +729,30 @@ pub(super) fn plan_add_loaded(
             }
         })
         .collect();
+    let container_tree = match &request.placement {
+        Some(Placement::Beside {
+            anchor,
+            side: mashup::edit::Side::Right | mashup::edit::Side::End,
+        }) => {
+            let anchor = document.find(anchor).map_err(AuthoringError::Edit)?;
+            let new = document
+                .find_exact(&placed.id)
+                .map_err(AuthoringError::Edit)?;
+            let shared = anchor
+                .path
+                .iter()
+                .zip(&new.path)
+                .take_while(|(a, b)| a == b)
+                .count();
+            let shared = shared
+                .min(new.path.len().saturating_sub(1))
+                .min(anchor.path.len().saturating_sub(1));
+            mashup::describe::tree_lines(document.at(&new.path[..shared]))
+        }
+        _ => Vec::new(),
+    };
     Ok(AddPlan {
+        container_tree,
         container_contents,
         edit: finish_edit(loaded, document, "mashup add")?,
         placed,
@@ -871,6 +935,38 @@ pub(crate) fn property_editable(widget: &widgets::Widget, name: &str) -> bool {
             .is_none_or(|contract| contract.editable)
 }
 
+/// Composer select settings carry a finite list; force permits a platform-specific override.
+pub(super) fn check_property_options(
+    widget: &widgets::Widget,
+    name: &str,
+    value: &Value,
+    force: bool,
+) -> Result<(), AuthoringError> {
+    if let Some(contract) = widget.property(name).filter(|_| !force) {
+        let mut options = contract.allowed_values().peekable();
+        if options.peek().is_some()
+            && !options.any(|option| {
+                option == value
+                    || option
+                        .as_str()
+                        .zip(value.as_str())
+                        .is_some_and(|(a, b)| a.eq_ignore_ascii_case(b))
+            })
+        {
+            let allowed = contract
+                .allowed_values()
+                .map(Value::to_string)
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(AuthoringError::Invalid(format!(
+                "{name} for {} must be one of {allowed}",
+                widget.type_id
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// Parse and check a value set by `--prop` or `mashup set`. Strings have CLI syntax; a non-string
 /// value arrived from MCP and is already JSON.
 pub(crate) fn property_value(
@@ -1046,6 +1142,7 @@ pub fn add_plan_json(solution: &Solution, plan: &AddPlan, applied: bool) -> Valu
         "id": plan.placed.id,
         "containers": plan.placed.containers,
         "container_contents": plan.container_contents,
+        "container_tree": plan.container_tree,
         "flipped": plan.placed.flipped,
         "wrapped": plan.placed.wrapped,
         "files": files,

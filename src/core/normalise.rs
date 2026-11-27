@@ -319,7 +319,7 @@ pub(crate) fn hash_with_grants(
     Ok(format!("{scope}:pg1:{content}"))
 }
 
-/// Accept only additions supplied by a Thing's template, never changes to authored values.
+/// Accept template additions and the single-node server clearing subscription distribution.
 pub(crate) fn read_back_matches(
     sent: &[u8],
     back: &[u8],
@@ -339,6 +339,7 @@ pub(crate) fn read_back_matches(
         return false;
     };
     strip_template_additions(&left, &mut right);
+    accept_disabled_distribution(&left, &mut right);
     if left.name == b"Thing" {
         left.attributes
             .retain(|(k, _)| k != b"inheritedValueStream");
@@ -404,6 +405,48 @@ fn strip_template_additions(left: &Element, right: &mut Element) -> usize {
             .retain(|(k, _)| k != b"inheritedValueStream");
     }
     added
+}
+
+/// A single node clears this one aspect. Keep it significant in ordinary hashes and diffs.
+fn accept_disabled_distribution(sent: &Element, back: &mut Element) {
+    const DISTRIBUTED: &[u8] = b"aspect.isDistributed";
+    for node in &mut back.children {
+        let Node::Element(child) = node else { continue };
+        match child.name.as_slice() {
+            b"ThingShape" | b"Subscriptions" => {
+                if let Some(original) = elements(sent)
+                    .into_iter()
+                    .find(|element| element.name == child.name)
+                {
+                    accept_disabled_distribution(original, child);
+                }
+            }
+            b"Subscription"
+                if sent.name == b"Subscriptions"
+                    && attribute_value(child, b"version") == Some(b"2")
+                    && attribute_value(child, DISTRIBUTED) == Some(b"false") =>
+            {
+                let name = attribute_value(child, b"name");
+                let mut matches = elements(sent).into_iter().filter(|element| {
+                    element.name == b"Subscription" && attribute_value(element, b"name") == name
+                });
+                if matches.next().is_some_and(|original| {
+                    attribute_value(original, b"version") == Some(b"2")
+                        && attribute_value(original, DISTRIBUTED) == Some(b"true")
+                }) && matches.next().is_none()
+                {
+                    if let Some((_, value)) = child
+                        .attributes
+                        .iter_mut()
+                        .find(|(key, _)| key == DISTRIBUTED)
+                    {
+                        *value = b"true".to_vec();
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 fn descendants_named<'a>(element: &'a Element, name: &[u8]) -> Vec<&'a Element> {
@@ -497,6 +540,7 @@ pub(crate) fn read_back_differences(
         owned_comparison_tree(read_back, parts),
     ) {
         template_added = strip_template_additions(&left, &mut right);
+        accept_disabled_distribution(&left, &mut right);
         if left.name == b"Thing" {
             left.attributes
                 .retain(|(k, _)| k != b"inheritedValueStream");
@@ -2409,6 +2453,43 @@ mod tests {
         let changed = b"<Thing><code><![CDATA[first]]]]><![CDATA[>third]]></code></Thing>";
         assert_eq!(hash(split).unwrap(), hash(joined).unwrap());
         assert_ne!(hash(joined).unwrap(), hash(changed).unwrap());
+    }
+
+    #[test]
+    fn brief99_read_back_accepts_only_the_single_node_distribution_downgrade() {
+        let sent = r#"<Entities><Things><Thing name="Acme.T"><ThingShape><Subscriptions><Subscription name="Multi" version="2" aspect.isStateful="true" aspect.isDistributed="true"><Events><Event alias="Me_Start" eventName="ThingStart" source="" sourceProperty="" sourceType="Thing"/></Events></Subscription></Subscriptions></ThingShape></Thing></Things></Entities>"#;
+        let back = sent.replace(
+            "aspect.isDistributed=\"true\"",
+            "aspect.isDistributed=\"false\"",
+        );
+        assert!(read_back_matches(
+            sent.as_bytes(),
+            back.as_bytes(),
+            &[],
+            &Default::default()
+        ));
+        assert!(!read_back_matches(
+            back.as_bytes(),
+            sent.as_bytes(),
+            &[],
+            &Default::default()
+        ));
+        assert_ne!(
+            hash(sent.as_bytes()).unwrap(),
+            hash(back.as_bytes()).unwrap()
+        );
+        let changed = back.replace("aspect.isStateful=\"true\"", "aspect.isStateful=\"false\"");
+        assert!(!read_back_matches(
+            sent.as_bytes(),
+            changed.as_bytes(),
+            &[],
+            &Default::default()
+        ));
+        let differences = read_back_differences(sent.as_bytes(), changed.as_bytes(), &[]);
+        assert!(differences.iter().any(|line| line.contains("isStateful")));
+        assert!(differences
+            .iter()
+            .all(|line| !line.contains("isDistributed")));
     }
 
     #[test]

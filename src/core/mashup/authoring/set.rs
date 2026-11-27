@@ -16,6 +16,7 @@ pub struct SetRequest {
     pub mashup: String,
     pub widget: String,
     pub properties: Vec<(String, Value)>,
+    pub force: bool,
     /// `<mashup>:<widget>` whose root style entry is copied to this widget.
     pub style_from: Option<String>,
     /// `[<part>[@<state>]:]<property>=<value>` settings merged into this widget's root style
@@ -400,28 +401,7 @@ pub(super) fn plan_set_loaded(
         } else {
             property_value(widget, name, supplied.clone())?
         };
-        if let Some(contract) = widget.property(name) {
-            if !contract.options.is_empty()
-                && !contract.options.iter().any(|option| {
-                    option == &value
-                        || option
-                            .as_str()
-                            .zip(value.as_str())
-                            .is_some_and(|(a, b)| a.eq_ignore_ascii_case(b))
-                })
-            {
-                return Err(AuthoringError::Invalid(format!(
-                    "{name} for {} must be one of {}",
-                    widget.type_id,
-                    contract
-                        .options
-                        .iter()
-                        .map(Value::to_string)
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )));
-            }
-        }
+        super::add::check_property_options(widget, name, &value, request.force)?;
         if widget.type_id == "flexcontainer" {
             validate_flex_property(name, &value)?;
         }

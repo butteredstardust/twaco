@@ -187,6 +187,7 @@ fn dynamic_properties_use_the_same_typed_add_and_set_operations_as_commands() {
     )
     .unwrap();
     let request = authoring::SetRequest {
+        force: false,
         mashup: NAME.into(),
         widget: built.ids["cards"].clone(),
         properties: vec![

@@ -6,6 +6,8 @@ use super::{
     CONFIG_FILE,
 };
 use crate::core::datatable;
+use std::io::Write;
+use std::path::{Component, PathBuf};
 
 /// Plans a rename, optionally applies it, and verifies the resulting workspace. Applying needs
 /// the workspace lock, which the caller holds for the whole command.
@@ -80,14 +82,18 @@ pub(crate) fn run_with(
             SqlChoice::Write(folder) if !effects.migration.is_empty() => {
                 let name = sql::file_name(&options.date, &effects.label);
                 sql = Some(SqlScript {
-                    path: folder.join(name),
+                    path: migration_path(&folder.join(name)),
                     text: sql::render(&effects.migration),
+                    write_error: None,
                 });
             }
             SqlChoice::Write(_) => {}
         }
     }
     let mut notes = Vec::new();
+    let outside_sql = sql
+        .as_ref()
+        .is_some_and(|script| !script.path.starts_with(&solution.root));
     if spec.kind == super::Kind::Field
         && spec.scope.as_deref().is_some_and(|shape| {
             workspace::discover(solution).entities.iter().any(|entity| {
@@ -114,6 +120,9 @@ pub(crate) fn run_with(
             why: "applying needs the workspace lock".to_string(),
         })?;
         tracing::info!("rename: verified, writing");
+        if let Some(script) = sql.as_ref().filter(|_| outside_sql) {
+            super::apply::verify_destinations(&plan, &[(script.path.clone(), Vec::new())])?;
+        }
         let applied = apply(
             solution,
             &plan,
@@ -122,11 +131,21 @@ pub(crate) fn run_with(
                 date: options.date.clone(),
                 extra_files: sql
                     .iter()
+                    .filter(|_| !outside_sql)
                     .map(|script| (script.path.clone(), script.text.clone().into_bytes()))
                     .collect(),
             },
             lock,
         )?;
+        if let Some(script) = sql.as_mut().filter(|_| outside_sql) {
+            if let Err(error) = write_migration(script) {
+                script.write_error = Some(error.to_string());
+                notes.push(format!(
+                    "The rename was applied. Save the migration shown to {} before importing.",
+                    script.path.display()
+                ));
+            }
+        }
         tracing::info!("rename: written, verifying");
         // A prefix rename may change project declarations in twaco.toml. Verification must use
         // those new declarations rather than the in-memory solution used to make the plan.
@@ -157,7 +176,7 @@ pub(crate) fn run_with(
     };
     let mut follow_up = follow_up(&plan, options.include_outside);
     follow_up.extend(notes);
-    if let Some(script) = &sql {
+    if let Some(script) = sql.as_ref().filter(|script| script.write_error.is_none()) {
         follow_up.push(format!(
             "Run {} before the import: `twaco db run {} --apply` (one atomic script), or psql with ON_ERROR_STOP=1. DeployComponent creates tables and never renames one.",
             script.path.display(),
@@ -174,6 +193,30 @@ pub(crate) fn run_with(
         follow_up,
         sql,
     })
+}
+
+fn migration_path(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::ParentDir if out.file_name().is_some() => {
+                out.pop();
+            }
+            Component::ParentDir if out.has_root() => {}
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+fn write_migration(script: &SqlScript) -> std::io::Result<()> {
+    let parent = script.path.parent().expect("migration has a folder");
+    std::fs::create_dir_all(parent)?;
+    let mut staged = tempfile::NamedTempFile::new_in(parent)?;
+    staged.write_all(script.text.as_bytes())?;
+    staged.as_file().sync_all()?;
+    staged.persist_noclobber(&script.path)?;
+    Ok(())
 }
 
 /// The entities whose sidecars and entity document are out of step, as `Collection/Name`, plus any

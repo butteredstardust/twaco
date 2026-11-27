@@ -102,6 +102,23 @@ pub(crate) struct PropertyContract {
     /// The values a select property allows, when it lists them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) options: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) values: Vec<PropertyValue>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct PropertyValue {
+    pub value: Value,
+    pub label: String,
+}
+
+impl PropertyContract {
+    pub(crate) fn allowed_values(&self) -> impl Iterator<Item = &Value> {
+        self.values
+            .iter()
+            .map(|entry| &entry.value)
+            .chain(&self.options)
+    }
 }
 
 const fn yes() -> bool {
@@ -314,6 +331,7 @@ pub(crate) fn dynamic_property(
                 target: false,
                 editable: false,
                 options: Vec::new(),
+                values: Vec::new(),
             });
         }
         let globals = json_object(&props["MashupGlobalPropertyBinding"])?;
@@ -336,6 +354,7 @@ pub(crate) fn dynamic_property(
         target: true,
         editable: !chart_source,
         options: vec![],
+        values: vec![],
     })
 }
 
@@ -969,7 +988,9 @@ mod tests {
             container
                 .property("ExpandCollapseTabLocation")
                 .unwrap()
-                .options,
+                .allowed_values()
+                .cloned()
+                .collect::<Vec<_>>(),
             vec![Value::from("inside"), Value::from("outside")]
         );
     }

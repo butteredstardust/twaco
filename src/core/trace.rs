@@ -74,6 +74,8 @@ pub(crate) struct ScriptCall {
     /// False when the variable is bound more than once in the script (a parameter, another
     /// declaration, a reassignment): then what is read of it may not be this result.
     pub(crate) reads_followed: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) subscription_events: Vec<super::subscriptions::Event>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -257,9 +259,16 @@ pub fn run(solution: &Solution, given: &str, param: Option<&str>) -> Result<Trac
         let Ok(services) = super::sidecar::script_services(&src) else {
             continue;
         };
-        for script in services
+        let subscriptions = super::sidecar::subscription_scripts(&src).unwrap_or_default();
+        for (script, events) in services
             .iter()
-            .filter(|script| script.script.contains(&needle))
+            .map(|script| (script, &[][..]))
+            .chain(
+                subscriptions
+                    .iter()
+                    .map(|(script, events)| (script, events.as_slice())),
+            )
+            .filter(|(script, _)| script.script.contains(&needle))
         {
             match call_sites(&script.script, service, &targets, own) {
                 Some(sites) => {
@@ -271,6 +280,7 @@ pub fn run(solution: &Solution, given: &str, param: Option<&str>) -> Result<Trac
                             into: site.into,
                             reads: site.reads,
                             reads_followed: site.reads_followed,
+                            subscription_events: events.to_vec(),
                         });
                     }
                 }
@@ -759,6 +769,14 @@ pub fn render(trace: &Trace) -> String {
             "  {}:{}  {into}{}\n",
             call.caller, call.line, call.call
         ));
+        if !call.subscription_events.is_empty() {
+            let events: Vec<_> = call
+                .subscription_events
+                .iter()
+                .map(super::subscriptions::Event::address)
+                .collect();
+            out.push_str(&format!("    triggered by {}\n", events.join(", ")));
+        }
         if !call.reads_followed {
             out.push_str("    reads not followed: the variable is bound more than once\n");
         } else if !call.reads.is_empty() {
