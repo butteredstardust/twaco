@@ -553,10 +553,12 @@ fn migrate_widget(
             props.insert("Id".into(), json!(id));
             if kind == "container" && original.get("ResponsiveLayout") == Some(&json!(true)) {
                 if let Some(children) = widget["Widgets"].as_array_mut() {
-                    if children.first().is_some_and(|w| {
-                        w["Properties"]["Type"] == "panel"
-                            && w["Properties"]["ResponsiveLayout"] == true
-                    }) {
+                    // Only a sole responsive panel is flattened: replacing the list with the
+                    // first panel's children would delete its siblings.
+                    if children.len() == 1
+                        && children[0]["Properties"]["Type"] == "panel"
+                        && children[0]["Properties"]["ResponsiveLayout"] == true
+                    {
                         *children = children[0]["Widgets"]
                             .as_array()
                             .cloned()
@@ -910,6 +912,31 @@ mod tests {
             migrate_widget(&mut widget, parent, &mut plan, &mut endpoints).unwrap();
             assert_eq!(!plan.migrations.is_empty(), expected);
             assert_eq!(!plan.kept.is_empty(), !expected);
+        }
+    }
+
+    #[test]
+    fn a_responsive_container_flattens_only_a_sole_panel_and_keeps_siblings() {
+        let panel = |id: &str| json!({"Properties":{"Type":"panel","Id":id,"ResponsiveLayout":true},"Widgets":[{"Properties":{"Type":"ptcslabel","Id":format!("{id}-label")},"Widgets":[]}]});
+        let label = json!({"Properties":{"Type":"ptcslabel","Id":"loose"},"Widgets":[]});
+        for (children, kept) in [
+            (vec![panel("panel-1")], vec!["panel-1-label"]),
+            (
+                vec![panel("panel-1"), label.clone()],
+                vec!["panel-1", "loose"],
+            ),
+        ] {
+            let mut plan = plan();
+            let mut endpoints = BTreeMap::new();
+            let mut widget = json!({"Properties":{"Type":"container","Id":"container-1","ResponsiveLayout":true},"Widgets":children});
+            migrate_widget(&mut widget, "ptcsdynamicpanel", &mut plan, &mut endpoints).unwrap();
+            let ids: Vec<_> = widget["Widgets"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|child| child["Properties"]["Id"].as_str().unwrap())
+                .collect();
+            assert_eq!(ids, kept);
         }
     }
 

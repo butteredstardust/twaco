@@ -2303,6 +2303,7 @@ impl MashupDocument {
             if is_generated_container(cell)
                 && !authored_layout(cell)
                 && children(cell).len() == 1
+                && holds_filler(cell)
                 && type_of(row) == Some("flexcontainer")
                 && row["Properties"]["flex-direction"] == "row"
                 && children(row)

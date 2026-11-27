@@ -2143,7 +2143,11 @@ impl Edit2<'_> {
             )));
         }
         let model = Model::build(self.solution, self.found)?;
-        let version_two = events.len() > 1 || stateful || distributed;
+        // An explicit alias only exists in the version-2 shape, so it selects that shape too.
+        let version_two = events.len() > 1
+            || stateful
+            || distributed
+            || events.iter().any(|source| source.alias.is_some());
         if events.is_empty() {
             return Err(invalid("subscription add needs at least one --event"));
         }
@@ -2221,9 +2225,6 @@ impl Edit2<'_> {
             let (_, event, thing, property) = &rows[0];
             entity::new::subscription_xml(name, event, thing, property, code)?
         };
-        if !version_two && events[0].alias.is_some() {
-            plan.warnings.push("A legacy single-event subscription has no alias; use --stateful for an event alias.".into());
-        }
         if distributed {
             plan.warnings.push("Only a clustered ThingWorx server keeps a distributed subscription enabled; a single-node server exports aspect.isDistributed as false.".into());
         }

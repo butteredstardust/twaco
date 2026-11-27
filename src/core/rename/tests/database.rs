@@ -363,30 +363,30 @@ fn brief99_external_sql_directory_is_written_after_commit_without_clobbering() {
 }
 
 #[test]
-fn brief99_external_sql_write_failure_keeps_the_applied_rename_and_script() {
+fn external_sql_folder_that_cannot_be_written_refuses_before_the_rename() {
     let fixture = db_fixture("external-failure");
     let outside = tempfile::tempdir_in(fixture.root.parent().unwrap()).unwrap();
     let folder = outside.path().join("blocked");
     std::fs::write(&folder, "Acme existing file").unwrap();
     let mut options = db_options(&fixture.root, SqlChoice::Unset);
     options.sql = SqlChoice::Write(folder.clone());
-    let outcome = run(
+    let before = std::fs::read_to_string(fixture.root.join("twaco.toml")).unwrap();
+    let error = run(
         &fixture.solution,
         &field_spec("P.Dashboards", "UserName", "OwnerName"),
         &options,
         Some(&locked(&fixture)),
     )
-    .unwrap();
-    assert!(outcome.applied.is_some());
-    let script = outcome.sql.as_ref().unwrap();
-    assert!(script.path.starts_with(folder));
-    assert!(script.write_error.is_some());
-    assert!(script.text.contains("RENAME COLUMN"));
-    let result = summary_json(&fixture.solution, &outcome, false, 10);
-    assert_eq!(result["sql"]["written"], false);
-    assert_eq!(result["sql"]["text"], script.text);
-    assert!(outcome
-        .follow_up
-        .iter()
-        .any(|note| note.contains("rename was applied")));
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("cannot stage the migration script"),
+        "{error}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("twaco.toml")).unwrap(),
+        before
+    );
+    let shape = std::fs::read_to_string(fixture.root.join("DataShapes/P.Dashboards.xml")).unwrap();
+    assert!(shape.contains("\"UserName\"") && !shape.contains("OwnerName"));
 }

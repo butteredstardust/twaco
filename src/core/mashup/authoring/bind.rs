@@ -89,8 +89,9 @@ fn plan_literal(
             "literal:<value> needs a ui:<widget>.<property> target".into(),
         ));
     };
-    let value =
-        serde_json::from_str(literal).unwrap_or_else(|_| Value::String(literal.to_string()));
+    // CLI text, typed by the property like `mashup set --prop`: "42" stays a string for a
+    // STRING property and becomes a number for a NUMBER one.
+    let value = Value::String(literal.to_string());
     let set = super::SetRequest {
         mashup: request.mashup.clone(),
         widget,

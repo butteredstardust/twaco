@@ -4234,3 +4234,37 @@ fn brief99_data_shape_add_updates_accumulated_shapes_and_removal_names_the_store
         "{message}"
     );
 }
+
+#[test]
+fn a_single_aliased_subscription_event_keeps_its_alias_in_the_version_two_shape() {
+    let (_dir, solution) = fixture();
+    family(&solution);
+    let press = "Acme.Orders.Press";
+    run(
+        &solution,
+        press,
+        Action::SubscriptionAdd {
+            name: "Started".into(),
+            events: vec!["ThingStart=Start".into()],
+            source: None,
+            source_property: None,
+            stateful: false,
+            distributed: false,
+            code: r#"logger.info(events["Start"].eventName);"#.into(),
+        },
+    );
+    let after = file(&solution, "Things", press);
+    let tree = roxmltree::Document::parse(&after).unwrap();
+    let subscription = tree
+        .descendants()
+        .find(|node| node.attribute("name") == Some("Started") && node.has_tag_name("Subscription"))
+        .unwrap();
+    assert_eq!(subscription.attribute("version"), Some("2"));
+    assert_eq!(subscription.attribute("aspect.isStateful"), Some("false"));
+    let event = tree
+        .descendants()
+        .find(|node| node.has_tag_name("Event"))
+        .unwrap();
+    assert_eq!(event.attribute("alias"), Some("Start"));
+    assert_eq!(event.attribute("eventName"), Some("ThingStart"));
+}

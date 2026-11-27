@@ -944,7 +944,9 @@ pub(super) fn check_property_options(
 ) -> Result<(), AuthoringError> {
     if let Some(contract) = widget.property(name).filter(|_| !force) {
         let mut options = contract.allowed_values().peekable();
+        // The catalogue default (often "") is what an add writes anyway, so it stays allowed.
         if options.peek().is_some()
+            && widget.defaults.get(name) != Some(value)
             && !options.any(|option| {
                 option == value
                     || option

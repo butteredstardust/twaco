@@ -15361,3 +15361,35 @@ fn brief99_mashup_enum_validation_checks_set_and_literal_bind_with_a_force_escap
     );
     assert!(plan_bind(&solution, &bind).unwrap().edit.unchanged());
 }
+
+#[test]
+fn literal_binding_text_is_typed_by_the_target_and_select_defaults_stay_allowed() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Grid_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let label = plan_add(&solution, &add_request(name, "ptcslabel")).unwrap();
+    apply_edit(&solution, &label.edit, &lock(&solution)).unwrap();
+    let plan = plan_bind(
+        &solution,
+        &BindRequest {
+            mashup: name.into(),
+            from: "literal:42".into(),
+            to: format!("ui:{}.LabelText", label.placed.id),
+            force: false,
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let doc = MashupDocument::new(content_of(&solution, name)).unwrap();
+    assert_eq!(
+        doc.at(&doc.find_exact(&label.placed.id).unwrap().path)["Properties"]["LabelText"],
+        "42"
+    );
+
+    let widget = widgets::catalog().by_type("ptcsimage").unwrap();
+    assert_eq!(widget.defaults.get("Scaling"), Some(&json!("")));
+    let mut image = add_request(name, "ptcsimage");
+    image.properties = vec![("Scaling".into(), String::new())];
+    assert!(plan_add(&solution, &image).is_ok());
+}
