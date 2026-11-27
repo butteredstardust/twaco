@@ -179,6 +179,7 @@ fn usage_paths() -> std::collections::BTreeSet<String> {
         "rename",
         "db",
         "datatable",
+        "data-shape",
         "move",
         "copy",
         "new",
@@ -548,6 +549,7 @@ fn every_flag_means_the_same_in_every_command() {
             let declaration = match (command.path, name.as_str()) {
                 ("new thing-group", "--member") => Some("Thing"),
                 ("new notification", "--event") => Some("Type:Entity:Event"),
+                ("thing subscription", "--event") => Some("address"),
                 ("new notification-content", "--field") => Some("name:TYPE"),
                 ("new notification-content", "--set") => Some("field=value"),
                 _ => None,

@@ -79,6 +79,7 @@ fn fixed_leaf_sizes_switch_responsive_layout_and_fit_owned_rows() {
     let grid = plan_add(&solution, &grid).unwrap();
     apply_edit(&solution, &grid.edit, &lock(&solution)).unwrap();
     let mut set = SetRequest {
+        force: false,
         mashup: name.into(),
         widget: image.placed.id.clone(),
         properties: vec![],
@@ -528,6 +529,7 @@ fn add_in_a_template_slot_places_the_widget_in_that_container() {
     let added = plan_add(
         &solution,
         &AddRequest {
+            tabs: Default::default(),
             mashup: "Acme.Edit_MU".into(),
             widget: "button".into(),
             inputs: Vec::new(),
@@ -1006,6 +1008,7 @@ fn a_file_appearing_after_the_plan_stops_the_write_and_nothing_is_left() {
 
 fn add_request(mashup: &str, widget: &str) -> AddRequest {
     AddRequest {
+        tabs: Default::default(),
         mashup: mashup.to_string(),
         widget: widget.to_string(),
         inputs: Vec::new(),
@@ -1174,6 +1177,7 @@ fn an_added_tab_set_gets_tab_containers_and_numbered_tab_properties() {
         plan_set(
             &solution,
             &SetRequest {
+                force: false,
                 mashup: name.into(),
                 widget: tabset.clone(),
                 properties: properties
@@ -1218,6 +1222,7 @@ fn an_added_tab_set_gets_tab_containers_and_numbered_tab_properties() {
     let label = plan_add(
         &solution,
         &AddRequest {
+            tabs: Default::default(),
             placement: Some(Placement::In(second)),
             ..add_request(name, "label")
         },
@@ -1250,6 +1255,7 @@ fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
     let set = plan_set(
         &solution,
         &SetRequest {
+            force: false,
             mashup: name.into(),
             widget: "flexcontainer-2".into(),
             properties: vec![
@@ -1271,6 +1277,7 @@ fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
     let root = plan_set(
         &solution,
         &SetRequest {
+            force: false,
             mashup: name.into(),
             widget: "mashup-root".into(),
             properties: vec![
@@ -1298,6 +1305,7 @@ fn set_changes_a_flex_container_and_keeps_root_css_in_its_sidecar() {
     let no_change = plan_set(
         &solution,
         &SetRequest {
+            force: false,
             mashup: name.into(),
             widget: "mashup-root".into(),
             properties: vec![("CustomClass".into(), json!("app"))],
@@ -1469,6 +1477,7 @@ fn binding_a_service_result_creates_a_thing_call_and_composer_binding() {
     let plan = plan_bind(
         &solution,
         &BindRequest {
+            force: false,
             mashup: name.into(),
             from: "data:Acme.Orders.Manager.GetOrders".into(),
             to: "ui:ptcsgrid-3.Data".into(),
@@ -1563,6 +1572,7 @@ fn bind(solution: &Solution, from: &str, to: &str) -> Result<BindPlan, Authoring
     plan_bind(
         solution,
         &BindRequest {
+            force: false,
             mashup: "Acme.Orders_MU".into(),
             from: from.into(),
             to: to.into(),
@@ -2588,6 +2598,7 @@ fn planning_add_bind_and_on_writes_nothing() {
         &solution,
         &commands::mashup::MashupBindRequest {
             request: BindRequest {
+                force: false,
                 mashup: "Acme.Orders_MU".into(),
                 from: "data:Acme.Orders.Manager.GetOrders".into(),
                 to: "ui:ptcsgrid-5.Data".into(),
@@ -3170,6 +3181,7 @@ fn contained_parameters_bind_refresh_and_events_follow_the_container_contract() 
         plan_bind(
             &solution,
             &BindRequest {
+                force: false,
                 mashup: "Acme.Board_MU".into(),
                 from,
                 to,
@@ -3279,6 +3291,7 @@ fn hidden_and_config_form_child_parameters_are_not_offered_or_bindable() {
     let text = plan_add(
         &solution,
         &AddRequest {
+            tabs: Default::default(),
             mashup: "Acme.Board_MU".into(),
             widget: "text-field".into(),
             inputs: Vec::new(),
@@ -3295,6 +3308,7 @@ fn hidden_and_config_form_child_parameters_are_not_offered_or_bindable() {
     let error = plan_bind(
         &solution,
         &BindRequest {
+            force: false,
             mashup: "Acme.Board_MU".into(),
             from: format!("ui:{}.Text", text.placed.id),
             to: "ui:mashupcontainer-3.title".into(),
@@ -3306,6 +3320,7 @@ fn hidden_and_config_form_child_parameters_are_not_offered_or_bindable() {
     let error = plan_bind(
         &solution,
         &BindRequest {
+            force: false,
             mashup: "Acme.Board_MU".into(),
             from: format!("ui:{}.Text", text.placed.id),
             to: "ui:mashupcontainer-3.ConfigForm_mode".into(),
@@ -4273,6 +4288,7 @@ fn add_function(
     let plan = plan_add(
         solution,
         &AddRequest {
+            tabs: Default::default(),
             inputs: inputs.iter().map(|input| input.to_string()).collect(),
             properties: properties
                 .iter()
@@ -4421,6 +4437,7 @@ fn function_input_defaults_keep_their_json_types() {
     let error = plan_add(
         &solution,
         &AddRequest {
+            tabs: Default::default(),
             inputs: vec!["flag:BOOLEAN=not-a-boolean".into()],
             ..add_request("Acme.Orders_MU", "expression2")
         },
@@ -4481,6 +4498,7 @@ fn function_widgets_refuse_a_place_in_the_layout_and_inputs_where_they_take_none
     let code = |request: AddRequest| plan_add(&solution, &request).unwrap_err().code();
     assert_eq!(
         code(AddRequest {
+            tabs: Default::default(),
             placement: Some(Placement::In("center".into())),
             ..add_request("Acme.Orders_MU", "expression2")
         }),
@@ -4488,6 +4506,7 @@ fn function_widgets_refuse_a_place_in_the_layout_and_inputs_where_they_take_none
     );
     assert_eq!(
         code(AddRequest {
+            tabs: Default::default(),
             inputs: vec!["x:STRING".into()],
             ..add_request("Acme.Orders_MU", "button")
         }),
@@ -4495,6 +4514,7 @@ fn function_widgets_refuse_a_place_in_the_layout_and_inputs_where_they_take_none
     );
     assert_eq!(
         code(AddRequest {
+            tabs: Default::default(),
             inputs: vec!["x:STRING".into()],
             ..add_request("Acme.Orders_MU", "status-message")
         }),
@@ -4502,6 +4522,7 @@ fn function_widgets_refuse_a_place_in_the_layout_and_inputs_where_they_take_none
     );
     assert_eq!(
         code(AddRequest {
+            tabs: Default::default(),
             inputs: vec!["x".into()],
             ..add_request("Acme.Orders_MU", "expression2")
         }),
@@ -4509,6 +4530,7 @@ fn function_widgets_refuse_a_place_in_the_layout_and_inputs_where_they_take_none
     );
     assert_eq!(
         code(AddRequest {
+            tabs: Default::default(),
             inputs: vec!["x:STRING".into(), "x:NUMBER".into()],
             ..add_request("Acme.Orders_MU", "validator2")
         }),
@@ -6489,6 +6511,7 @@ fn chart_series_fields_root_properties_and_fixed_icons_are_settable() {
         plan_set(
             &solution,
             &SetRequest {
+                force: false,
                 mashup: name.into(),
                 widget: widget.into(),
                 properties: properties
@@ -6565,6 +6588,7 @@ fn root_parameter_defaults_are_set_through_mashup_param() {
     let error = plan_set(
         &solution,
         &SetRequest {
+            force: false,
             mashup: "Acme.Orders_MU".into(),
             widget: "mashup-root".into(),
             properties: vec![("Manager".into(), json!("Acme.Orders.Manager"))],
@@ -7535,6 +7559,7 @@ fn set_and_apply(
     let plan = plan_set(
         solution,
         &SetRequest {
+            force: false,
             mashup: mashup.into(),
             widget: widget.into(),
             properties,
@@ -7562,6 +7587,7 @@ fn style(
     let plan = plan_set(
         solution,
         &SetRequest {
+            force: false,
             mashup: mashup.into(),
             widget: widget.into(),
             properties: Vec::new(),
@@ -7758,6 +7784,7 @@ fn style_from_copies_one_entry_and_keeps_the_rest() {
     let again = plan_set(
         &solution,
         &SetRequest {
+            force: false,
             mashup: "Acme.Target_MU".into(),
             widget: "ptcslabel-3".into(),
             properties: Vec::new(),
@@ -7803,6 +7830,7 @@ fn style_from_refuses_what_it_cannot_copy_and_copies_nothing_from_an_unstyled_wi
         plan_set(
             &solution,
             &SetRequest {
+                force: false,
                 mashup: "Acme.Target_MU".into(),
                 widget: widget.into(),
                 properties: Vec::new(),
@@ -7836,6 +7864,7 @@ fn style_from_refuses_what_it_cannot_copy_and_copies_nothing_from_an_unstyled_wi
     let plan = plan_set(
         &solution,
         &SetRequest {
+            force: false,
             mashup: "Acme.Ref_MU".into(),
             widget: "ptcslabel-3".into(),
             properties: Vec::new(),
@@ -7875,6 +7904,7 @@ fn style_from_refuses_a_malformed_style_map() {
     let error = plan_set(
         &solution,
         &SetRequest {
+            force: false,
             mashup: "Acme.Target_MU".into(),
             widget: "ptcslabel-3".into(),
             properties: Vec::new(),
@@ -7899,6 +7929,7 @@ fn setting_the_root_theme_takes_the_default_or_a_solution_theme_only() {
         plan_set(
             &solution,
             &SetRequest {
+                force: false,
                 mashup: "Acme.Target_MU".into(),
                 widget: "mashup-root".into(),
                 properties: vec![("StyleTheme".into(), json!(name))],
@@ -7976,6 +8007,7 @@ fn a_shape_is_wired_set_and_removed_through_its_contract() {
     let plan = plan_bind(
         &solution,
         &BindRequest {
+            force: false,
             mashup: "Acme.Shape_MU".into(),
             from: "mashup:Level".into(),
             to: format!("ui:{id}.Data"),
@@ -7986,6 +8018,7 @@ fn a_shape_is_wired_set_and_removed_through_its_contract() {
     let plan = plan_bind(
         &solution,
         &BindRequest {
+            force: false,
             mashup: "Acme.Shape_MU".into(),
             from: "mashup:Level".into(),
             to: format!("ui:{id}.DynamicRangeMaximum"),
@@ -7997,6 +8030,7 @@ fn a_shape_is_wired_set_and_removed_through_its_contract() {
         plan_set(
             &solution,
             &SetRequest {
+                force: false,
                 mashup: "Acme.Shape_MU".into(),
                 widget: id.clone(),
                 properties: vec![(name.into(), value)],
@@ -8150,7 +8184,7 @@ fn state_format_numeric_contract_plan_apply_and_identity() {
 }
 
 fn state_format_grid_columns(solution: &Solution) {
-    let plan = plan_set(solution, &SetRequest { mashup:"Acme.Orders_MU".into(), widget:"ptcsgrid-5".into(), style_from:None, styles:Vec::new(), properties:vec![("ColumnFormat".into(),json!({"formatInfo":[
+    let plan = plan_set(solution, &SetRequest { force: false, mashup:"Acme.Orders_MU".into(), widget:"ptcsgrid-5".into(), style_from:None, styles:Vec::new(), properties:vec![("ColumnFormat".into(),json!({"formatInfo":[
         {"FieldName":"note","Title":"Status","FormatOptions":{"FormatString":"full","renderer":"STRING","formatInfo":{"StateFormats":[]}}},
         {"FieldName":"id","Title":"Id","FormatOptions":{"FormatString":"0","renderer":"NUMBER"}}
     ]}))] }).unwrap();
@@ -8312,7 +8346,7 @@ fn state_format_validate_unknown_and_drift_are_separate_from_check() {
         .iter()
         .any(|p| p.rule == "state-format-drift" || p.rule == "unknown-state-definition"));
     state_format_grid_columns(&solution);
-    let plan = plan_set(&solution, &SetRequest { mashup:"Acme.Orders_MU".into(),widget:"ptcsgrid-5".into(),style_from:None,styles:Vec::new(),properties:vec![("ColumnFormat".into(),json!({"formatInfo":[{"FieldName":"note","FormatOptions":{"formatInfo":{"StateDefinition":"Missing"}}}]}))] }).unwrap();
+    let plan = plan_set(&solution, &SetRequest { force: false, mashup:"Acme.Orders_MU".into(),widget:"ptcsgrid-5".into(),style_from:None,styles:Vec::new(),properties:vec![("ColumnFormat".into(),json!({"formatInfo":[{"FieldName":"note","FormatOptions":{"formatInfo":{"StateDefinition":"Missing"}}}]}))] }).unwrap();
     apply_edit(&solution, plan.edit.as_ref().unwrap(), &lock(&solution)).unwrap();
     let state_path = dir.path().join("acme/StateDefinitions/Acme.Level_ST.xml");
     let changed = std::fs::read_to_string(&state_path)
@@ -8360,6 +8394,7 @@ fn state_format_validate_unknown_and_drift_are_separate_from_check() {
         let plan = plan_set(
             &solution,
             &SetRequest {
+                force: false,
                 mashup: "Acme.Orders_MU".into(),
                 widget: widget.into(),
                 style_from: None,
@@ -8494,6 +8529,7 @@ fn a_card_of_label_value_rows_and_separators_gets_a_measured_range_row() {
         let frame = plan_set(
             &solution,
             &SetRequest {
+                force: false,
                 mashup: name.into(),
                 widget: card.clone(),
                 properties: Vec::new(),
@@ -8711,6 +8747,7 @@ fn a_separator_refuses_a_card_anchor_and_a_malformed_style_map() {
     assert!(matches!(below(&card), Err(AuthoringError::Invalid(_))));
     // A root style map that is not Composer's shape is refused, not a panic.
     let mut set = SetRequest {
+        force: false,
         mashup: name.into(),
         widget: "mashup-root".into(),
         properties: vec![("StyleProperties".into(), json!({"data": []}))],
@@ -8780,6 +8817,7 @@ fn a_cell_menu_item_event_is_checked_against_the_menu_state_definition() {
     let set = plan_set(
         &solution,
         &SetRequest {
+            force: false,
             mashup: "Acme.Orders_MU".into(),
             widget: collection.clone(),
             properties: vec![("CellMenu".into(), json!("Acme.Menu_ST"))],
@@ -9694,6 +9732,7 @@ fn menubar_menu_entities_select_the_data_source_in_add_and_set() {
     let id = plan.placed.id.clone();
     apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
     let mut set = SetRequest {
+        force: false,
         mashup: name.into(),
         widget: id,
         properties: vec![
@@ -9752,6 +9791,7 @@ fn menubar_menu_entity_refuses_an_existing_data_binding() {
         let error = plan_set(
             &solution,
             &SetRequest {
+                force: false,
                 mashup: "Acme.Orders_MU".into(),
                 widget: id.clone(),
                 properties: vec![("PrimaryNavMenu".into(), json!("Acme.Navigation"))],
@@ -9800,6 +9840,7 @@ fn nonempty_css_sidecar_allows_edits_with_absent_or_legacy_content_css() {
         let set = plan_set(
             &solution,
             &SetRequest {
+                force: false,
                 mashup: name.into(),
                 widget: label.placed.id.clone(),
                 properties: vec![("Label".into(), json!("Hi"))],
@@ -10003,6 +10044,7 @@ fn flexcontainer_properties_bind_and_set_on_tab_containers() {
         .unwrap()
         .to_string();
     let mut request = SetRequest {
+        force: false,
         mashup: name.into(),
         widget: id.clone(),
         properties: vec![
@@ -10028,6 +10070,7 @@ fn flexcontainer_properties_bind_and_set_on_tab_containers() {
     assert_eq!(before, sidecar_content(&solution));
     // Percent sizes and the expand/collapse icons stay settable.
     let extra = SetRequest {
+        force: false,
         properties: vec![
             ("flex-max-width".into(), json!("50%")),
             ("ExpandTabIcon".into(), json!("Acme.Expand")),
@@ -10067,6 +10110,7 @@ fn flexcontainer_properties_bind_and_set_on_tab_containers() {
         plan_bind(
             &solution,
             &BindRequest {
+                force: false,
                 mashup: name.into(),
                 from,
                 to,
@@ -10077,6 +10121,7 @@ fn flexcontainer_properties_bind_and_set_on_tab_containers() {
     assert!(plan_bind(
         &solution,
         &BindRequest {
+            force: false,
             mashup: name.into(),
             from: format!("ui:{id}.LazyLoading"),
             to: "ui:flexcontainer-2.Visible".into()
@@ -10091,6 +10136,7 @@ fn mashup_set_refuses_git_bash_source_url() {
     let error = plan_set(
         &solution,
         &SetRequest {
+            force: false,
             mashup: "Acme.Image_MU".into(),
             widget: "ptcsimage-16".into(),
             properties: vec![(
@@ -10130,6 +10176,7 @@ fn brief83_literal_git_bash_workaround_warns_on_add_and_set() {
     let set = plan_set(
         &solution,
         &SetRequest {
+            force: false,
             mashup: name.into(),
             widget: added.placed.id,
             properties: vec![(
@@ -10589,6 +10636,7 @@ fn leaf_sizing_keeps_deliberate_settings_and_releases_only_its_own_row() {
     .unwrap();
     let set = |properties: Vec<(&str, Value)>| {
         let request = SetRequest {
+            force: false,
             mashup: name.into(),
             widget: image.placed.id.clone(),
             properties: properties
@@ -11004,6 +11052,7 @@ fn collapsing_the_column_of_a_nested_menu_keeps_the_menu_open() {
     let off = plan_set(
         &solution,
         &SetRequest {
+            force: false,
             mashup: "Acme.Orders_MU".into(),
             widget: bar.clone(),
             properties: vec![("AlwaysOpen".into(), json!(false))],
@@ -11076,6 +11125,7 @@ fn navigate_on_click_wires_a_collection_click_and_warns_about_auto_selection() {
     let off = plan_set(
         &solution,
         &SetRequest {
+            force: false,
             mashup: "Acme.Orders_MU".into(),
             widget: collection.clone(),
             properties: vec![("AutoSelectFirstRow".into(), json!(true))],
@@ -11233,6 +11283,7 @@ fn mashup_set_checks_cds_icons_and_leaves_other_images_alone() {
         plan_set(
             &solution,
             &SetRequest {
+                force: false,
                 mashup: "Acme.Orders_MU".into(),
                 widget: "ptcsbutton-6".into(),
                 properties: vec![("Icon".into(), json!(icon))],
@@ -11265,6 +11316,7 @@ fn textfield_icon_is_accepted_and_checked() {
         let result = plan_set(
             &solution,
             &SetRequest {
+                force: false,
                 mashup: "Acme.Orders_MU".into(),
                 widget: placed.placed.id.clone(),
                 properties: vec![("Icon".into(), json!(icon))],
@@ -11285,6 +11337,7 @@ fn only_image_properties_are_checked_for_cds_icons() {
         plan_set(
             &solution,
             &SetRequest {
+                force: false,
                 mashup: "Acme.Orders_MU".into(),
                 widget: widget.into(),
                 properties: vec![(property.into(), json!(value))],
@@ -11414,6 +11467,7 @@ fn moving_a_label_keeps_its_identity_and_tidies_the_row_it_left() {
         beside_of(&first, mashup::edit::Side::Below),
     );
     let set = SetRequest {
+        force: false,
         mashup: name.into(),
         widget: second.clone(),
         properties: vec![
@@ -11504,6 +11558,7 @@ fn moving_a_bound_grid_keeps_its_bindings() {
     let bound = plan_bind(
         &solution,
         &BindRequest {
+            force: false,
             mashup: name.into(),
             from: "data:Acme.Orders.Manager.GetOrders".into(),
             to: format!("ui:{grid_id}.Data"),
@@ -12892,11 +12947,12 @@ fn gadget_sizes_match_xml_and_export_content() {
     let copied = plan_new(
         &solution,
         &NewRequest {
-            from: Some("Acme.Gadget".into()),
+            from: Some("Mashups/Acme.Gadget".into()),
             ..super::tests::request("Acme.Copy")
         },
     )
     .unwrap();
+    assert_eq!(copied.from.as_deref(), Some("Acme.Gadget"));
     let mut expected: serde_json::Value = serde_json::from_str(&plan.assets.content).unwrap();
     expected.as_object_mut().unwrap().remove("CustomMashupCss");
     assert_eq!(
@@ -13135,6 +13191,7 @@ fn moving_a_contained_mashup_subtree_keeps_cache_bindings_and_measured_floor() {
     let bound = plan_bind(
         &solution,
         &BindRequest {
+            force: false,
             mashup: name.into(),
             from: format!("ui:{anchor}.Text"),
             to: format!("ui:{}.title", child.placed.id),
@@ -13335,6 +13392,7 @@ fn b1_wizard_and_dashboard_command_sequences_keep_shared_rows_growing() {
             let set = plan_set(
                 &solution,
                 &SetRequest {
+                    force: false,
                     mashup: name.into(),
                     widget: shared.clone(),
                     properties: vec![
@@ -14109,6 +14167,7 @@ fn n5_panel_fit_content_is_auto_height_including_compact_css() {
     let set = plan_set(
         &solution,
         &SetRequest {
+            force: false,
             mashup: "Acme.Orders_MU".into(),
             widget: panel.clone(),
             properties: vec![("flex-direction".into(), json!("column"))],
@@ -14195,6 +14254,7 @@ fn n5_toolbar_band_keeps_controls_and_uses_kit_style() {
     let set = plan_set(
         &solution,
         &SetRequest {
+            force: false,
             mashup: "Acme.Orders_MU".into(),
             widget: row.clone(),
             properties: vec![("flex-direction".into(), json!("row"))],
@@ -14563,6 +14623,7 @@ fn style_on_the_mashup_root_names_the_page_container_and_odd_settings_are_noted(
     )
     .unwrap();
     let style = |widget: &str, styles: &[&str]| SetRequest {
+        force: false,
         mashup: name.into(),
         widget: widget.into(),
         properties: Vec::new(),
@@ -14674,6 +14735,7 @@ fn card_recipe_builds_one_bordered_box_with_caption_value_and_status() {
     let set = plan_set(
         &solution,
         &SetRequest {
+            force: false,
             mashup: "Acme.Orders_MU".into(),
             widget: column.clone(),
             properties: vec![("flex-direction".into(), json!("column"))],
@@ -14820,6 +14882,7 @@ fn tokens_command_styles_use_twaco_toml_and_match_spec_resolution() {
     let plan = plan_set(
         &solution,
         &SetRequest {
+            force: false,
             mashup: name.into(),
             widget: id.clone(),
             properties: vec![],
@@ -15165,4 +15228,168 @@ fn migrate_keeps_unsupported_widgets_and_applies_atomically() {
     );
     assert_eq!(assets.css, loaded.assets.css);
     super::super::page::extract::extract(&solution, name).unwrap();
+}
+
+#[test]
+fn brief99_tab_set_add_creates_named_items_and_containers() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Tabs_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let mut add = add_request(name, "ptcstabset");
+    add.tabs = super::TabSetOptions {
+        labels: Some(
+            ["Summary", "Tasks", "History", "Settings"]
+                .map(str::to_owned)
+                .to_vec(),
+        ),
+        width: Some("even".into()),
+        style: Some("contained-tabs".into()),
+    };
+    let plan = plan_add(&solution, &add).unwrap();
+    let doc = MashupDocument::new(
+        serde_json::from_str(&mashup::extract(&plan.edit.entity_after).unwrap().content).unwrap(),
+    )
+    .unwrap();
+    let tab = doc.at(&doc.find_exact(&plan.placed.id).unwrap().path);
+    assert_eq!(tab["Properties"]["NumberOfTabs"], 4);
+    assert_eq!(tab["Properties"]["Tab4Name"], "Settings");
+    assert_eq!(tab["Properties"]["Items"][2]["name"], "History");
+    assert_eq!(tab["Properties"]["TabWidthConfig"], "even");
+    assert_eq!(tab["Properties"]["TabStyle"], "contained-tabs");
+    assert_eq!(tab["Widgets"].as_array().unwrap().len(), 4);
+    add.tabs.width = Some("big".into());
+    assert!(plan_add(&solution, &add)
+        .unwrap_err()
+        .to_string()
+        .contains("auto"));
+    add.tabs.width = None;
+    add.tabs.labels = Some(vec!["Summary".into(), " ".into()]);
+    assert!(plan_add(&solution, &add)
+        .unwrap_err()
+        .to_string()
+        .contains("nonempty"));
+}
+
+#[test]
+fn brief99_repeated_right_of_filling_widgets_reuses_the_row_and_reports_its_tree() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Grid_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let mut add = add_request(name, "ptcsgrid");
+    let mut ids = Vec::new();
+    for _ in 0..3 {
+        add.placement = ids.last().cloned().map(|anchor| Placement::Beside {
+            anchor,
+            side: mashup::edit::Side::Right,
+        });
+        let plan = plan_add(&solution, &add).unwrap();
+        ids.push(plan.placed.id.clone());
+        if ids.len() == 3 {
+            assert!(ids
+                .iter()
+                .all(|id| plan.container_tree.iter().any(|line| line.trim() == id)));
+            let doc = MashupDocument::new(
+                serde_json::from_str(&mashup::extract(&plan.edit.entity_after).unwrap().content)
+                    .unwrap(),
+            )
+            .unwrap();
+            let paths: Vec<_> = ids
+                .iter()
+                .map(|id| doc.find_exact(id).unwrap().path)
+                .collect();
+            let row = |path: &[usize]| path[..path.len() - 2].to_vec();
+            assert_eq!(row(&paths[0]), row(&paths[1]));
+            assert_eq!(row(&paths[0]), row(&paths[2]));
+            assert_eq!(
+                paths
+                    .iter()
+                    .map(|path| path[path.len() - 2])
+                    .collect::<Vec<_>>(),
+                [0, 1, 2]
+            );
+        }
+        apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    }
+}
+
+#[test]
+fn brief99_mashup_enum_validation_checks_set_and_literal_bind_with_a_force_escape() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Grid_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let added = plan_add(&solution, &add_request(name, "ptcsgrid")).unwrap();
+    apply_edit(&solution, &added.edit, &lock(&solution)).unwrap();
+    let widget = added.placed.id;
+    let mut set = SetRequest {
+        mashup: name.into(),
+        widget: widget.clone(),
+        properties: vec![("RowLazyLoading".into(), json!("other"))],
+        force: false,
+        style_from: None,
+        styles: Vec::new(),
+    };
+    let err = plan_set(&solution, &set).unwrap_err().to_string();
+    assert!(
+        ["disabled", "all", "auto", "manual"]
+            .iter()
+            .all(|value| err.contains(value)),
+        "{err}"
+    );
+    set.force = true;
+    assert!(plan_set(&solution, &set).is_ok());
+
+    let mut bind = BindRequest {
+        mashup: name.into(),
+        from: "literal:other".into(),
+        to: format!("ui:{widget}.RowLazyLoading"),
+        force: false,
+    };
+    assert_eq!(plan_bind(&solution, &bind).unwrap_err().to_string(), err);
+    bind.force = true;
+    assert!(plan_bind(&solution, &bind).is_ok());
+    bind.force = false;
+    bind.from = "literal:auto".into();
+    let plan = plan_bind(&solution, &bind).unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let doc = MashupDocument::new(content_of(&solution, name)).unwrap();
+    assert_eq!(
+        doc.at(&doc.find_exact(&widget).unwrap().path)["Properties"]["RowLazyLoading"],
+        "auto"
+    );
+    assert!(plan_bind(&solution, &bind).unwrap().edit.unchanged());
+}
+
+#[test]
+fn literal_binding_text_is_typed_by_the_target_and_select_defaults_stay_allowed() {
+    let (_dir, solution) = one_project();
+    let name = "Acme.Grid_MU";
+    let new = plan_new(&solution, &request(name)).unwrap();
+    apply_new(&solution, &new, &lock(&solution)).unwrap();
+    let label = plan_add(&solution, &add_request(name, "ptcslabel")).unwrap();
+    apply_edit(&solution, &label.edit, &lock(&solution)).unwrap();
+    let plan = plan_bind(
+        &solution,
+        &BindRequest {
+            mashup: name.into(),
+            from: "literal:42".into(),
+            to: format!("ui:{}.LabelText", label.placed.id),
+            force: false,
+        },
+    )
+    .unwrap();
+    apply_edit(&solution, &plan.edit, &lock(&solution)).unwrap();
+    let doc = MashupDocument::new(content_of(&solution, name)).unwrap();
+    assert_eq!(
+        doc.at(&doc.find_exact(&label.placed.id).unwrap().path)["Properties"]["LabelText"],
+        "42"
+    );
+
+    let widget = widgets::catalog().by_type("ptcsimage").unwrap();
+    assert_eq!(widget.defaults.get("Scaling"), Some(&json!("")));
+    let mut image = add_request(name, "ptcsimage");
+    image.properties = vec![("Scaling".into(), String::new())];
+    assert!(plan_add(&solution, &image).is_ok());
 }

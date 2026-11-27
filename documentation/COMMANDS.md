@@ -142,6 +142,7 @@ rename field <datashape> <old> <new> [--apply] [--detail] [--json] [--skip-check
                             entity, prefix and field: a rename that touches DBConnection tables is
                             refused until you choose: --sql writes the migration script (default
                             folder sql/, run it before the import), --no-sql says the tables are unused
+                            --sql-dir accepts a folder outside the solution, written after apply
 rename service <entity> <old> <new> [--apply] [--detail] [--json] [--skip-checks]
                             rename a declared service, its overrides and repository callers
     --text                  refused: a service rename has no outside-text pass
@@ -180,7 +181,7 @@ widgets [<widget>] [--search <text>] [--json]
 widgets --icons [<filter>] [--json]
 widgets (--platform [--profile <name>] | --webapp <webapp folder>) [--json]
                             the embedded ThingWorx 10.2 widget catalogue: types, Composer labels,
-                            aliases, containers and editable or bindable properties with defaults, events and services
+                            aliases, containers, property defaults and allowed values, events and services
     --icons                 the 215 CDS icon names a cds: value may take; twaco refuses any other
     --platform              read the server's widget files (GET only) into .twaco/widgets.json: the
                             contracts of legacy widgets (tree, collection, ...) and of installed
@@ -219,7 +220,8 @@ mashup diff <a> <b> [--tier <tier>] [--json]
                             pair bindings/events by endpoints without order; report an extra wrapper once
     --tier <tier>           executable, layout, visual or all (default all)
 mashup add <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> [--end] | --left-of <widget> | --above <widget> | --below <widget>]
-    [--in-column] [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]... [--apply] [--json]
+    [--in-column] [--label <text>] [--prop <name=value>]... [--input <name:TYPE[=default]>]...
+    [--tabs <names>] [--tab-style <style>] [--tab-width <mode>] [--apply] [--json]
                             add a catalogue widget, or one an [[extension]] project defines, to a
                             mashup; plan unless --apply; a function widget (expression, validator,
                             navigation...) goes beside the layout
@@ -240,6 +242,9 @@ mashup add <mashup> <widget> [--in <container> [--bottom] | --right-of <widget> 
     --label <text>          set the widget's LabelText, Label, Text or Title property
     --prop <name=value>     set one simple default property, repeatable; an extension widget's
                             property with no default takes JSON
+    --tabs <names>          ptcstabset tab names, separated by commas (1 to 16)
+    --tab-style <style>     ptcstabset TabStyle setting
+    --tab-width <mode>      ptcstabset TabWidthConfig: auto, even or fixed
     --input <name:TYPE[=default]>
                             an expression's or validator's input, with a typed default; repeatable
 mashup collection add <parent> <cell-mashup> --data <address> --map <value>
@@ -272,9 +277,10 @@ mashup state-format set <mashup> <widget> --state <name>
     --column <field>       an existing ptcsgrid column's field
     --field <field>        the field judged by the state; defaults to the column field or KPI Value
     --icon-only            show only the state icon in a grid column
-mashup set <mashup> <widget> [--prop <name=value>]... [--style <setting>]... [--style-from <mashup:widget>] [--apply] [--json]
+mashup set <mashup> <widget> [--prop <name=value>]... [--style <setting>]... [--style-from <mashup:widget>] [--force] [--apply] [--json]
                             set checked properties or the style of one exact widget (at least one of
                             --prop, --style, --style-from); structured properties take JSON; plan unless --apply
+    --force                 allow a value outside the Composer select options
     --prop <name=value>     set one property, repeatable; objects and arrays are JSON
     --style-from <mashup:widget>
                             copy that widget's visual style (its entry in the root's StyleProperties);
@@ -320,9 +326,10 @@ mashup add-contained <parent> <child> [--in <container> | --right-of <widget> | 
     --right-of/--left-of/--above/--below <widget>
                             place beside an existing widget
     --set <parameter=value> set a visible input parameter on the child
-mashup bind <mashup> --from <address> --to <address> [--apply] [--json]
+mashup bind <mashup> --from <address> --to <address> [--force] [--apply] [--json]
                             add one data binding to a mashup; plan unless --apply
-    --from <address>        source address from mashup describe
+    --from <address>        source address from mashup describe; literal:<value> sets a widget property
+    --force                 allow a literal outside the Composer select options
     --to <address>          target address from mashup describe
                             selected row example: data:Acme.Manager.Load[SelectedRows].name
                             hints when a selected-row field has no selecting widget
@@ -351,7 +358,7 @@ mashup unbind <mashup> --from <address> --to <address> [--apply] [--json]
     --from <address>        source address from mashup describe
     --to <address>          target address from mashup describe
 mashup migrate <mashup> [--apply] [--json]
-                            replace legacy widgets using Composer migration mappings; plan unless --apply
+                            replace legacy widgets using Composer or twaco mappings; plan unless --apply
 mashup off <mashup> --event <address> --invoke <address> [--apply] [--json]
                             remove exactly one event handler; plan unless --apply
     --event <address>       event address from mashup describe
@@ -488,7 +495,7 @@ mashup new <name> [--project <name>] [--spec <file> | --from <address> | --templ
     --spec <file>          compile a YAML page spec (page.kind: master creates a master with page_host), copy it to src/<Mashup>/page.yaml and record a generated baseline;
                             copy the declared page.css beside the spec
                             accepts only --project, --apply and --json
-    --from <address>        copy a repository mashup exactly, except identity and permissions
+    --from <address>        copy a repository mashup by name or Mashups/<name>; identity and permissions change
     --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
     --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
     --gadget                fixed dashboard gadget; default 1x1, 240px per cell
@@ -511,7 +518,7 @@ new mashup <name> [--project <name>] [--spec <file> | --from <address> | --templ
     --spec <file>          compile a YAML page spec (page.kind: master creates a master with page_host), copy it to src/<Mashup>/page.yaml and record a generated baseline;
                             copy the declared page.css beside the spec
                             accepts only --project, --apply and --json
-    --from <address>        copy a repository mashup exactly, except identity and permissions
+    --from <address>        copy a repository mashup by name or Mashups/<name>; identity and permissions change
     --rules <legacy|v1>     layout rules (default v1); legacy opts out of page scrolling and top-aligned filter fields
     --template              layout template name or alias (default: blank); form-2col has full-width fields and left/right columns; see mashup templates
     --gadget                fixed dashboard gadget; default 1x1, 240px per cell
@@ -571,15 +578,25 @@ new role <name> [--project <name>] [--description <text>] [--apply] [--json]
                             create a ThingWorx Role without members as a repository file; plan unless --apply
 new permission-group <name> [--project <name>] [--description <text>] [--apply] [--json]
                             create a ThingWorx PermissionGroup without members as a repository file; plan unless --apply
+data-shape field add <DataShape> <name:TYPE[:primary]> [--description <text>]
+    [--data-shape <DataShape>] [--apply] [--json]
+data-shape field remove <DataShape> <name> [--apply] [--json]
+                            add or remove a field in the DataShape XML and fields.json together;
+                            removal reports references and refuses fields used by DataTables or Streams;
+                            plan unless --apply
+    --data-shape <DataShape> row shape for an INFOTABLE field
 thing property add <Entity> <name>:<TYPE> [--default <value>] [--persistent] [--logged]
     [--read-only] [--category <text>] [--units <text>] [--data-shape <DataShape>]
-    [--description <text>] [--apply] [--json]
+    [--description <text>] [--data-change-type <mode>] [--data-change-threshold <number>] [--apply] [--json]
 thing property set <Entity> <name>[:<TYPE>] [the add flags] [--no-default] [--no-persistent]
-    [--no-logged] [--no-read-only] [--force] [--apply] [--json]
+    [--no-logged] [--no-read-only] [--no-data-change-threshold] [--force] [--apply] [--json]
 thing property remove <Entity> <name> [--force] [--apply] [--json]
                             add, change or remove a property of a Thing, ThingTemplate or
                             ThingShape; a persistent one also writes the stored value of every
                             Thing that has it; plan unless --apply
+    --data-change-type      ALWAYS, VALUE, ON, OFF or NEVER
+    --data-change-threshold numeric threshold for NUMBER, INTEGER and LONG
+    --no-data-change-threshold remove a property's threshold
     --force                 remove or retype a property something still uses (they are listed)
 thing service add <Entity> <Name> [--param <name>:<TYPE>[:<DataShape>]]...
     [--returns <TYPE>[:<DataShape>]] [--description <text>] [--category <text>] [--private]
@@ -599,11 +616,14 @@ thing service override --revert <Entity> <Name> [--apply] [--json]
                             repository; refused for a non-Script parent, one outside the
                             repository, or a parent whose sidecar is out of sync
     --revert                restore the inherited implementation (override only)
-thing subscription add <Entity> <name> --event <Event> [--source <Thing>]
-    [--source-property <property>] (--then <code> | --script <file.js>) [--apply] [--json]
+thing subscription add <Entity> <name> --event <address>... [--source <Thing>]
+    [--source-property <property>] [--stateful] [--distributed] (--then <code> | --script <file.js>) [--apply] [--json]
 thing subscription remove <Entity> <name> [--apply] [--json]
                             add or remove a script subscription; no --source is the entity
                             itself; plan unless --apply
+    --event <address>       repeat Event or Source:Event[:property] (use me for self); append =alias to name the event
+    --stateful              Execute Events Sequentially
+    --distributed           distribute events across cluster nodes; single-node servers disable it
 thing shape <add|remove> <Thing|ThingTemplate> <ThingShape> [--force] [--apply] [--json]
                             implement a ThingShape, or stop; refused when a member clashes, or
                             when something still uses a member the entity loses; plan unless --apply

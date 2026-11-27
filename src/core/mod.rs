@@ -104,6 +104,7 @@ pub mod sidecar;
 pub mod splice;
 pub mod status;
 pub(crate) mod structure;
+pub mod subscriptions;
 pub(crate) mod suppress;
 pub mod sync;
 pub mod testing;

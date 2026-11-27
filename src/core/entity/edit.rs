@@ -36,6 +36,7 @@ pub enum OverrideSource {
 }
 
 mod ai;
+mod data_shape;
 mod nest;
 pub use ai::AgentChange;
 pub use nest::NestGroup;
@@ -55,6 +56,9 @@ pub struct Property {
     pub units: Option<String>,
     pub data_shape: Option<String>,
     pub description: Option<String>,
+    pub data_change_type: Option<String>,
+    pub data_change_threshold: Option<String>,
+    pub no_data_change_threshold: bool,
 }
 
 /// A service signature as `thing service add` gives it.
@@ -118,6 +122,14 @@ pub enum Action {
         project: Option<String>,
         groups: Vec<NestGroup>,
     },
+    FieldAdd {
+        field: String,
+        description: Option<String>,
+        data_shape: Option<String>,
+    },
+    FieldRemove {
+        name: String,
+    },
     PropertyAdd(Property),
     PropertySet {
         property: Property,
@@ -129,9 +141,11 @@ pub enum Action {
     },
     SubscriptionAdd {
         name: String,
-        event: String,
+        events: Vec<String>,
         source: Option<String>,
         source_property: Option<String>,
+        stateful: bool,
+        distributed: bool,
         code: String,
     },
     SubscriptionRemove {
@@ -479,6 +493,19 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditE
             menu_item_set(&references, &doc, title, change, &mut plan)?
         }
         Action::MenuNest { .. } => unreachable!("planned before the entity is read"),
+        Action::FieldAdd {
+            field,
+            description,
+            data_shape,
+        } => {
+            edit.field_add(
+                field,
+                description.as_deref(),
+                data_shape.as_deref(),
+                &mut plan,
+            )?;
+        }
+        Action::FieldRemove { name } => edit.field_remove(name, &mut plan)?,
         Action::PropertyAdd(property) => edit.property_add(property, &mut plan)?,
         Action::PropertySet { property, force } => {
             edit.property_set(property, *force, &mut plan)?
@@ -486,16 +513,18 @@ pub(crate) fn plan(solution: &Solution, request: &Request) -> Result<Plan, EditE
         Action::PropertyRemove { name, force } => edit.property_remove(name, *force, &mut plan)?,
         Action::SubscriptionAdd {
             name,
-            event,
+            events,
             source,
             source_property,
+            stateful,
+            distributed,
             code,
         } => {
-            let source = Source {
-                thing: source.as_deref().filter(|thing| !thing.is_empty()),
-                property: source_property.as_deref().unwrap_or(""),
-            };
-            edit.subscription_add(name, event, &source, code, &mut plan)?
+            let events = events
+                .iter()
+                .map(|value| Source::parse(value, source.as_deref(), source_property.as_deref()))
+                .collect::<Result<Vec<_>, _>>()?;
+            edit.subscription_add(name, &events, (*stateful, *distributed), code, &mut plan)?;
         }
         Action::SubscriptionRemove { name } => subscription_remove(&doc, name, &mut plan)?,
         Action::ServiceAdd(service) => edit.service_add(service, &mut plan)?,
@@ -1132,6 +1161,8 @@ struct Definition {
     description: String,
     name: String,
     ordinal: String,
+    data_change_type: Option<String>,
+    data_change_threshold: Option<String>,
 }
 
 impl Definition {
@@ -1150,6 +1181,8 @@ impl Definition {
             description: get("description").unwrap_or_default(),
             name: get("name").unwrap_or_default(),
             ordinal: get("ordinal").unwrap_or_else(|| "0".into()),
+            data_change_type: get("aspect.dataChangeType"),
+            data_change_threshold: get("aspect.dataChangeThreshold"),
         }
     }
 
@@ -1162,7 +1195,13 @@ impl Definition {
         };
         let mut out = String::from("                    <PropertyDefinition");
         out.push_str(&attr("aspect.cacheTime", "0.0")?);
-        out.push_str(&attr("aspect.dataChangeType", "VALUE")?);
+        if let Some(threshold) = &self.data_change_threshold {
+            out.push_str(&attr("aspect.dataChangeThreshold", threshold)?);
+        }
+        out.push_str(&attr(
+            "aspect.dataChangeType",
+            self.data_change_type.as_deref().unwrap_or("VALUE"),
+        )?);
         out.push_str(&attr("aspect.isLogged", &self.logged.to_string())?);
         out.push_str(&attr("aspect.isPersistent", &self.persistent.to_string())?);
         out.push_str(&attr("aspect.isReadOnly", &self.read_only.to_string())?);
@@ -1192,7 +1231,7 @@ impl Definition {
     }
 
     /// Apply the fields `property` gives over this definition.
-    fn merge(&mut self, property: &Property) {
+    fn merge(&mut self, property: &Property) -> Result<(), EditError> {
         if let Some(base_type) = &property.base_type {
             self.base_type = base_type.clone();
         }
@@ -1223,6 +1262,36 @@ impl Definition {
         if let Some(description) = &property.description {
             self.description = description.clone();
         }
+        if let Some(value) = &property.data_change_type {
+            let value = value.to_ascii_uppercase();
+            if !matches!(value.as_str(), "ALWAYS" | "VALUE" | "ON" | "OFF" | "NEVER") {
+                return Err(invalid(
+                    "--data-change-type must be ALWAYS, VALUE, ON, OFF or NEVER",
+                ));
+            }
+            self.data_change_type = Some(value);
+        }
+        if property.no_data_change_threshold && property.data_change_threshold.is_some() {
+            return Err(invalid(
+                "give --data-change-threshold or --no-data-change-threshold",
+            ));
+        }
+        if property.no_data_change_threshold {
+            self.data_change_threshold = None;
+        } else if let Some(value) = &property.data_change_threshold {
+            if !value.parse::<f64>().is_ok_and(f64::is_finite) {
+                return Err(invalid("--data-change-threshold needs a finite number"));
+            }
+            self.data_change_threshold = Some(value.clone());
+        }
+        if (property.data_change_threshold.is_some() || property.base_type.is_some())
+            && self.data_change_threshold.is_some()
+            && !matches!(self.base_type.as_str(), "NUMBER" | "INTEGER" | "LONG")
+        {
+            return Err(invalid(
+                "--data-change-threshold needs a NUMBER, INTEGER or LONG property",
+            ));
+        }
         // The server writes a NUMBER default as Java writes a double: `5` comes back `5.0`.
         if self.base_type == "NUMBER" {
             if let Some(default) = &self.default {
@@ -1231,6 +1300,7 @@ impl Definition {
                 }
             }
         }
+        Ok(())
     }
 
     /// Refuse what the server would refuse or misread; warn about what cannot be checked.
@@ -1746,7 +1816,17 @@ fn attribute_edits(
     new: &Definition,
 ) -> Result<Vec<Edit>, EditError> {
     let flag = |value: bool| Some(value.to_string());
-    let pairs: [(&str, Option<String>, Option<String>); 9] = [
+    let pairs = [
+        (
+            "aspect.dataChangeThreshold",
+            old.data_change_threshold.clone(),
+            new.data_change_threshold.clone(),
+        ),
+        (
+            "aspect.dataChangeType",
+            old.data_change_type.clone(),
+            new.data_change_type.clone(),
+        ),
         ("aspect.isLogged", flag(old.logged), flag(new.logged)),
         (
             "aspect.isPersistent",
@@ -1876,6 +1956,9 @@ impl Edit2<'_> {
             "properties belong to a Thing, ThingTemplate or ThingShape",
         )?;
         validate_member_name(&property.name)?;
+        if property.no_data_change_threshold {
+            return Err(invalid("--no-data-change-threshold is for property set"));
+        }
         let base_type = property
             .base_type
             .clone()
@@ -1900,13 +1983,15 @@ impl Edit2<'_> {
             description: String::new(),
             name: property.name.clone(),
             ordinal: ordinal.to_string(),
+            data_change_type: None,
+            data_change_threshold: None,
         };
         // Only a newly supplied default is checked: an existing one may be edited around.
         if let Some(default) = &property.default {
             crate::core::repo::refuse_git_bash_value(&Value::String(default.clone()))
                 .map_err(|error| invalid(error.to_string()))?;
         }
-        definition.merge(property);
+        definition.merge(property)?;
         plan.warnings.extend(definition.validate(self.found)?);
         let stored = definition.stored_value(self.found)?;
         let after = append_child(doc, list, &definition.xml()?, 20)?;
@@ -1941,7 +2026,7 @@ impl Edit2<'_> {
             crate::core::repo::refuse_git_bash_value(&Value::String(default.clone()))
                 .map_err(|error| invalid(error.to_string()))?;
         }
-        definition.merge(property);
+        definition.merge(property)?;
         plan.warnings.extend(definition.validate(self.found)?);
         let retyped = definition.base_type != old.base_type;
         if retyped {
@@ -2039,8 +2124,8 @@ impl Edit2<'_> {
     fn subscription_add(
         &self,
         name: &str,
-        event: &str,
-        source: &Source<'_>,
+        events: &[Source<'_>],
+        (stateful, distributed): (bool, bool),
         code: &str,
         plan: &mut Plan,
     ) -> Result<(), EditError> {
@@ -2058,55 +2143,96 @@ impl Edit2<'_> {
             )));
         }
         let model = Model::build(self.solution, self.found)?;
-        let source_doc = match source.thing {
-            None => None,
-            Some(thing) => {
-                let file = model.file("Things", thing).ok_or_else(|| {
-                    EditError::Unknown(format!("no Thing {thing} in the solution to subscribe to"))
-                })?;
-                Some(Doc::read(file)?)
-            }
-        };
-        let target = source_doc.as_ref().unwrap_or(doc);
-        let (mut events, properties) = events_and_properties(&model, target)?;
+        // An explicit alias only exists in the version-2 shape, so it selects that shape too.
+        let version_two = events.len() > 1
+            || stateful
+            || distributed
+            || events.iter().any(|source| source.alias.is_some());
+        if events.is_empty() {
+            return Err(invalid("subscription add needs at least one --event"));
+        }
         let (source_model, _) = types::load_model(self.solution);
-        for entity in &source_model.entities {
-            if model.inherited_names(target).contains(&entity.name) {
-                events.extend(entity.events.iter().map(|(name, _)| name.clone()));
-            }
-        }
         let extension_templates = crate::core::extension_source::templates(self.solution);
-        let extension_template = model.inherited_names(target).iter().any(|name| {
-            extension_templates.contains_key(name) && model.file("ThingTemplates", name).is_none()
-        });
-        if !events.contains(event) && extension_template {
-            plan.warnings.push(format!("{}: {event}: event not known offline; it may come from the extension's Java package; check with `twaco model resolve` / deploy read-back", target.label()));
-        } else if !events.contains(event) {
-            let known = events.into_iter().collect::<Vec<_>>().join(", ");
-            return Err(EditError::Unknown(format!(
-                "{} has no event {event}; it has {known}",
-                target.label()
-            )));
-        }
-        if event == "DataChange" {
-            if source.property.is_empty() {
-                return Err(invalid("a DataChange subscription needs --source-property"));
-            }
-            if !properties.contains(source.property) {
-                return Err(EditError::Unknown(format!(
-                    "{} has no property {}",
-                    target.label(),
+        let mut aliases = BTreeSet::new();
+        let mut rows = Vec::new();
+        for source in events {
+            let event = source.event;
+            let alias = source.alias.map(str::to_owned).unwrap_or_else(|| {
+                let label = if source.thing.is_none() && !source.property.is_empty() {
                     source.property
+                } else {
+                    event
+                };
+                format!("{}_{label}", source.thing.unwrap_or("Me"))
+            });
+            if !aliases.insert(alias.clone()) {
+                return Err(invalid(format!(
+                    "duplicate subscription event alias {alias}; give each event a unique =alias"
                 )));
             }
-        } else if !source.property.is_empty() {
-            return Err(invalid(
-                "--source-property is only for a DataChange subscription",
-            ));
+            let source_doc = match source.thing {
+                None => None,
+                Some(thing) => {
+                    let file = model.file("Things", thing).ok_or_else(|| {
+                        EditError::Unknown(format!(
+                            "no Thing {thing} in the solution to subscribe to"
+                        ))
+                    })?;
+                    Some(Doc::read(file)?)
+                }
+            };
+            let target = source_doc.as_ref().unwrap_or(doc);
+            let (mut events, properties) = events_and_properties(&model, target)?;
+            for entity in &source_model.entities {
+                if model.inherited_names(target).contains(&entity.name) {
+                    events.extend(entity.events.iter().map(|(name, _)| name.clone()));
+                }
+            }
+            let extension_template = model.inherited_names(target).iter().any(|name| {
+                extension_templates.contains_key(name)
+                    && model.file("ThingTemplates", name).is_none()
+            });
+            if !events.contains(event) && extension_template {
+                plan.warnings.push(format!("{}: {event}: event not known offline; it may come from the extension's Java package; check with `twaco model resolve` / deploy read-back", target.label()));
+            } else if !events.contains(event) {
+                let known = events.into_iter().collect::<Vec<_>>().join(", ");
+                return Err(EditError::Unknown(format!(
+                    "{} has no event {event}; it has {known}",
+                    target.label()
+                )));
+            }
+            if event == "DataChange" {
+                if source.property.is_empty() {
+                    return Err(invalid("a DataChange subscription needs --source-property"));
+                }
+                if !properties.contains(source.property) {
+                    return Err(EditError::Unknown(format!(
+                        "{} has no property {}",
+                        target.label(),
+                        source.property
+                    )));
+                }
+            } else if !source.property.is_empty() {
+                return Err(invalid(
+                    "--source-property is only for a DataChange subscription",
+                ));
+            }
+            rows.push((alias, event, source.thing.unwrap_or(""), source.property));
         }
-        let thing = source.thing.unwrap_or("");
-        let xml = entity::new::subscription_xml(name, event, thing, source.property, code)?;
-        plan.summary = format!("add subscription {name} on {event}");
+        let xml = if version_two {
+            entity::new::subscription_v2_xml(name, &rows, stateful, distributed, code)?
+        } else {
+            let (_, event, thing, property) = &rows[0];
+            entity::new::subscription_xml(name, event, thing, property, code)?
+        };
+        if distributed {
+            plan.warnings.push("Only a clustered ThingWorx server keeps a distributed subscription enabled; a single-node server exports aspect.isDistributed as false.".into());
+        }
+        plan.summary = if version_two {
+            format!("add subscription {name} with {} event(s)", rows.len())
+        } else {
+            format!("add subscription {name} on {}", rows[0].1)
+        };
         plan.changes
             .push(doc.change(append_child(doc, list, &xml, 20)?));
         Ok(())
@@ -3087,6 +3213,41 @@ struct Source<'a> {
     /// The Thing subscribed to; none is the entity itself.
     thing: Option<&'a str>,
     property: &'a str,
+    event: &'a str,
+    alias: Option<&'a str>,
+}
+
+impl<'a> Source<'a> {
+    fn parse(
+        raw: &'a str,
+        default_thing: Option<&'a str>,
+        default_property: Option<&'a str>,
+    ) -> Result<Self, EditError> {
+        let (address, alias) = raw
+            .split_once('=')
+            .map_or((raw, None), |(address, alias)| (address, Some(alias)));
+        if alias.is_some_and(|alias| alias.trim().is_empty() || alias.contains('=')) {
+            return Err(invalid(format!(
+                "--event {raw:?} needs a nonempty alias after ="
+            )));
+        }
+        let parts: Vec<_> = address.split(':').collect();
+        let (thing, event, property) = match parts.as_slice() {
+            [event] => (default_thing.filter(|thing| !thing.is_empty()), *event, default_property.unwrap_or("")),
+            [source, event] if !source.is_empty() => (Some(*source).filter(|source| *source != "me"), *event, ""),
+            [source, event, property] if !source.is_empty() && !property.is_empty() => (Some(*source).filter(|source| *source != "me"), *event, *property),
+            _ => return Err(invalid(format!("--event {raw:?} must be Event or Source:Event[:property], optionally followed by =alias"))),
+        };
+        if event.is_empty() {
+            return Err(invalid(format!("--event {raw:?} needs an event name")));
+        }
+        Ok(Self {
+            thing,
+            event,
+            property,
+            alias,
+        })
+    }
 }
 
 /// The events and properties `target` has: its own, what it inherits, and every Thing's.

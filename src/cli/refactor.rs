@@ -509,6 +509,12 @@ pub(crate) fn rename_cmd(solution: &Solution, command: &Rename) -> u8 {
         };
         eprintln!("{} the rename is applied, but verification found problems; fix the {failed} listed above", style::prefix());
         FAILED
+    } else if outcome
+        .sql
+        .as_ref()
+        .is_some_and(|script| script.write_error.is_some())
+    {
+        FAILED
     } else {
         OK
     }
@@ -558,19 +564,28 @@ fn print_rename_outcome(
         );
     }
     if let Some(script) = &outcome.sql {
-        let verb = if outcome.applied.is_some() {
-            "written to"
+        let path = display_relative(solution, &script.path);
+        if let Some(error) = &script.write_error {
+            println!(
+                "  database       could not write {path} ({error})\n\n{}",
+                script.text
+            );
         } else {
-            "would be written to"
-        };
-        println!(
-            "  database       a migration {verb} {}",
-            display_relative(solution, &script.path)
-        );
+            let verb = if outcome.applied.is_some() {
+                "written to"
+            } else {
+                "would be written to"
+            };
+            println!("  database       a migration {verb} {path}");
+        }
     }
 
     if detail {
-        if let Some(script) = &outcome.sql {
+        if let Some(script) = outcome
+            .sql
+            .as_ref()
+            .filter(|script| script.write_error.is_none())
+        {
             println!("\n{}", script.text);
         }
         for change in plan.changes.iter().chain(&plan.outside) {

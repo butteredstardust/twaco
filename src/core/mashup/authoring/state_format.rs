@@ -248,6 +248,7 @@ pub(crate) fn plan_state_format_set(
     let mut plan = plan_set(
         solution,
         &SetRequest {
+            force: false,
             mashup: request.mashup.clone(),
             widget: found.id,
             properties: changes,

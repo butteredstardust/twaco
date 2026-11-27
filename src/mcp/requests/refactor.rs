@@ -698,6 +698,30 @@ pub(crate) enum EntityEditAction {
     AgentSet,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DataShapeFieldAction {
+    Add,
+    Remove,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct DataShapeFieldRequest {
+    pub(crate) action: DataShapeFieldAction,
+    /// The DataShape to edit, by name or DataShapes/Name.
+    pub(crate) entity: String,
+    /// name:TYPE[:primary] for add, or the exact field name for remove.
+    pub(crate) field: String,
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) description: Absent<String>,
+    /// The row shape for an INFOTABLE field.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) data_shape: Absent<String>,
+    #[serde(default = "default_true")]
+    pub(crate) dry_run: bool,
+}
+
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EntityEditRequest {
@@ -717,6 +741,15 @@ pub(crate) struct EntityEditRequest {
     /// property_set: drop the default value.
     #[serde(default)]
     pub(crate) no_default: bool,
+    /// property_add/property_set: ALWAYS, VALUE, ON, OFF or NEVER.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) data_change_type: Absent<String>,
+    /// property_add/property_set: threshold for NUMBER, INTEGER and LONG properties.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) data_change_threshold: Absent<f64>,
+    /// property_set: remove the threshold.
+    #[serde(default)]
+    pub(crate) no_data_change_threshold: bool,
     /// Whether the property is persistent; absent leaves it (property_set).
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) persistent: Absent<bool>,
@@ -744,6 +777,15 @@ pub(crate) struct EntityEditRequest {
     /// subscription_add: the event, such as DataChange, ThingStart, Timer or an event the source defines.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) event: Absent<String>,
+    /// subscription_add: event names or Source:Event[:property], optionally followed by =alias.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) events: Absent<Vec<String>>,
+    /// subscription_add: execute events sequentially.
+    #[serde(default)]
+    pub(crate) stateful: bool,
+    /// subscription_add: distribute across cluster nodes.
+    #[serde(default)]
+    pub(crate) distributed: bool,
     /// subscription_add: the Thing subscribed to; absent is the entity itself.
     #[serde(default, skip_serializing_if = "Absent::is_absent")]
     pub(crate) source: Absent<String>,
@@ -881,6 +923,15 @@ pub(crate) struct EntityEditRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupAddRequest {
+    /// Names of the tabs on a ptcstabset, in order.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) tabs: Absent<Vec<String>>,
+    /// Composer TabStyle for a ptcstabset.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) tab_style: Absent<String>,
+    /// Composer TabWidthConfig for a ptcstabset: auto, even or fixed.
+    #[serde(default, skip_serializing_if = "Absent::is_absent")]
+    pub(crate) tab_width: Absent<String>,
     /// The existing mashup's name.
     pub(crate) mashup: String,
     /// A catalogue widget type or alias.
@@ -996,6 +1047,9 @@ pub(crate) struct MashupStateFormatSetRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupSetRequest {
+    /// Allow a literal widget property value outside Composer's select options.
+    #[serde(default)]
+    pub(crate) force: bool,
     /// The existing mashup's name.
     pub(crate) mashup: String,
     /// An exact widget Id, DisplayName, or the one widget of a type.
@@ -1307,6 +1361,9 @@ pub(crate) struct MashupEventRequest {
 #[derive(Debug, Deserialize, JsonSchema, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MashupBindRequest {
+    /// Allow a literal widget property value outside Composer's select options.
+    #[serde(default)]
+    pub(crate) force: bool,
     /// The existing mashup's name.
     pub(crate) mashup: String,
     /// A source address as `mashup describe` prints it.

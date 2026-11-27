@@ -16,6 +16,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
+import { generateMigrations } from "./generate_widget_migrations.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..");
@@ -29,6 +30,9 @@ const metaBytes = readFileSync(join(webapp, "Common", "widget-meta-values.json")
 const sharedBytes = readFileSync(join(webapp, "Common", "mashup-common-widgets-shared.js"));
 const builderBytes = readFileSync(join(webapp, "Common", "mashup-common-widgets-builder.js"));
 const builderText = builderBytes.toString("utf8");
+const labelsPath = "Common/locales/en/translation-widgets.json";
+const labelsBytes = readFileSync(join(webapp, labelsPath));
+const labels = JSON.parse(labelsBytes.toString("utf8"));
 const meta = JSON.parse(metaBytes.toString("utf8"));
 const sharedText = sharedBytes.toString("utf8");
 const overlay = JSON.parse(readFileSync(join(here, "widget_catalog_overlay.json"), "utf8"));
@@ -111,9 +115,19 @@ function property(definition) {
   if (definition.isEditable === false) out.editable = false;
   if (Array.isArray(definition.selectOptions)) {
     const options = definition.selectOptions
-      .map((option) => plain(option?.value))
-      .filter((value) => value !== undefined);
-    if (options.length) out.options = options;
+      .flatMap((option) => {
+        const value = plain(option?.value);
+        if (value === undefined) return [];
+        const text = typeof option.text === "string" ? option.text : option.label;
+        const translated = typeof text === "string"
+          ? text.split(".").reduce((node, part) => node?.[part], labels)
+          : undefined;
+        const label = typeof translated === "string" ? translated
+          : typeof text === "string" && !text.startsWith("tw.") ? text
+          : String(value);
+        return [{ value, label }];
+      });
+    if (options.length) out.values = options;
   }
   return out;
 }
@@ -198,6 +212,7 @@ const catalog = {
     widget_meta_values: { path: "Common/widget-meta-values.json", sha256: sha256(metaBytes) },
     widget_contracts: { path: "Common/mashup-common-widgets-shared.js", sha256: sha256(sharedBytes) },
     function_widgets: { path: "Common/mashup-common-widgets-builder.js", sha256: sha256(builderBytes) },
+    widget_labels: { path: labelsPath, sha256: sha256(labelsBytes) },
   },
   base_properties: overlay.base_properties,
   dropped: { ptcs: overlay.dropped.ptcs, flexcontainer: overlay.dropped.flexcontainer },
@@ -208,5 +223,6 @@ const catalog = {
 };
 
 const out = join(repo, "src", "core", "widgets", "catalog.json");
+generateMigrations(webapp, repo, widgets);
 writeFileSync(out, JSON.stringify(catalog, null, 2) + "\n");
 console.error(`${widgets.length} widgets (${Object.keys(contracts).length} contracts in the bundle) -> ${out}`);

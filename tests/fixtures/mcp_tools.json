@@ -3072,6 +3072,16 @@
           ],
           "items": true
         },
+        "structure_findings": {
+          "description": "Structure findings reported during a deploy, even when the gate is advisory.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "projects": {
           "type": [
             "array",
@@ -4916,7 +4926,7 @@
   },
   {
     "name": "entity_edit",
-    "description": "Change an existing entity in the repository, as Composer would: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a local script service and its sidecars, or override or revert an inherited service with its script-only sidecar while keeping its run-time permissions; add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, Group/Role/PermissionGroup members (member_add/member_remove with name and type), entity descriptions, Menu-level icons, a menu's items (including sub-Menus, titles, destinations, icons and defaults), menu_nest (a root Menu of sub-Menu links plus one leaf Menu per group, written together), or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
+    "description": "Change an existing entity in the repository. Property edits can set the data-change mode and numeric threshold. A script subscription can listen to several events and opt into stateful or clustered distributed execution. Edit: add, change or remove a property of a Thing, ThingTemplate or ThingShape (a persistent one also writes the stored value of every Thing that has it), add or remove a local script service and its sidecars, or override or revert an inherited service with its script-only sidecar while keeping its run-time permissions; add or remove a script subscription, implement or stop implementing a ThingShape, change a timer's or scheduler's settings, given keys of a style, a MediaEntity's image, Group/Role/PermissionGroup members (member_add/member_remove with name and type), entity descriptions, Menu-level icons, a menu's items (including sub-Menus, titles, destinations, icons and defaults), menu_nest (a root Menu of sub-Menu links plus one leaf Menu per group, written together), or a StateDefinition's states. Removing or retyping a property, or removing a service, something still uses is refused unless force. A dry run unless dry_run is false; apply takes the workspace lock and writes every file or none.",
     "inputSchema": {
       "required": [
         "action",
@@ -4985,6 +4995,19 @@
           "type": "boolean",
           "default": false
         },
+        "data_change_type": {
+          "description": "property_add/property_set: ALWAYS, VALUE, ON, OFF or NEVER.",
+          "type": "string"
+        },
+        "data_change_threshold": {
+          "description": "property_add/property_set: threshold for NUMBER, INTEGER and LONG properties.",
+          "type": "number"
+        },
+        "no_data_change_threshold": {
+          "description": "property_set: remove the threshold.",
+          "type": "boolean",
+          "default": false
+        },
         "persistent": {
           "description": "Whether the property is persistent; absent leaves it (property_set).",
           "type": "boolean"
@@ -5021,6 +5044,23 @@
         "event": {
           "description": "subscription_add: the event, such as DataChange, ThingStart, Timer or an event the source defines.",
           "type": "string"
+        },
+        "events": {
+          "description": "subscription_add: event names or Source:Event[:property], optionally followed by =alias.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "stateful": {
+          "description": "subscription_add: execute events sequentially.",
+          "type": "boolean",
+          "default": false
+        },
+        "distributed": {
+          "description": "subscription_add: distribute across cluster nodes.",
+          "type": "boolean",
+          "default": false
         },
         "source": {
           "description": "subscription_add: the Thing subscribed to; absent is the entity itself.",
@@ -5201,6 +5241,99 @@
         },
         "display_name": {
           "description": "agent_set: the name the assistant shows.",
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "annotations": {
+      "readOnlyHint": false,
+      "openWorldHint": false,
+      "destructiveHint": true,
+      "idempotentHint": false
+    },
+    "outputSchema": {
+      "required": [
+        "entity",
+        "summary",
+        "applied",
+        "dry_run",
+        "files",
+        "warnings"
+      ],
+      "properties": {
+        "entity": {
+          "type": "string"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "applied": {
+          "type": "boolean"
+        },
+        "dry_run": {
+          "type": "boolean"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "notices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "data_shape_field",
+    "description": "Add or remove a field in a DataShape's XML and fields.json in one transaction. Remove reports references and refuses fields used by DataTables or Streams. dry_run defaults to true.",
+    "inputSchema": {
+      "required": [
+        "action",
+        "entity",
+        "field"
+      ],
+      "additionalProperties": false,
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "add",
+            "remove"
+          ]
+        },
+        "entity": {
+          "description": "The DataShape to edit, by name or DataShapes/Name.",
+          "type": "string"
+        },
+        "field": {
+          "description": "name:TYPE[:primary] for add, or the exact field name for remove.",
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "data_shape": {
+          "description": "The row shape for an INFOTABLE field.",
           "type": "string"
         },
         "dry_run": {
@@ -5629,6 +5762,21 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
+        "tabs": {
+          "description": "Names of the tabs on a ptcstabset, in order.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tab_style": {
+          "description": "Composer TabStyle for a ptcstabset.",
+          "type": "string"
+        },
+        "tab_width": {
+          "description": "Composer TabWidthConfig for a ptcstabset: auto, even or fixed.",
+          "type": "string"
+        },
         "mashup": {
           "description": "The existing mashup's name.",
           "type": "string"
@@ -5766,6 +5914,15 @@
               "id",
               "holds"
             ]
+          }
+        },
+        "container_tree": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
           }
         },
         "flipped": true,
@@ -6111,6 +6268,11 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
+        "force": {
+          "description": "Allow a literal widget property value outside Composer's select options.",
+          "type": "boolean",
+          "default": false
+        },
         "mashup": {
           "description": "The existing mashup's name.",
           "type": "string"
@@ -6331,6 +6493,15 @@
             ]
           }
         },
+        "container_tree": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
         "flipped": true,
         "wrapped": {
           "type": "array",
@@ -6372,7 +6543,7 @@
   },
   {
     "name": "mashup_bind",
-    "description": "Add one data binding to an existing mashup. Addresses are exactly those mashup describe prints: ui:<widget>.<Property>, mashup:<Parameter>, and data:<Entity>.<Service> with an optional [as alias], [SelectedRows], field or parameter. SelectedRows fields targeting non-grid widgets warn that a row must first be selected, even for one-row results. A missing Thing call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
+    "description": "Add one data binding or set a widget property with literal:<value> as its source. force allows a literal outside Composer select options. Addresses are exactly those mashup describe prints: ui:<widget>.<Property>, mashup:<Parameter>, and data:<Entity>.<Service> with an optional [as alias], [SelectedRows], field or parameter. SelectedRows fields targeting non-grid widgets warn that a row must first be selected, even for one-row results. A missing Thing call is created; templates and shapes need an existing call. A dry run unless dry_run is false; an apply takes the workspace lock and writes the entity and managed content sidecar together.",
     "inputSchema": {
       "required": [
         "mashup",
@@ -6382,6 +6553,11 @@
       "additionalProperties": false,
       "type": "object",
       "properties": {
+        "force": {
+          "description": "Allow a literal widget property value outside Composer's select options.",
+          "type": "boolean",
+          "default": false
+        },
         "mashup": {
           "description": "The existing mashup's name.",
           "type": "string"
@@ -7473,7 +7649,7 @@
   },
   {
     "name": "mashup_migrate",
-    "description": "Plan replacement of legacy widgets using Composer 10.2 migration mappings, repointing properties, bindings and events. Every dropped property or connection is reported. Widgets with no migrator are kept as they are and listed by name. dry_run defaults to true; apply takes the workspace lock and atomically writes entity and managed content sidecar. Layout and widget IDs are retained.",
+    "description": "Plan replacement of legacy widgets and repoint properties, bindings and events. Each replacement identifies its source as composer or twaco. Every dropped property or connection is reported. Widgets with no migrator are kept as they are and listed by name. dry_run defaults to true; apply takes the workspace lock and atomically writes entity and managed content sidecar. Layout and widget IDs are retained.",
     "inputSchema": {
       "required": [
         "mashup"
@@ -7560,7 +7736,7 @@
   },
   {
     "name": "widgets",
-    "description": "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's editable and bindable properties with base type and direction (in, out, in/out), its events and services. platform refreshes .twaco/widgets.json using read-only server GETs (profile optional); webapp refreshes from a local webapp folder. Refresh takes no widget or search and holds the workspace lock.",
+    "description": "List or search the embedded ThingWorx 10.2 widget catalogue (type, Composer label, aliases, container, whether bindable), or with widget, one widget's editable and bindable properties with base type and direction (in, out, in/out), its events and services. Select properties include their allowed values and Composer labels. platform refreshes .twaco/widgets.json using read-only server GETs (profile optional); webapp refreshes from a local webapp folder. Refresh takes no widget or search and holds the workspace lock.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -11361,6 +11537,19 @@
           "items": {
             "type": "string"
           }
+        },
+        "subscriptions": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": true
+        },
+        "subscription_note": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "type": "object"

@@ -1,33 +1,207 @@
 {
-  "source": "ThingWorx 10.2 Composer, scripts/twx-Builder-bundle: the property mappings of the widget migrators (getXxxMUs, and the same-type table keyed by widget). Only plain renames (old name to new name) are listed; value maps, deletions and creations are not. Names that are events or services of the new widget, and names the new widget still has, are left out.",
+  "source": "ThingWorx 10.2 Composer same-type compatibility renames and values that require conversion. The newtype rules have their own generated provenance.",
   "renames": {
-    "ptcsbutton": {"Alignment": "LabelAlignment", "ContextId": "ContextID", "Text": "Label", "ToolTipField": "TooltipField"},
-    "ptcscheckbox": {"Prompt": "Label", "ToolTipField": "TooltipField"},
-    "ptcschartbar": {"ChartTitle": "Label", "LegendLocation": "LegendPosition", "SecondaryYAxisFormat": "SecondYAxisFormat", "SecondaryYAxisTitle": "SecondYAxisLabel", "XAxisLabelRotation": "HorizontalAxisLabelsRotation"},
-    "ptcschartline": {"ChartTitle": "Label", "LegendLocation": "LegendPosition", "SecondaryYAxisFormat": "SecondYAxisFormat", "SecondaryYAxisTitle": "SecondYAxisLabel", "XAxisLabelRotation": "HorizontalAxisLabelsRotation"},
-    "ptcschartpie": {"ChartTitle": "Label", "ColorFormat": "DataStyle", "LabelField": "DataField", "LegendLocation": "LegendPosition", "LegendWidth": "LegendMaxWidth"},
-    "ptcscollection": {"CellMashupSelectedField": "SelectedCellMashupField", "CellMenuStates": "CellMenu", "CellMenuStatesIconSize": "CellMenuIconSize", "EmptyMashupName": "EmptyMashup", "MashupHeight": "CellHeight"},
-    "ptcsdatepicker": {"DateDisplay": "MonthFormat", "DateFormatToken": "FormatToken", "ToolTipField": "TooltipField"},
-    "ptcsdropdown": {"TextIfNoSelection": "HintText"},
-    "ptcsdynamicpanel": {"CollapseByDefault": "Collapsed"},
-    "ptcsfileupload": {"DeleteAllButtonLabel": "RemoveAllButtonLabel", "DisplayPathTextBox": "ShowRepositoryPath", "DisplayRepositorySelector": "ShowRepositorySelector", "FileName": "FileNames", "FullPath": "FullPaths", "MaximumFileSize": "MaxFileSize", "ShowDeleteAllButton": "ShowRemoveAllButton"},
-    "ptcsgrid": {"CookiePersistence": "CacheRuntimeChanges", "DeletedTable": "DeletedData", "EditedTable": "EditedData", "RowHeight": "MinRowHeight"},
-    "ptcslabel": {"Alignment": "HorizontalAlignment", "Text": "LabelText", "ToolTipField": "TooltipField"},
-    "ptcslink": {"Href": "LinkURL", "SourceURL": "LinkURL"},
-    "ptcsslider": {"Step": "StepSize"},
-    "ptcstabset": {"CurrentTab": "SelectedTab", "DefaultTabAtRuntime": "DefaultTabNumber", "MaxTabWidth": "TabNameMaxWidth"},
-    "ptcstextarea": {"PlaceholderText": "HintText", "ToolTipField": "TooltipField"},
-    "ptcstextfield": {"AllowNegatives": "AllowNegativeValues", "FixedDigits": "DecimalPlaces", "Maximum": "MaxValue", "MaskInputCharacters": "Password", "Minimum": "MinValue", "PlaceholderText": "HintText", "TextAlign": "TextAlignment", "ToolTipField": "TooltipField", "ValueAlign": "TextAlignment"},
-    "ptcsvaluedisplay": {"Alignment": "HorizontalAlignment", "ToolTipField": "TooltipField"},
-    "navigationfunction": {"FixedPopupHeight": "PopupHeight", "FixedPopupWidth": "PopupWidth", "MashupName": "TargetMashup", "MessageToShow": "MissingMashupMessage", "PopupScrolling": "PopupScrollbar", "ShowCloseButton": "CloseButton", "TargetWindow": "TargetWindowType"}
+    "ptcsbutton": {
+      "Alignment": "LabelAlignment",
+      "ContextId": "ContextID",
+      "Text": "Label",
+      "ToolTipField": "TooltipField"
+    },
+    "ptcscheckbox": {
+      "Prompt": "Label",
+      "ToolTipField": "TooltipField"
+    },
+    "ptcschartbar": {
+      "ChartTitle": "Label",
+      "LegendLocation": "LegendPosition",
+      "SecondaryYAxisFormat": "SecondYAxisFormat",
+      "SecondaryYAxisTitle": "SecondYAxisLabel",
+      "XAxisLabelRotation": "HorizontalAxisLabelsRotation"
+    },
+    "ptcschartline": {
+      "ChartTitle": "Label",
+      "LegendLocation": "LegendPosition",
+      "SecondaryYAxisFormat": "SecondYAxisFormat",
+      "SecondaryYAxisTitle": "SecondYAxisLabel",
+      "XAxisLabelRotation": "HorizontalAxisLabelsRotation"
+    },
+    "ptcschartpie": {
+      "ChartTitle": "Label",
+      "ColorFormat": "DataStyle",
+      "LabelField": "DataField",
+      "LegendLocation": "LegendPosition",
+      "LegendWidth": "LegendMaxWidth"
+    },
+    "ptcscollection": {
+      "CellMashupSelectedField": "SelectedCellMashupField",
+      "CellMenuStates": "CellMenu",
+      "CellMenuStatesIconSize": "CellMenuIconSize",
+      "EmptyMashupName": "EmptyMashup",
+      "MashupHeight": "CellHeight"
+    },
+    "ptcsdatepicker": {
+      "DateDisplay": "MonthFormat",
+      "DateFormatToken": "FormatToken",
+      "ToolTipField": "TooltipField"
+    },
+    "ptcsdropdown": {
+      "TextIfNoSelection": "HintText"
+    },
+    "ptcsdynamicpanel": {
+      "CollapseByDefault": "Collapsed"
+    },
+    "ptcsfileupload": {
+      "DeleteAllButtonLabel": "RemoveAllButtonLabel",
+      "DisplayPathTextBox": "ShowRepositoryPath",
+      "DisplayRepositorySelector": "ShowRepositorySelector",
+      "FileName": "FileNames",
+      "FullPath": "FullPaths",
+      "MaximumFileSize": "MaxFileSize",
+      "ShowDeleteAllButton": "ShowRemoveAllButton"
+    },
+    "ptcsgrid": {
+      "CookiePersistence": "CacheRuntimeChanges",
+      "DeletedTable": "DeletedData",
+      "EditedTable": "EditedData",
+      "RowHeight": "MinRowHeight"
+    },
+    "ptcslabel": {
+      "Alignment": "HorizontalAlignment",
+      "Text": "LabelText",
+      "ToolTipField": "TooltipField"
+    },
+    "ptcslink": {
+      "Href": "LinkURL",
+      "SourceURL": "LinkURL"
+    },
+    "ptcsslider": {
+      "Step": "StepSize"
+    },
+    "ptcstabset": {
+      "CurrentTab": "SelectedTab",
+      "DefaultTabAtRuntime": "DefaultTabNumber",
+      "MaxTabWidth": "TabNameMaxWidth"
+    },
+    "ptcstextarea": {
+      "PlaceholderText": "HintText",
+      "ToolTipField": "TooltipField"
+    },
+    "ptcstextfield": {
+      "AllowNegatives": "AllowNegativeValues",
+      "FixedDigits": "DecimalPlaces",
+      "Maximum": "MaxValue",
+      "MaskInputCharacters": "Password",
+      "Minimum": "MinValue",
+      "PlaceholderText": "HintText",
+      "TextAlign": "TextAlignment",
+      "ToolTipField": "TooltipField",
+      "ValueAlign": "TextAlignment"
+    },
+    "ptcsvaluedisplay": {
+      "Alignment": "HorizontalAlignment",
+      "ToolTipField": "TooltipField"
+    },
+    "navigationfunction": {
+      "FixedPopupHeight": "PopupHeight",
+      "FixedPopupWidth": "PopupWidth",
+      "MashupName": "TargetMashup",
+      "MessageToShow": "MissingMashupMessage",
+      "PopupScrolling": "PopupScrollbar",
+      "ShowCloseButton": "CloseButton",
+      "TargetWindow": "TargetWindowType"
+    }
   },
-  "values_differ": {"navigationfunction": ["TargetWindow"]},
+  "values_differ": {
+    "navigationfunction": [
+      "TargetWindow"
+    ]
+  },
   "newtypes_source": {
     "platform": "10.2",
+    "path": "Composer/scripts/twx-Builder-bundle-10.2.0-1787093844.js",
     "bundle_sha256": "a950d01c1d76ec446347ad26e9e40215a5f7839365e3a01fcadec52c23d46045",
-    "note": "Curated declarative newtype overlay from Composer ptcs-migration modules. Collection configuration and numeric input mode are translated in authoring/migrate.rs. Container applies only under ptcsdynamicpanel. Theme style callbacks are not executed: unmapped properties are reported as dropped."
+    "preserve_wiring": [
+      "checkbox",
+      "collection",
+      "container",
+      "divider",
+      "image",
+      "label",
+      "link",
+      "numericentry",
+      "textarea",
+      "textbox"
+    ],
+    "note": "Declarative Composer newtype steps. Collection and repeater configuration, numeric input mode, container layout, grid column options, pie labels, upload limits, and hidden auto-refresh functions use callback translations in authoring/migrate.rs. Theme style callbacks are omitted."
   },
   "newtypes": {
+    "autorefresh": {
+      "newtype": "autorefreshfunction",
+      "deletions": [
+        "CustomClass",
+        "Z-index",
+        "Width",
+        "Height",
+        "ShowControls",
+        "AutoRefreshTabSequence",
+        "Label",
+        "RefreshNowTabSequence",
+        "Style",
+        "HoverStyle",
+        "ActiveStyle",
+        "FocusStyle",
+        "IconAlignment",
+        "RefreshToggleStyle",
+        "RefreshToggleLabel",
+        "RefreshToggleStyleOff",
+        "RefreshToggleLabelOff",
+        "RefreshToggleSliderStyle",
+        "Left",
+        "Top",
+        "Area",
+        "LastContainer",
+        "Margin",
+        "ResponsiveLayout",
+        "ShowDataLoading",
+        "Visible",
+        "__AUTOREFRESH_BUTTON_ID__",
+        "__AUTOREFRESH_TOGGLEBUTTON_ID__"
+      ]
+    },
+    "button": {
+      "newtype": "ptcsbutton",
+      "create": {
+        "MultiLine": true
+      },
+      "mappings": {
+        "ContextId": "ContextID",
+        "CustomClass": "CustomClass",
+        "ToolTipField": "TooltipField"
+      },
+      "deletions": [
+        "SingleClickSelectOnTablets",
+        "ConfirmationRequired",
+        "ConfirmationTitle",
+        "ConfirmationPrompt",
+        "ConfirmationButton1Label",
+        "ConfirmationButton2Label",
+        "DefaultConfirmationButton",
+        "CancelConfirmationButton",
+        "RoundedCorners",
+        "IconAlignment"
+      ]
+    },
+    "checkbox": {
+      "newtype": "ptcscheckbox",
+      "mappings": {
+        "Prompt": "Label",
+        "CustomClass": "CustomClass",
+        "ToolTipField": "TooltipField"
+      },
+      "deletions": [
+        "ShowDataLoading"
+      ]
+    },
     "collection": {
       "newtype": "ptcscollection",
       "create": {
@@ -115,49 +289,194 @@
         "_GlobalDataShape"
       ]
     },
-    "numericentry": {
-      "newtype": "ptcstextfield",
-      "mappings": {
-        "AllowNegatives": "AllowNegativeValues",
-        "FixedDigits": "DecimalPlaces",
-        "Maximum": "MaxValue",
-        "Minimum": "MinValue",
-        "Value": "NumericValue",
-        "ToolTipField": "TooltipField",
-        "ValueAlign": "TextAlignment"
-      },
-      "create": {
-        "NumericInputMode": true,
-        "ShowValidationFailure": true
-      }
-    },
     "container": {
       "newtype": "flexcontainer",
       "deletions": [
         "Margin"
       ]
     },
-    "label": {
-      "newtype": "ptcslabel",
+    "datetimepicker": {
+      "newtype": "ptcsdatepicker",
       "mappings": {
+        "ClearDateTime": "ResetToDefaultValue",
         "CustomClass": "CustomClass",
-        "Text": "LabelText",
-        "Alignment": "HorizontalAlignment",
-        "ToolTipField": "TooltipField"
+        "DateFormatToken": "FormatToken",
+        "DateDisplay": "MonthFormat",
+        "ToolTipField": "TooltipField",
+        "DateOrder": {
+          "newproperty": "DateOrder",
+          "values": {
+            "yy-mm-dd": "YMD",
+            "yyyy-mm-dd": "YMD",
+            "dd-mm-yyyy": "DMY",
+            "mm-dd-yyyy": "MDY",
+            "yyyy-dd-mm": "auto",
+            "mm-yyyy-dd": "auto",
+            "dd-yyyy-mm": "auto"
+          }
+        }
       },
       "deletions": [
-        "ShowDataLoading"
+        "DateFormat",
+        "TimeFormat"
       ]
     },
-    "checkbox": {
-      "newtype": "ptcscheckbox",
+    "dhxgrid": {
+      "newtype": "ptcsgrid",
+      "create": {
+        "Label": "",
+        "ResetScrollOnDataChange": true,
+        "ResizeColumns": true,
+        "ShowColumnFeature": true
+      },
       "mappings": {
-        "Prompt": "Label",
-        "CustomClass": "CustomClass",
-        "ToolTipField": "TooltipField"
+        "CellTextWrapping": {
+          "newproperty": "SingleLineRows",
+          "values": {
+            "true": false,
+            "false": true
+          }
+        },
+        "EditedTable": "EditedData",
+        "MultiSelect": {
+          "newproperty": "RowSelection",
+          "values": {
+            "true": "multiple",
+            "false": "single"
+          }
+        },
+        "RowHeight": "MinRowHeight"
       },
       "deletions": [
-        "ShowDataLoading"
+        "AlignHeader",
+        "AutoSelectFirstRow",
+        "CurrentScrollTop",
+        "DoubleClicked",
+        "EnableFontSizeOverride",
+        "GridHeaderTextCase",
+        "ScrollTop",
+        "ShowAllColumns"
+      ]
+    },
+    "dhxlist": {
+      "variants": [
+        {
+          "newtype": "ptcslist",
+          "when": {
+            "View": "list"
+          },
+          "create": {
+            "ClearSelectionItem": false
+          },
+          "mappings": {
+            "CustomClass": "CustomClass",
+            "TextIfNoSelection": "HintText"
+          },
+          "deletions": [
+            "SingleClickSelectOnTablets",
+            "WidthOfDropdownView",
+            "NumberOfItemsInDropdown",
+            "ClearIfNoSelection",
+            "EnableKeyboardSelections",
+            "TextVerticalAlignment",
+            "EnableTooltips",
+            "HeightOfDropdownView",
+            "NumberOfItemsPerPage",
+            "TextIfNoSelection",
+            "TextIfNoSelectionType",
+            "ComboEnableCheckbox",
+            "View"
+          ]
+        },
+        {
+          "newtype": "ptcsdropdown",
+          "when": {
+            "View": "dropdown"
+          },
+          "deletions": [
+            "DoubleClicked",
+            "ToolTipField",
+            "SingleClickSelectOnTablets",
+            "WidthOfDropdownView",
+            "NumberOfItemsInDropdown",
+            "ClearIfNoSelection",
+            "EnableKeyboardSelections",
+            "TextVerticalAlignment",
+            "EnableTooltips",
+            "HeightOfDropdownView",
+            "NumberOfItemsPerPage",
+            "TextIfNoSelection",
+            "TextIfNoSelectionType",
+            "ComboEnableCheckbox",
+            "View"
+          ],
+          "create": {
+            "ClearSelectionItem": false
+          },
+          "mappings": {
+            "CustomClass": "CustomClass",
+            "TextIfNoSelection": "HintText"
+          }
+        },
+        {
+          "newtype": "ptcsdropdown",
+          "when": {
+            "View": "combo"
+          },
+          "deletions": [
+            "DoubleClicked",
+            "ToolTipField",
+            "SingleClickSelectOnTablets",
+            "WidthOfDropdownView",
+            "NumberOfItemsInDropdown",
+            "ClearIfNoSelection",
+            "EnableKeyboardSelections",
+            "TextVerticalAlignment",
+            "EnableTooltips",
+            "HeightOfDropdownView",
+            "NumberOfItemsPerPage",
+            "TextIfNoSelection",
+            "TextIfNoSelectionType",
+            "ComboEnableCheckbox",
+            "View"
+          ],
+          "create": {
+            "ClearSelectionItem": false
+          },
+          "mappings": {
+            "CustomClass": "CustomClass",
+            "TextIfNoSelection": "HintText"
+          }
+        },
+        {
+          "newtype": "ptcslist",
+          "when": {
+            "View": "radiolist"
+          },
+          "deletions": [
+            "ToolTipField",
+            "SingleClickSelectOnTablets",
+            "WidthOfDropdownView",
+            "NumberOfItemsInDropdown",
+            "ClearIfNoSelection",
+            "EnableKeyboardSelections",
+            "TextVerticalAlignment",
+            "EnableTooltips",
+            "HeightOfDropdownView",
+            "NumberOfItemsPerPage",
+            "TextIfNoSelection",
+            "TextIfNoSelectionType",
+            "ComboEnableCheckbox",
+            "View"
+          ],
+          "create": {
+            "ClearSelectionItem": false
+          },
+          "mappings": {
+            "CustomClass": "CustomClass",
+            "TextIfNoSelection": "HintText"
+          }
+        }
       ]
     },
     "divider": {
@@ -170,22 +489,109 @@
         "ToolTipField"
       ]
     },
-    "textbox": {
-      "newtype": "ptcstextfield",
+    "fileupload": {
+      "newtype": "ptcsfileupload",
+      "create": {
+        "FileUploadMode": "select"
+      },
       "mappings": {
-        "CustomClass": "CustomClass",
-        "PlaceholderText": "HintText",
-        "MaskInputCharacters": "Password",
-        "ToolTipField": "TooltipField",
-        "TextAlign": "TextAlignment"
-      }
+        "DisplayPathTextBox": "ShowRepositoryPath",
+        "DisplayRepositorySelector": "ShowRepositorySelector",
+        "FileName": "FileNames",
+        "FullPath": "FullPaths",
+        "MaximumFileSize": "MaxFileSize"
+      },
+      "deletions": [
+        "MultiFilesSelect"
+      ]
     },
-    "textarea": {
-      "newtype": "ptcstextarea",
+    "gridadvanced": {
+      "newtype": "ptcsgrid",
+      "create": {
+        "Label": null,
+        "ResetScrollOnDataChange": true,
+        "ResizeColumns": true,
+        "ShowColumnFeature": true,
+        "WasMigrated": true
+      },
       "mappings": {
-        "CustomClass": "CustomClass",
-        "ToolTipField": "TooltipField"
-      }
+        "Configuration": "LegacyConfiguration",
+        "CookiePersistence": "CacheRuntimeChanges",
+        "DataOverflow": {
+          "newproperty": "SingleLineRows",
+          "values": {
+            "clipped": true,
+            "ellipsis": true,
+            "fitted": false,
+            "tooltip": true,
+            "wrapped": false
+          }
+        },
+        "DeletedTable": "DeletedData",
+        "EditCancelled": "EditCanceled",
+        "EditedTable": "EditedData",
+        "EnableAddDeleteButtons": [
+          "RowAddButton",
+          "RowDeleteButton"
+        ],
+        "EnableContextMenu": {
+          "newproperty": "ColumnsMenuOptions",
+          "values": {
+            "true": "show",
+            "false": "none"
+          }
+        },
+        "EnableEditButtons": [
+          "EditButton",
+          {
+            "newproperty": "EditLevel",
+            "values": {
+              "true": "grid",
+              "false": "cell"
+            }
+          }
+        ],
+        "EnableFilterEventOnConfigChange": "TriggerEventOnConfigChange",
+        "EnableFooter": "ShowFooter",
+        "EnableGridSearch": "ShowFilter",
+        "EnableGridReset": "ShowResetButton",
+        "HeaderOverflow": {
+          "newproperty": "SingleLineHeader",
+          "values": {
+            "clipped": true,
+            "ellipsis": true,
+            "fitted": false,
+            "tooltip": true,
+            "wrapped": false
+          }
+        },
+        "MinRowHeight": "MinRowHeight",
+        "RowSelection": {
+          "newproperty": "RowSelection",
+          "values": {
+            "none": "none",
+            "single": "single",
+            "multi": "multiple"
+          }
+        }
+      },
+      "deletions": [
+        "Configuration",
+        "EnableKeyboardNavigation",
+        "GridSearchLocation",
+        "GridResetButtonLocation",
+        "MultiColumnSortOrder"
+      ],
+      "conditional": [
+        {
+          "when": {
+            "EnableAddDeleteButtons": true
+          },
+          "create": {
+            "RowSelection": "multiple"
+          }
+        }
+      ]
     },
     "image": {
       "newtype": "ptcsimage",
@@ -204,8 +610,23 @@
         "ToolTipField"
       ]
     },
+    "label": {
+      "newtype": "ptcslabel",
+      "mappings": {
+        "CustomClass": "CustomClass",
+        "Text": "LabelText",
+        "Alignment": "HorizontalAlignment",
+        "ToolTipField": "TooltipField"
+      },
+      "deletions": [
+        "ShowDataLoading"
+      ]
+    },
     "link": {
       "newtype": "ptcslink",
+      "create": {
+        "VerticalAlignment": "center"
+      },
       "mappings": {
         "CustomClass": "CustomClass",
         "SourceURL": "LinkURL",
@@ -219,12 +640,478 @@
         },
         "ToolTipField": "TooltipField"
       },
-      "create": {
-        "VerticalAlignment": "center"
-      },
       "deletions": [
         "LinkDisplay"
       ]
+    },
+    "maskedtextbox": {
+      "newtype": "ptcstextfield",
+      "mappings": {
+        "CustomClass": "CustomClass",
+        "PlaceholderText": "HintText",
+        "MaskInputCharacters": "Password",
+        "ToolTipField": "TooltipField",
+        "TextAlign": {
+          "newproperty": "TextAlignment",
+          "values": {
+            "left": "left",
+            "center": "left",
+            "right": "right"
+          }
+        }
+      },
+      "deletions": [
+        "InnerShadow"
+      ]
+    },
+    "numericentry": {
+      "newtype": "ptcstextfield",
+      "mappings": {
+        "AllowNegatives": "AllowNegativeValues",
+        "FixedDigits": "DecimalPlaces",
+        "Maximum": "MaxValue",
+        "Minimum": "MinValue",
+        "Value": "NumericValue",
+        "ToolTipField": "TooltipField",
+        "ValueAlign": "TextAlignment"
+      }
+    },
+    "piechart": {
+      "newtype": "ptcschartpie",
+      "create": {
+        "StartAngle": "360",
+        "EndAngle": "0"
+      },
+      "mappings": {
+        "AllowSelection": [
+          {
+            "newproperty": "SelectionMode",
+            "values": {
+              "true": "single",
+              "false": "none"
+            }
+          }
+        ],
+        "ChartTitle": "Label",
+        "ColorFormat": "DataStyle",
+        "EnableHover": [
+          {
+            "newproperty": "HideDataTooltips",
+            "values": {
+              "true": false,
+              "false": true
+            }
+          }
+        ],
+        "LabelField": "DataField",
+        "LabelType": [
+          {
+            "newproperty": "DataFieldType",
+            "values": {
+              "STRING": "string",
+              "NUMERIC": "number",
+              "DATETIME": "date"
+            }
+          }
+        ],
+        "LegendLocation": "LegendPosition",
+        "LegendWidth": "LegendMaxWidth",
+        "ShowLegend": {
+          "newproperty": "HideLegend",
+          "values": {
+            "true": false,
+            "false": true
+          }
+        }
+      },
+      "deletions": [
+        "CombineSelectedItemStyle",
+        "DoubleClicked",
+        "EnableHover",
+        "LegendOrientation"
+      ]
+    },
+    "propertydisplay": {
+      "newtype": "ptcspropertydisplay",
+      "create": {
+        "TableLayout": true
+      },
+      "mappings": {
+        "CustomClass": "CustomClass"
+      },
+      "deletions": [
+        "AllowEditing",
+        "Changed",
+        "DataForDatashapeIfNoRows",
+        "ShowAllColumns",
+        "ShowEditorsIfNoRowData"
+      ]
+    },
+    "ptc1divider": {
+      "newtype": "ptcsdivider",
+      "create": {
+        "UseTheme": true
+      },
+      "mappings": {
+        "CustomClass": "CustomClass"
+      },
+      "deletions": [
+        "__supportsLabel",
+        "__supportsTooltip"
+      ],
+      "delete_patterns": [
+        "Style$"
+      ]
+    },
+    "repeater": {
+      "newtype": "ptcscollection",
+      "mappings": {
+        "AllowSelection": {
+          "newproperty": "SelectionMode",
+          "values": {
+            "true": "single",
+            "false": "none"
+          }
+        },
+        "DoubleClicked": "CellDoubleClicked",
+        "ItemLoadBehavior": {
+          "newproperty": "ItemLoadBehavior",
+          "values": {
+            "load-destroy-on-demand": "lazy",
+            "load-all": "load-all",
+            "load-on-demand": "lazy"
+          }
+        },
+        "View": [
+          {
+            "newproperty": "ContentAlignment",
+            "values": {
+              "vertical": "center",
+              "horizontal-wrap": "top",
+              "horizontal": "top"
+            }
+          },
+          {
+            "newproperty": "DisableWrapping",
+            "values": {
+              "vertical": false,
+              "horizontal-wrap": false,
+              "horizontal": true
+            }
+          },
+          {
+            "newproperty": "Layout",
+            "values": {
+              "vertical": "table",
+              "horizontal-wrap": "flex",
+              "horizontal": "flex"
+            }
+          },
+          {
+            "newproperty": "RowHorizontalAlignment",
+            "values": {
+              "vertical": "center",
+              "horizontal-wrap": "left",
+              "horizontal": "left"
+            }
+          }
+        ]
+      },
+      "deletions": [
+        "FixedMashupHeight",
+        "FixedMashupWidth",
+        "HideInnerScrollbars",
+        "ReuseMashups",
+        "SelectionWidth"
+      ]
+    },
+    "slider": {
+      "newtype": "ptcsslider",
+      "mappings": {
+        "CustomClass": "CustomClass",
+        "Step": "StepSize",
+        "Minimum": [
+          "Minimum",
+          {
+            "newproperty": "MinValueLabel",
+            "casting": "String"
+          }
+        ],
+        "Maximum": [
+          "Maximum",
+          {
+            "newproperty": "MaxValueLabel",
+            "casting": "String"
+          }
+        ],
+        "DisplayValueLabel": {
+          "newproperty": "DisplayValueLabel",
+          "values": {
+            "true": "yes",
+            "false": "no"
+          }
+        }
+      },
+      "deletions": [
+        "SliderBar",
+        "ZeroScale",
+        "SliderHandle",
+        "Skin",
+        "Vertical",
+        "ToolTipField"
+      ]
+    },
+    "textarea": {
+      "newtype": "ptcstextarea",
+      "mappings": {
+        "CustomClass": "CustomClass",
+        "ToolTipField": "TooltipField"
+      }
+    },
+    "textbox": {
+      "newtype": "ptcstextfield",
+      "mappings": {
+        "CustomClass": "CustomClass",
+        "PlaceholderText": "HintText",
+        "MaskInputCharacters": "Password",
+        "ToolTipField": "TooltipField",
+        "TextAlign": "TextAlignment"
+      }
+    },
+    "treegridadvanced": {
+      "newtype": "ptcsgrid",
+      "create": {
+        "Label": null,
+        "ResetScrollOnDataChange": true,
+        "ResizeColumns": true,
+        "SelectParentOnly": true,
+        "ShowColumnFeature": true,
+        "WasMigrated": true
+      },
+      "mappings": {
+        "AutoScroll": "AutoScroll",
+        "ChildData": "ChildData",
+        "Configuration": "LegacyConfiguration",
+        "CookiePersistence": "CacheRuntimeChanges",
+        "CustomClass": "CustomClass",
+        "Data": "Data",
+        "DataOverflow": {
+          "newproperty": "SingleLineRows",
+          "values": {
+            "clipped": true,
+            "ellipsis": true,
+            "fitted": false,
+            "tooltip": true,
+            "wrapped": false
+          }
+        },
+        "DefaultSelectedRows": "DefaultSelectedRows",
+        "DeletedTable": "DeletedData",
+        "EditCancelled": "EditCanceled",
+        "EditCellCompleted": "EditCellCompleted",
+        "EditCellStarted": "EditCellStarted",
+        "EditCompleted": "EditCompleted",
+        "EditStarted": "EditStarted",
+        "EditedTable": "EditedData",
+        "EnableAddDeleteButtons": [
+          "RowAddButton",
+          "RowDeleteButton"
+        ],
+        "EnableCallbackOnSelectedRowsChange": "SelectedRowsChangedCallback",
+        "EnableContextMenu": {
+          "newproperty": "ColumnsMenuOptions",
+          "values": {
+            "true": "show",
+            "false": "none"
+          }
+        },
+        "EnableEditButtons": [
+          "EditButton",
+          {
+            "newproperty": "EditLevel",
+            "values": {
+              "true": "grid",
+              "false": "cell"
+            }
+          }
+        ],
+        "EnableFilterEventOnConfigChange": "TriggerEventOnConfigChange",
+        "EnableFooter": "EnableFooter",
+        "EnableGridReset": "ShowResetButton",
+        "EnableGridSearch": "ShowFilter",
+        "ExpandLoadedRows": "ExpandLoadedRows",
+        "ExpandRows": "ExpandableRows",
+        "Filter": "Filter",
+        "FooterData": "FooterData",
+        "HeaderOverflow": {
+          "newproperty": "SingleLineHeader",
+          "values": {
+            "clipped": true,
+            "ellipsis": true,
+            "fitted": false,
+            "tooltip": true,
+            "wrapped": false
+          }
+        },
+        "IDFieldName": "IDFieldName",
+        "IDPathSeparator": "IDPathSeparator",
+        "IncludeRowExpansionParents": "IncludeRowExpansionParents",
+        "IsEditable": "IsEditable",
+        "MaxHeaderHeight": "MaxHeaderHeight",
+        "MinRowHeight": "MinRowHeight",
+        "ParentIDFieldName": "ParentIDFieldName",
+        "QueryFilter": "QueryFilter",
+        "Reset": "Reset",
+        "RowFormat": "RowFormat",
+        "RowSelection": {
+          "newproperty": "RowSelection",
+          "values": {
+            "none": "none",
+            "single": "single",
+            "multi": "multiple"
+          }
+        },
+        "SelectedRows": "SelectedRows",
+        "SelectedRowsChanged": "SelectedRowsChanged"
+      },
+      "deletions": [
+        "DisplayOnlyMode",
+        "EditButtonsLocation",
+        "EnableContainerScroll",
+        "EnableKeyboardNavigation",
+        "ExpandRowOnDoubleClick",
+        "GridSearchLocation",
+        "GridResetButtonLocation",
+        "MultiColumnSortOrder",
+        "PreserveRowExpansion"
+      ]
+    },
+    "valuedisplay": {
+      "newtype": "ptcsvaluedisplay",
+      "create": {
+        "ImageDisclosureControl": "none"
+      },
+      "mappings": {
+        "CustomClass": "CustomClass",
+        "Overflow": {
+          "newproperty": "DisclosureControl",
+          "values": {
+            "hidden": "ellipsis",
+            "visible": "ellipsis"
+          }
+        },
+        "ToolTipField": "TooltipField",
+        "Alignment": "HorizontalAlignment",
+        "VerticalAlignment": {
+          "newproperty": "VerticalAlignment",
+          "values": {
+            "bottom": "flex-end",
+            "middle": "center",
+            "top": "flex-start"
+          }
+        }
+      },
+      "deletions": [
+        "BackgroundFill",
+        "ImageScaling",
+        "TextWrap",
+        "TextIfNoValueOffset"
+      ]
+    },
+    "verticalslider": {
+      "newtype": "ptcsslider",
+      "mappings": {
+        "CustomClass": "CustomClass",
+        "Step": "StepSize",
+        "Vertical": [
+          "VerticalSlider",
+          "ReverseMinMaxValues"
+        ],
+        "Minimum": [
+          "Minimum",
+          {
+            "newproperty": "MinValueLabel",
+            "casting": "String"
+          }
+        ],
+        "Maximum": [
+          "Maximum",
+          {
+            "newproperty": "MaxValueLabel",
+            "casting": "String"
+          }
+        ],
+        "DisplayValueLabel": {
+          "newproperty": "DisplayValueLabel",
+          "values": {
+            "true": "yes",
+            "false": "no"
+          }
+        }
+      },
+      "deletions": [
+        "SliderBar",
+        "ZeroScale",
+        "SliderHandle",
+        "Skin",
+        "ToolTipField"
+      ]
+    }
+  },
+  "skipped_newtypes": {
+    "dataexport": "creates an export function and rewires a menu around it",
+    "expression": "rewrites expressions and their dynamic parameter connections",
+    "flexcontainer": "no statically selectable catalogue newtype",
+    "general": "no statically selectable catalogue newtype",
+    "labelchart": "chooses a target and converts series in callbacks",
+    "layout": "no statically selectable catalogue newtype",
+    "logoutbutton": "creates and wires a logout function",
+    "mashup": "no statically selectable catalogue newtype",
+    "navigation": "creates and wires a navigation function",
+    "panel": "no statically selectable catalogue newtype",
+    "ptcsgrid": "no statically selectable catalogue newtype",
+    "tabs": "creates tab definitions and reparents children",
+    "tabsv2": "rebuilds tab definitions and child slots",
+    "timeserieschart": "chooses a target and converts series in callbacks",
+    "validator": "rewrites expressions and their dynamic parameter connections",
+    "xychart": "chooses a target and converts series in callbacks"
+  },
+  "twaco_newtypes": {
+    "gauge": {
+      "newtype": "ptcskpidial",
+      "why": "A KPI dial displays the same numeric input and range.",
+      "mappings": {
+        "Data": "Value",
+        "MinValue": "MinimumValue",
+        "MaxValue": "MaximumValue",
+        "Legend": "Label"
+      }
+    },
+    "leddisplay": {
+      "newtype": "ptcsvaluedisplay",
+      "why": "A numeric Value Display preserves the input and label while replacing the LED presentation.",
+      "create": {
+        "DataBaseType": "NUMBER"
+      },
+      "mappings": {
+        "Data": "Data",
+        "ToolTipField": "TooltipField"
+      }
+    },
+    "menu": {
+      "newtype": "ptcsmenubar",
+      "why": "A Menu Bar can use the same Menu entity and drive the page mashup.",
+      "when": {
+        "ConfiguredOrDataDriven": "configured",
+        "DrivePageMashupOrBindToMashup": "pagemashup"
+      },
+      "create": {
+        "DataSource": "menuentity",
+        "MashupControl": "pagemashup"
+      },
+      "mappings": {
+        "Menu": "PrimaryNavMenu"
+      }
     }
   }
 }

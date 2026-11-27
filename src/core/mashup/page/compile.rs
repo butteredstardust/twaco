@@ -341,6 +341,7 @@ fn compile_nested(
             .add(
                 solution,
                 &authoring::AddRequest {
+                    tabs: Default::default(),
                     mashup: page.name.value.clone(),
                     widget: "ptcslabel".into(),
                     inputs: vec![],
@@ -930,6 +931,7 @@ fn apply_root(
             .set(
                 solution,
                 &authoring::SetRequest {
+                    force: false,
                     mashup: page.name.value.clone(),
                     widget: id,
                     properties: vec![],
@@ -1037,7 +1039,7 @@ fn option_text(node: &Node, key: &str, value: &Value) -> String {
         let pixels = format!("{number}px");
         if widget
             .property(key)
-            .is_some_and(|p| p.options.contains(&json!(pixels)))
+            .is_some_and(|p| p.allowed_values().any(|value| value == &json!(pixels)))
         {
             return pixels;
         }
@@ -1330,6 +1332,7 @@ fn add(
                 .set(
                     solution,
                     &authoring::SetRequest {
+                        force: false,
                         mashup: page.name.value.clone(),
                         widget: id.clone(),
                         properties: props
@@ -1373,6 +1376,7 @@ fn add(
             .add(
                 solution,
                 &authoring::AddRequest {
+                    tabs: Default::default(),
                     mashup: page.name.value.clone(),
                     widget: node.widget()?.into(),
                     inputs: body.inputs.clone(),
@@ -1423,6 +1427,7 @@ fn add(
             .set(
                 solution,
                 &authoring::SetRequest {
+                    force: false,
                     mashup: page.name.value.clone(),
                     widget: placed.clone(),
                     properties: native_parameter_values,
@@ -1630,6 +1635,7 @@ fn add(
                 .set(
                     solution,
                     &authoring::SetRequest {
+                        force: false,
                         mashup: page.name.value.clone(),
                         widget: value,
                         properties: vec![],
@@ -2033,6 +2039,7 @@ fn apply_styles(
             .set(
                 solution,
                 &authoring::SetRequest {
+                    force: false,
                     mashup: page.name.value.clone(),
                     widget: id.into(),
                     properties: vec![],
@@ -2073,6 +2080,7 @@ fn apply_size(
             .set(
                 solution,
                 &authoring::SetRequest {
+                    force: false,
                     mashup: page.name.value.clone(),
                     widget: id.clone(),
                     properties: session
@@ -2151,6 +2159,7 @@ fn apply_size(
                 .set(
                     solution,
                     &authoring::SetRequest {
+                        force: false,
                         mashup: page.name.value.clone(),
                         widget: sizing_id,
                         properties: sizing,
@@ -2166,6 +2175,7 @@ fn apply_size(
             .set(
                 solution,
                 &authoring::SetRequest {
+                    force: false,
                     mashup: page.name.value.clone(),
                     widget: id.clone(),
                     properties,
@@ -2540,6 +2550,7 @@ fn add_expressions(
             .add(
                 solution,
                 &authoring::AddRequest {
+                    tabs: Default::default(),
                     mashup: page.name.value.clone(),
                     widget: "expression2".into(),
                     inputs,
@@ -2592,6 +2603,7 @@ fn wire_expressions(
                         .set(
                             solution,
                             &authoring::SetRequest {
+                                force: false,
                                 mashup: page.name.value.clone(),
                                 widget: id.clone(),
                                 properties: vec![(name.clone(), value)],
@@ -2737,6 +2749,7 @@ fn navigate_event(
             .set(
                 solution,
                 &authoring::SetRequest {
+                    force: false,
                     mashup: page.name.value.clone(),
                     widget: id.clone(),
                     properties,
@@ -2914,6 +2927,7 @@ fn wire_selections(
             .add(
                 solution,
                 &authoring::AddRequest {
+                    tabs: Default::default(),
                     mashup: page.name.value.clone(),
                     widget: "expression2".into(),
                     inputs: vec!["rows:INFOTABLE".into()],
@@ -3576,6 +3590,7 @@ fn wire_pagination(
         .set(
             solution,
             &authoring::SetRequest {
+                force: false,
                 mashup: page.name.value.clone(),
                 widget: id.clone(),
                 properties: body

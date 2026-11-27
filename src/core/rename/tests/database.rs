@@ -321,3 +321,72 @@ fn preflight_reports_both_failed_gates_and_the_database_choice() {
     }
     assert_eq!(snapshot(&fixture.root), before);
 }
+
+#[test]
+fn brief99_external_sql_directory_is_written_after_commit_without_clobbering() {
+    let fixture = db_fixture("external");
+    let outside = tempfile::tempdir_in(fixture.root.parent().unwrap()).unwrap();
+    let folder = fixture
+        .root
+        .join("..")
+        .join(outside.path().file_name().unwrap())
+        .join("migrations");
+    let spec = field_spec("P.Dashboards", "UserName", "OwnerName");
+    let mut options = db_options(&fixture.root, SqlChoice::Unset);
+    options.sql = SqlChoice::Write(folder);
+    options.apply = false;
+    let planned = run(&fixture.solution, &spec, &options, None)
+        .unwrap()
+        .sql
+        .unwrap();
+    assert!(!planned.path.exists());
+
+    let before = snapshot(&fixture.root);
+    std::fs::create_dir(planned.path.parent().unwrap()).unwrap();
+    std::fs::write(&planned.path, "Acme existing migration").unwrap();
+    options.apply = true;
+    let conflict = run(&fixture.solution, &spec, &options, Some(&locked(&fixture))).unwrap_err();
+    assert!(matches!(conflict, RenameError::Exists { .. }), "{conflict}");
+    assert_eq!(snapshot(&fixture.root), before);
+    assert_eq!(
+        std::fs::read_to_string(&planned.path).unwrap(),
+        "Acme existing migration"
+    );
+
+    std::fs::remove_file(&planned.path).unwrap();
+    let outcome = run(&fixture.solution, &spec, &options, Some(&locked(&fixture))).unwrap();
+    assert!(outcome.applied.is_some());
+    let script = outcome.sql.unwrap();
+    assert_eq!(script.path, planned.path);
+    assert_eq!(script.write_error, None);
+    assert_eq!(std::fs::read_to_string(&script.path).unwrap(), script.text);
+}
+
+#[test]
+fn external_sql_folder_that_cannot_be_written_refuses_before_the_rename() {
+    let fixture = db_fixture("external-failure");
+    let outside = tempfile::tempdir_in(fixture.root.parent().unwrap()).unwrap();
+    let folder = outside.path().join("blocked");
+    std::fs::write(&folder, "Acme existing file").unwrap();
+    let mut options = db_options(&fixture.root, SqlChoice::Unset);
+    options.sql = SqlChoice::Write(folder.clone());
+    let before = std::fs::read_to_string(fixture.root.join("twaco.toml")).unwrap();
+    let error = run(
+        &fixture.solution,
+        &field_spec("P.Dashboards", "UserName", "OwnerName"),
+        &options,
+        Some(&locked(&fixture)),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("cannot stage the migration script"),
+        "{error}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.join("twaco.toml")).unwrap(),
+        before
+    );
+    let shape = std::fs::read_to_string(fixture.root.join("DataShapes/P.Dashboards.xml")).unwrap();
+    assert!(shape.contains("\"UserName\"") && !shape.contains("OwnerName"));
+}

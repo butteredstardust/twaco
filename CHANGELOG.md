@@ -6,6 +6,27 @@ All notable changes to twaco are recorded here. The format follows
 
 ## [Unreleased]
 
+- Add multi-event subscriptions with stateful and distributed settings. Impact, trace, inspection
+  and rename follow their event lists. Read-back accepts a single-node server clearing distribution.
+  Deploy reports advisory structure findings, including invalid subscription attributes.
+- Set property data-change modes and numeric thresholds on Things, ThingTemplates and ThingShapes.
+- Add and remove DataShape fields with their `fields.json` sidecars in one transaction. Removal
+  reports references and refuses shapes used by DataTables or Streams.
+- Configure `mashup add ptcstabset` with tab names, style and width. Repeated horizontal placement
+  of filling widgets reuses the row, and the plan shows its container tree.
+- Show Composer's allowed widget values and labels. `mashup set` and `mashup bind` with
+  `literal:<value>` check select options. `--force` permits a custom value.
+- Write `rename --sql-dir` migrations outside the solution after the rename commits. A failed write
+  returns the migration text and destination for manual recovery.
+- Generate legacy-widget migration rules from Composer 10.2. `mashup migrate` identifies each
+  rule's source, including twaco's gauge, LED display and configured menu equivalents.
+  Migration preserves shared widget and layout properties. Mashup copies accept `Mashups/<name>`
+  as the source.
+- Derive friendly grid `columns:` when the recipe reproduces the stored grid, and carry native
+  `column_config:` for custom configurations.
+- Read extension widget contracts from IDE TypeScript and compiled decorators in
+  `widgets --platform` and `widgets --webapp`.
+
 ## [0.1.80] - 2026-11-26
 
 - **Page specs: native navigation, grids and dynamic containers become elements.** `navigate:`

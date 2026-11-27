@@ -304,6 +304,7 @@ fn rich_text_content_font_sizes_and_height_use_shared_add_and_set() {
         .set(
             &solution,
             &authoring::SetRequest {
+                force: false,
                 mashup: "Acme.RichText_MU".into(),
                 widget: built.ids["header"].clone(),
                 properties: vec![

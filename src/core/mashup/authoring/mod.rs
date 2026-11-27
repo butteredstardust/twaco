@@ -46,7 +46,9 @@ pub(super) fn template_page_container(
         .map(|w| w.id)
 }
 
-pub use add::{add_contained_plan_json, add_plan_json, AddContainedRequest, AddRequest};
+pub use add::{
+    add_contained_plan_json, add_plan_json, AddContainedRequest, AddRequest, TabSetOptions,
+};
 pub(crate) use add::{
     function_property, plan_add, plan_add_contained, property_editable, property_value,
     AddContainedPlan, AddPlan,

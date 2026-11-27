@@ -109,22 +109,6 @@ pub(crate) fn scan_property_entity(
                     }
                 }
             }
-            b"Event" => {
-                // A subscription's data-change event: `source=""` means this entity itself.
-                let source = value_of(token, "source")?;
-                let names_affected = match source {
-                    Some(span) if span.of(src).is_empty() => is_affected,
-                    Some(span) => affected.contains(String::from_utf8_lossy(span.of(src)).as_ref()),
-                    None => false,
-                };
-                if let Some(property) =
-                    value_of(token, "sourceProperty")?.filter(|span| span.of(src) == old.as_bytes())
-                {
-                    if names_affected {
-                        add_field_edit(src, property, new, element("Event"), &mut pass);
-                    }
-                }
-            }
             b"Permissions" if is_affected => {
                 if is(value_of(token, "resourceName")?, old) {
                     let span = value_of(token, "resourceName")?.expect("checked above");
@@ -154,6 +138,31 @@ pub(crate) fn scan_property_entity(
                 }
             }
             _ => {}
+        }
+    }
+
+    if let Some(entity) = crate::core::sidecar::entity_element(&tokens, src) {
+        for subscription in crate::core::subscriptions::tags(&tokens, src, entity) {
+            for event in crate::core::subscriptions::event_tags(&tokens, src, subscription) {
+                let token = &tokens[event];
+                let names_affected = match value_of(token, "source")? {
+                    Some(span) if span.of(src).is_empty() => is_affected,
+                    Some(span) => affected.contains(&scan::decode_entities(
+                        &String::from_utf8_lossy(span.of(src)),
+                    )),
+                    None => is_affected,
+                };
+                let property = value_of(token, "sourceProperty")?
+                    .filter(|span| span.of(src) == old.as_bytes());
+                if let Some(property) = property.filter(|_| names_affected) {
+                    let place = if event == subscription {
+                        "Subscription"
+                    } else {
+                        "Event"
+                    };
+                    add_field_edit(src, property, new, element(place), &mut pass);
+                }
+            }
         }
     }
 
@@ -282,6 +291,24 @@ mod tests {
     }
 
     const ENTITY: &str = r#"<Entities><Things><Thing name="P.Child" thingTemplate="P.T"><Permissions/><RunTimePermissions><Permissions resourceName="Temperature"/><Permissions resourceName="Other"/></RunTimePermissions><PropertyBindings><PropertyBinding name="Temperature" sourceThingName="P.T" sourcePropertyName="Temperature"/><PropertyBinding name="Mine" sourceThingName="Elsewhere" sourcePropertyName="Temperature"/></PropertyBindings><AlertConfigurations><AlertDefinitions name="Temperature"/></AlertConfigurations><ThingProperties><Temperature><Value>5</Value></Temperature><Other><Value>1</Value></Other></ThingProperties><ThingShape><PropertyDefinitions><PropertyDefinition name="Temperature" baseType="NUMBER"/></PropertyDefinitions><Subscriptions><Subscription name="s"><Event eventName="DataChange" source="" sourceProperty="Temperature" sourceType="Thing"/><Event eventName="DataChange" source="Elsewhere" sourceProperty="Temperature" sourceType="Thing"/></Subscription></Subscriptions><ServiceImplementations><ServiceImplementation name="Run"><ConfigurationTables><ConfigurationTable name="Script"><Rows><Row><code><![CDATA[var v = me.Temperature; me.Temperature = v; me["Temperature"]; me.Temperature(); Things["P.T"].Temperature; other.Temperature; "Temperature"]]></code></Row></Rows></ConfigurationTable></ConfigurationTables></ServiceImplementation></ServiceImplementations></ThingShape></Thing></Things></Entities>"#;
+
+    #[test]
+    fn brief99_rename_property_follows_both_subscription_shapes_and_preserves_aliases() {
+        let src = r#"<Entities><Things><Thing name="P.Child"><ThingShape><Subscriptions><Subscription name="Old" eventName="DataChange" source="" sourceProperty="Temperature" sourceType="Thing"/><Subscription name="New" version="2"><Events><Event alias="Me_Temperature" eventName="DataChange" source="" sourceProperty="Temperature" sourceType="Thing"/><Event alias="Other" eventName="DataChange" source="Elsewhere" sourceProperty="Temperature" sourceType="Thing"/></Events></Subscription></Subscriptions></ThingShape></Thing></Things></Entities>"#;
+        let scanned = scan_property_entity(
+            src.as_bytes(),
+            "Temperature",
+            "Heat",
+            "P.Child",
+            &affected(),
+            true,
+        )
+        .unwrap();
+        let out = apply(src.as_bytes(), &scanned.pass);
+        assert_eq!(out.matches("sourceProperty=\"Heat\"").count(), 2, "{out}");
+        assert!(out.contains("alias=\"Me_Temperature\""));
+        assert!(out.contains("source=\"Elsewhere\" sourceProperty=\"Temperature\""));
+    }
 
     #[test]
     fn an_entity_follows_a_property_through_every_place_it_is_named() {

@@ -814,6 +814,20 @@ impl Addresses<'_> {
     }
 }
 
+pub(crate) fn tree_lines(widget: &Value) -> Vec<String> {
+    let mut nodes = Vec::new();
+    tree(widget, 0, &mut nodes);
+    nodes
+        .into_iter()
+        .map(|node| {
+            let direction = node
+                .direction
+                .map_or_else(String::new, |direction| format!(" ({direction})"));
+            format!("{}{}{direction}", "  ".repeat(node.depth), node.id)
+        })
+        .collect()
+}
+
 fn tree(widget: &Value, depth: usize, out: &mut Vec<WidgetNode>) {
     let properties = &widget["Properties"];
     // Not a widget as Composer writes one: nothing to say about it.

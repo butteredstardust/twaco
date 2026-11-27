@@ -4,7 +4,7 @@ use super::requests::source::{
     SyncRequest, TypesAction, TypesRequest,
 };
 use super::{
-    add_notices, check, client, commands, deploy, json, push, relative, server, types, Mode,
+    add_notices, check, client, commands, deploy, json, push, relative, server, types, Coded, Mode,
     Progress, Solution, ToolError, Value,
 };
 
@@ -438,13 +438,32 @@ pub(crate) fn deploy_tool(
         redeploy_blocks: arguments.redeploy_blocks,
     };
     let mut notices = commands::Notices::default();
-    let (result, notes, saved) = match commands::deploy::execute(
+    let outcome = commands::deploy::execute(
         solution,
         &request,
         server::Client::new,
         &mut notices,
         progress,
-    ) {
+    );
+    let gates = match &outcome {
+        Ok(commands::deploy::DeployOutcome::Complete { gates, .. }) => gates.as_ref(),
+        Ok(commands::deploy::DeployOutcome::GatesBlocked { report, .. }) => Some(report),
+        Err(error) => error.gates(),
+    };
+    let findings = gates.map_or_else(Vec::new, |gates| gates.structure_findings());
+    let add_structure = |value: &mut Value| {
+        if !findings.is_empty() {
+            value["structure_findings"] = json!(findings);
+        }
+    };
+    let coded = |code, message| {
+        if findings.is_empty() {
+            ToolError::with(code, message)
+        } else {
+            ToolError::with(code, format!("{message}\n{}", findings.join("\n")))
+        }
+    };
+    let (result, notes, saved) = match outcome {
         Ok(commands::deploy::DeployOutcome::GatesBlocked { report, .. }) => {
             let failing = report.blocking(if detail { usize::MAX } else { 8 });
             let mut value = json!({
@@ -454,6 +473,7 @@ pub(crate) fn deploy_tool(
                 "blocking_gates": failing,
                 "note": "nothing was sent; fix these, or pass skip_checks: true",
             });
+            add_structure(&mut value);
             add_notices(&mut value, &notices);
             return Ok(value);
         }
@@ -472,10 +492,11 @@ pub(crate) fn deploy_tool(
         }) => (Err((*why, network_changes)), Vec::new(), backup),
         Err(error @ commands::deploy::DeployCommandError::Localization { .. }) => {
             let mut value = localization_failure(&error);
+            add_structure(&mut value);
             add_notices(&mut value, &notices);
             return Ok(value);
         }
-        Err(error) => return Err(ToolError::coded(error)),
+        Err(error) => return Err(coded(error.code(), error.to_string())),
     };
     let plans = |report: &deploy::Report| -> Value {
         let mut counts: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
@@ -610,8 +631,9 @@ pub(crate) fn deploy_tool(
             "note": error.to_string(),
             "warnings": error.warnings(),
         }),
-        Err((error, _)) => return Err(ToolError::coded(error)),
+        Err((error, _)) => return Err(coded(error.code(), error.to_string())),
     };
+    add_structure(&mut value);
     add_notices(&mut value, &notices);
     Ok(value)
 }

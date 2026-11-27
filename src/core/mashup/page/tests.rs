@@ -290,6 +290,7 @@ fn spec_matches_new_add_set_command_structure() {
     let add = authoring::plan_add(
         &solution,
         &authoring::AddRequest {
+            tabs: Default::default(),
             mashup: request.name,
             widget: "ptcslabel".into(),
             inputs: vec![],
@@ -1008,6 +1009,7 @@ fn elements_match_equivalent_primitive_recipe_sequences() {
             .add(
                 &solution,
                 &AddRequest {
+                    tabs: Default::default(),
                     mashup: "Acme.Elements_MU".into(),
                     widget: kind.into(),
                     inputs: vec![],
@@ -2922,6 +2924,7 @@ fn list_and_side_panel_match_equivalent_primitive_sequences() {
             .add(
                 &solution,
                 &AddRequest {
+                    tabs: Default::default(),
                     mashup: "Acme.Elements_MU".into(),
                     widget: kind.into(),
                     inputs: vec![],
@@ -3267,6 +3270,7 @@ fn a_card_with_align_matches_the_section_recipe_on_an_equivalent_primitive_colum
         .add(
             &solution,
             &AddRequest {
+                tabs: Default::default(),
                 mashup: "Acme.Errors_MU".into(),
                 widget: "flexcontainer".into(),
                 inputs: vec![],
@@ -3332,6 +3336,7 @@ fn text_field_variants_match_the_input_variant_recipe() {
             .add(
                 &solution,
                 &AddRequest {
+                    tabs: Default::default(),
                     mashup: "Acme.Errors_MU".into(),
                     widget: "ptcstextfield".into(),
                     inputs: vec![],

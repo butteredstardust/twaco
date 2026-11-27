@@ -7,6 +7,7 @@ fn add(session: &mut Session, solution: &Solution, widget: &str, parent: &str) -
         .add(
             solution,
             &AddRequest {
+                tabs: Default::default(),
                 mashup: "Acme.Errors_MU".into(),
                 widget: widget.into(),
                 inputs: vec![],

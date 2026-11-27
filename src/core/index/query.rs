@@ -133,13 +133,17 @@ impl Index {
                         continue;
                     }
                     let from = edge.source();
-                    if from == start {
+                    let local_subscription = from == start
+                        && node == start
+                        && member.is_some()
+                        && weight.kind == EdgeKind::SubscriptionEvent;
+                    if from == start && !local_subscription {
                         continue;
                     }
                     let next_member = carried(weight, &member);
                     let mut next_path = path.clone();
                     next_path.push(self.step(edge));
-                    if seen.insert((from, next_member.clone())) {
+                    if !local_subscription && seen.insert((from, next_member.clone())) {
                         queue.push_back((from, next_member.clone(), depth + 1, next_path.clone()));
                     }
                     let entry = found.entry(from).or_insert_with(|| Dependent {

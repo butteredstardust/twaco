@@ -1952,6 +1952,106 @@ fn a_deploy_the_gates_stop_says_what_each_blocking_gate_found() {
             .is_some_and(|f| f.contains("Broken.xml [sidecars/unreadable]"))));
 }
 
+#[test]
+fn deploy_reports_advisory_subscription_structure_in_text_json_and_mcp() {
+    use serde_json::{json, Value};
+    use std::io::{Read, Write};
+
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let thing = r#"<Entities><Things><Thing name="Acme.T" projectName="Acme" thingTemplate="GenericThing"><ThingShape><Subscriptions><Subscription name="Watch" version="2" aspect.isStateful="true" aspect.isDistributed="false" sequential="true"><Events><Event alias="Me_Start" eventName="ThingStart" source="" sourceProperty="" sourceType="Thing"/></Events></Subscription></Subscriptions></ThingShape></Thing></Things></Entities>"#;
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme'\n").unwrap();
+    std::fs::create_dir(root.join("Things")).unwrap();
+    std::fs::write(root.join("Things/Acme.T.xml"), thing).unwrap();
+    std::fs::create_dir(root.join("Projects")).unwrap();
+    std::fs::write(
+        root.join("Projects/Acme.xml"),
+        r#"<Entities><Projects><Project name="Acme" projectName="Acme"/></Projects></Entities>"#,
+    )
+    .unwrap();
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        for mut stream in listener.incoming().flatten() {
+            let mut bytes = [0; 4096];
+            let read = stream.read(&mut bytes).unwrap();
+            assert!(bytes[..read].starts_with(b"GET "));
+            stream
+                .write_all(
+                    b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+        }
+    });
+    std::fs::create_dir_all(root.join(".twaco/profiles")).unwrap();
+    std::fs::write(
+        root.join(".twaco/profiles/default.toml"),
+        format!("url='http://{address}/Thingworx/'\nusername='user'\npassword='pass'\n"),
+    )
+    .unwrap();
+
+    let run = |args: &[&str]| {
+        let result = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .envs(std::env::var_os("SystemRoot").map(|value| ("SystemRoot", value)))
+            .output()
+            .unwrap();
+        assert!(result.status.success(), "{result:?}");
+        result.stdout
+    };
+    let text = String::from_utf8(run(&["deploy"])).unwrap();
+    assert!(text.contains("/Subscription/@sequential"), "{text}");
+    let cli: Value = serde_json::from_slice(&run(&["deploy", "--json"])).unwrap();
+    assert_eq!(cli["dry_run"], true);
+    assert!(cli["structure_findings"][0]
+        .as_str()
+        .unwrap()
+        .contains("/Subscription/@sequential"));
+
+    let messages = [
+        json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}),
+        json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}),
+        json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"deploy","arguments":{}}}),
+    ];
+    let input: String = messages
+        .iter()
+        .map(|message| format!("{message}\n"))
+        .collect();
+    let mut output = Vec::new();
+    twaco::mcp::serve_tools(
+        root,
+        &twaco::mcp::Selection::ALL,
+        input.as_bytes(),
+        &mut output,
+    )
+    .unwrap();
+    let replies: Vec<Value> = String::from_utf8(output)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    let tool = replies.iter().find(|reply| reply["id"] == 2).unwrap()["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tool| tool["name"] == "deploy")
+        .unwrap();
+    let reply = replies.iter().find(|reply| reply["id"] == 3).unwrap();
+    let mcp = &reply["result"]["structuredContent"];
+    assert_eq!(mcp["ok"], true, "{reply}");
+    assert!(mcp["structure_findings"]
+        .as_array()
+        .unwrap()
+        .contains(&cli["structure_findings"][0]));
+    assert!(jsonschema::draft202012::is_valid(
+        &tool["outputSchema"],
+        mcp
+    ));
+}
+
 /// An extension widget is placed and reported by the command line as a catalogue one is; the
 /// report used to look the widget up in the catalogue again and panic.
 #[test]
@@ -3170,4 +3270,98 @@ fn init_platform_v1_accepts_adopted_style_but_house_v1_and_real_bugs_fail() {
         );
         assert!(output.contains(rule), "{output}");
     }
+}
+
+#[test]
+fn brief99_cli_authors_and_reads_new_settings_offline() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    std::fs::write(root.join("twaco.toml"), "[[project]]\nname='Acme.App'\n").unwrap();
+    let run = |args: &[&str]| {
+        let output = Command::new(env!("CARGO_BIN_EXE_twaco"))
+            .args(args)
+            .current_dir(root)
+            .env_clear()
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
+    };
+    run(&["new", "thing", "Acme.Watcher", "--apply"]);
+    run(&[
+        "thing",
+        "property",
+        "add",
+        "Acme.Watcher",
+        "Temperature:NUMBER",
+        "--data-change-type",
+        "VALUE",
+        "--data-change-threshold",
+        "2.5",
+        "--apply",
+    ]);
+    let plan = run(&[
+        "thing",
+        "subscription",
+        "add",
+        "Acme.Watcher",
+        "Watch",
+        "--event",
+        "me:DataChange:Temperature",
+        "--event",
+        "ThingStart=Startup",
+        "--stateful",
+        "--then",
+        "logger.info('Acme');",
+        "--json",
+    ]);
+    assert!(plan.contains("\"applied\": false"), "{plan}");
+    run(&[
+        "new",
+        "data-shape",
+        "Acme.Rows",
+        "--field",
+        "uid:STRING:primary",
+        "--apply",
+    ]);
+    run(&[
+        "data-shape",
+        "field",
+        "add",
+        "Acme.Rows",
+        "value:NUMBER",
+        "--apply",
+    ]);
+    let remove = run(&[
+        "data-shape",
+        "field",
+        "remove",
+        "Acme.Rows",
+        "value",
+        "--json",
+    ]);
+    assert!(remove.contains("\"applied\": false"), "{remove}");
+    run(&["new", "mashup", "Acme.View", "--apply"]);
+    let tabs = run(&[
+        "mashup",
+        "add",
+        "Acme.View",
+        "ptcstabset",
+        "--tabs",
+        "One,Two,Three",
+        "--tab-width",
+        "fixed",
+        "--apply",
+        "--json",
+    ]);
+    assert!(tabs.contains("3 tab container(s)"), "{tabs}");
+    let widgets = run(&["widgets", "ptcsgrid"]);
+    assert!(widgets
+        .lines()
+        .any(|line| line.contains("RowLazyLoading") && line.contains("auto (\"On-Demand\")")));
+    run(&["sync", "--all", "--check"]);
 }

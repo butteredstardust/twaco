@@ -78,6 +78,8 @@ pub enum EdgeKind {
     BaseDataShape,
     /// A service parameter, a service result, a property or a field typed by a DataShape.
     DataShape,
+    /// A subscription listening to an event or a property change.
+    SubscriptionEvent,
     /// A script reading `Things["X"]` or `Things.X`, and then a member of it.
     ScriptReference,
     /// A string in a script that equals an entity's name.
@@ -120,6 +122,7 @@ impl EdgeKind {
             EdgeKind::Template
             | EdgeKind::ImplementedShape
             | EdgeKind::BaseDataShape
+            | EdgeKind::SubscriptionEvent
             | EdgeKind::DataShape
             | EdgeKind::Deploy
             | EdgeKind::ProjectDependency
@@ -171,6 +174,7 @@ impl EdgeKind {
             EdgeKind::ImplementedShape => "implemented_shape",
             EdgeKind::BaseDataShape => "base_data_shape",
             EdgeKind::DataShape => "data_shape",
+            EdgeKind::SubscriptionEvent => "subscription_event",
             EdgeKind::ScriptReference => "script_reference",
             EdgeKind::ScriptMention => "script_mention",
             EdgeKind::MashupBinding => "mashup_binding",

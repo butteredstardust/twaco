@@ -13,6 +13,10 @@
     "function_widgets": {
       "path": "Common/mashup-common-widgets-builder.js",
       "sha256": "e706fe5f04e7b2c20a2baf446524720d776302886be3ced401e370dcf751fc11"
+    },
+    "widget_labels": {
+      "path": "Common/locales/en/translation-widgets.json",
+      "sha256": "9bdc7ac8aa1c67e3f8731b6dbf08d3e8279054a77d3f3d5ba3fb1acd90010c61"
     }
   },
   "base_properties": {
@@ -208,9 +212,15 @@
       "properties": {
         "ExpandCollapseTabLocation": {
           "base_type": "STRING",
-          "options": [
-            "inside",
-            "outside"
+          "values": [
+            {
+              "value": "inside",
+              "label": "inside"
+            },
+            {
+              "value": "outside",
+              "label": "outside"
+            }
           ]
         },
         "CollapseTabIcon": {
@@ -427,9 +437,15 @@
         },
         "MashupControl": {
           "base_type": "STRING",
-          "options": [
-            "pagemashup",
-            "bound"
+          "values": [
+            {
+              "value": "pagemashup",
+              "label": "Control Current Mashup"
+            },
+            {
+              "value": "bound",
+              "label": "Bind To Mashup Parameters"
+            }
           ]
         },
         "Mashup": {
@@ -501,10 +517,19 @@
         },
         "LabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "MaxWidth": {
@@ -524,24 +549,54 @@
         },
         "Size": {
           "base_type": "STRING",
-          "options": [
-            "standard",
-            "medium",
-            "large",
-            "xl",
-            "fill"
+          "values": [
+            {
+              "value": "standard",
+              "label": "Standard"
+            },
+            {
+              "value": "medium",
+              "label": "Medium"
+            },
+            {
+              "value": "large",
+              "label": "Large"
+            },
+            {
+              "value": "xl",
+              "label": "X-Large"
+            },
+            {
+              "value": "fill",
+              "label": "Fill"
+            }
           ]
         },
         "ButtonType": {
           "base_type": "STRING",
           "source": true,
           "target": true,
-          "options": [
-            "primary",
-            "secondary",
-            "tertiary",
-            "danger",
-            "transparent"
+          "values": [
+            {
+              "value": "primary",
+              "label": "Primary"
+            },
+            {
+              "value": "secondary",
+              "label": "Secondary"
+            },
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            },
+            {
+              "value": "danger",
+              "label": "Danger"
+            },
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
           ]
         },
         "Icon": {
@@ -549,11 +604,23 @@
         },
         "IconPosition": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right",
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "TabSequence": {
@@ -1011,22 +1078,52 @@
         "LabelType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "LabelPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "LabelAlignment": {
@@ -1034,9 +1131,15 @@
         },
         "ChartType": {
           "base_type": "STRING",
-          "options": [
-            "bar",
-            "column"
+          "values": [
+            {
+              "value": "bar",
+              "label": "Bar Chart"
+            },
+            {
+              "value": "column",
+              "label": "Column Chart"
+            }
           ]
         },
         "NumberOfSeries": {
@@ -1048,10 +1151,19 @@
         "SeriesDisplay": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "grouped",
-            "auto",
-            "expand"
+          "values": [
+            {
+              "value": "grouped",
+              "label": "Grouped"
+            },
+            {
+              "value": "auto",
+              "label": "Stacked"
+            },
+            {
+              "value": "expand",
+              "label": "100% Stacked"
+            }
           ]
         },
         "Data": {
@@ -1107,11 +1219,23 @@
         },
         "LegendPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "right",
-            "bottom",
-            "left"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            },
+            {
+              "value": "left",
+              "label": "Left"
+            }
           ]
         },
         "LegendMaxWidth": {
@@ -1119,10 +1243,19 @@
         },
         "LegendMarkerShapes": {
           "base_type": "STRING",
-          "options": [
-            "none",
-            "square",
-            "circle"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "square",
+              "label": "Square"
+            },
+            {
+              "value": "circle",
+              "label": "Circle"
+            }
           ]
         },
         "LegendFilter": {
@@ -1138,9 +1271,15 @@
         },
         "NotesPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "NotesAlignment": {
@@ -1241,10 +1380,19 @@
         "SecondYAxisSeriesDisplay": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "grouped",
-            "auto",
-            "expand"
+          "values": [
+            {
+              "value": "grouped",
+              "label": "Grouped"
+            },
+            {
+              "value": "auto",
+              "label": "Stacked"
+            },
+            {
+              "value": "expand",
+              "label": "100% Stacked"
+            }
           ]
         },
         "ReverseSecondYAxis": {
@@ -1261,9 +1409,15 @@
         "YAxisRulerAlignment": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "primary",
-            "secondary"
+          "values": [
+            {
+              "value": "primary",
+              "label": "Primary Y-axis"
+            },
+            {
+              "value": "secondary",
+              "label": "Second Y-axis"
+            }
           ]
         },
         "RulersInFront": {
@@ -1289,16 +1443,28 @@
         },
         "ValuesPosition": {
           "base_type": "STRING",
-          "options": [
-            "outside",
-            "inside"
+          "values": [
+            {
+              "value": "outside",
+              "label": "Outside bar"
+            },
+            {
+              "value": "inside",
+              "label": "Overlap bar"
+            }
           ]
         },
         "ValuesAlignment": {
           "base_type": "STRING",
-          "options": [
-            "end",
-            "base"
+          "values": [
+            {
+              "value": "end",
+              "label": "End"
+            },
+            {
+              "value": "base",
+              "label": "Base"
+            }
           ]
         },
         "HorizontalZoom": {
@@ -1332,28 +1498,58 @@
         "DirectSelectionZoom": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "xaxis",
-            "yaxis",
-            "both"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "xaxis",
+              "label": "Horizontal Axis"
+            },
+            {
+              "value": "yaxis",
+              "label": "Vertical Axis"
+            },
+            {
+              "value": "both",
+              "label": "Both"
+            }
           ]
         },
         "DragSelectionZoom": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "xaxis",
-            "yaxis",
-            "both"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "xaxis",
+              "label": "Horizontal Axis"
+            },
+            {
+              "value": "yaxis",
+              "label": "Vertical Axis"
+            },
+            {
+              "value": "both",
+              "label": "Both"
+            }
           ]
         },
         "HorizontalIntervalControl": {
           "base_type": "STRING",
-          "options": [
-            "none",
-            "dropdown"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "dropdown",
+              "label": "Dropdown list"
+            }
           ]
         },
         "HorizontalIntervalControlLabel": {
@@ -1368,9 +1564,15 @@
         "HorizontalIntervalAnchorPoint": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "start",
-            "end"
+          "values": [
+            {
+              "value": "start",
+              "label": "Start"
+            },
+            {
+              "value": "end",
+              "label": "End"
+            }
           ]
         },
         "HorizontalIntervalAnchorPointLabel": {
@@ -1428,10 +1630,19 @@
         "SelectionMode": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "single",
-            "multiple"
+          "values": [
+            {
+              "value": "none",
+              "label": "Default"
+            },
+            {
+              "value": "single",
+              "label": "Single"
+            },
+            {
+              "value": "multiple",
+              "label": "Multiple"
+            }
           ]
         },
         "UseSampleDataInRuntime": {
@@ -1447,16 +1658,28 @@
         },
         "ResetButtonType": {
           "base_type": "STRING",
-          "options": [
-            "tertiary",
-            "transparent"
+          "values": [
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            },
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
           ]
         },
         "ShowHideLegendButtonType": {
           "base_type": "STRING",
-          "options": [
-            "tertiary",
-            "transparent"
+          "values": [
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            },
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
           ]
         },
         "ZoomInLabel": {
@@ -3197,15 +3420,39 @@
         "LabelType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "LabelAlignment": {
@@ -3213,9 +3460,15 @@
         },
         "LabelPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "HideLegend": {
@@ -3224,11 +3477,23 @@
         },
         "LegendPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "right",
-            "bottom",
-            "left"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            },
+            {
+              "value": "left",
+              "label": "Left"
+            }
           ]
         },
         "LegendFilter": {
@@ -3256,9 +3521,15 @@
         },
         "NotesPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "NotesAlignment": {
@@ -3311,11 +3582,23 @@
         },
         "MarkerShape": {
           "base_type": "STRING",
-          "options": [
-            "circle",
-            "square",
-            "diamond",
-            "none"
+          "values": [
+            {
+              "value": "circle",
+              "label": "Circle"
+            },
+            {
+              "value": "square",
+              "label": "Square"
+            },
+            {
+              "value": "diamond",
+              "label": "Diamond"
+            },
+            {
+              "value": "none",
+              "label": "None"
+            }
           ]
         },
         "MultipleDataSources": {
@@ -3349,19 +3632,37 @@
         },
         "XAxisLabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "start",
-            "center",
-            "end"
+          "values": [
+            {
+              "value": "start",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "end",
+              "label": "Right"
+            }
           ]
         },
         "XAxisType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "label",
-            "number",
-            "date"
+          "values": [
+            {
+              "value": "label",
+              "label": "String"
+            },
+            {
+              "value": "number",
+              "label": "Numeric"
+            },
+            {
+              "value": "date",
+              "label": "Date/Time"
+            }
           ]
         },
         "XAxisFormat": {
@@ -3410,9 +3711,15 @@
         "YAxisRulerAlignment": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "primary",
-            "secondary"
+          "values": [
+            {
+              "value": "primary",
+              "label": "Primary Y-axis"
+            },
+            {
+              "value": "secondary",
+              "label": "Second Y-axis"
+            }
           ]
         },
         "RulersInFront": {
@@ -3422,11 +3729,23 @@
         "ZeroValueRuler": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "primary",
-            "secondary",
-            "none",
-            "both"
+          "values": [
+            {
+              "value": "primary",
+              "label": "Primary Axis"
+            },
+            {
+              "value": "secondary",
+              "label": "Secondary Axis"
+            },
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "both",
+              "label": "Both"
+            }
           ]
         },
         "HorizontalZoom": {
@@ -3460,49 +3779,112 @@
         "DirectSelectionZoom": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "xaxis",
-            "yaxis",
-            "both"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "xaxis",
+              "label": "Horizontal Axis"
+            },
+            {
+              "value": "yaxis",
+              "label": "Vertical Axis"
+            },
+            {
+              "value": "both",
+              "label": "Both"
+            }
           ]
         },
         "DragSelectionZoom": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "xaxis",
-            "yaxis",
-            "both"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "xaxis",
+              "label": "Horizontal Axis"
+            },
+            {
+              "value": "yaxis",
+              "label": "Vertical Axis"
+            },
+            {
+              "value": "both",
+              "label": "Both"
+            }
           ]
         },
         "PointerType": {
           "base_type": "STRING",
-          "options": [
-            "auto",
-            "horz",
-            "vert",
-            "cross"
+          "values": [
+            {
+              "value": "auto",
+              "label": "Standard"
+            },
+            {
+              "value": "horz",
+              "label": "Horizontal Line"
+            },
+            {
+              "value": "vert",
+              "label": "Vertical Line"
+            },
+            {
+              "value": "cross",
+              "label": "Crosshair"
+            }
           ]
         },
         "DataPointSelection": {
           "base_type": "STRING",
-          "options": [
-            "auto",
-            "horz",
-            "vert",
-            "both"
+          "values": [
+            {
+              "value": "auto",
+              "label": "Pointer Position"
+            },
+            {
+              "value": "horz",
+              "label": "Nearest Horizontal"
+            },
+            {
+              "value": "vert",
+              "label": "Nearest Vertical"
+            },
+            {
+              "value": "both",
+              "label": "Both Axes"
+            }
           ]
         },
         "ChartType": {
           "base_type": "STRING",
-          "options": [
-            "line",
-            "bar",
-            "area",
-            "marker",
-            "stepper"
+          "values": [
+            {
+              "value": "line",
+              "label": "Line"
+            },
+            {
+              "value": "bar",
+              "label": "Bar"
+            },
+            {
+              "value": "area",
+              "label": "Area"
+            },
+            {
+              "value": "marker",
+              "label": "Marker"
+            },
+            {
+              "value": "stepper",
+              "label": "Stepper"
+            }
           ]
         },
         "SampleSize": {
@@ -3549,10 +3931,19 @@
         "SelectionMode": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "single",
-            "multiple"
+          "values": [
+            {
+              "value": "none",
+              "label": "Default"
+            },
+            {
+              "value": "single",
+              "label": "Single"
+            },
+            {
+              "value": "multiple",
+              "label": "Multiple"
+            }
           ]
         },
         "HideValues": {
@@ -3561,24 +3952,45 @@
         },
         "ValuesPosition": {
           "base_type": "STRING",
-          "options": [
-            "above",
-            "on",
-            "below"
+          "values": [
+            {
+              "value": "above",
+              "label": "Above"
+            },
+            {
+              "value": "on",
+              "label": "Overlap"
+            },
+            {
+              "value": "below",
+              "label": "Below"
+            }
           ]
         },
         "ValuesPositionBar": {
           "base_type": "STRING",
-          "options": [
-            "outside",
-            "inside"
+          "values": [
+            {
+              "value": "outside",
+              "label": "Outside bar"
+            },
+            {
+              "value": "inside",
+              "label": "Overlap bar"
+            }
           ]
         },
         "ValuesAlignmentBar": {
           "base_type": "STRING",
-          "options": [
-            "end",
-            "base"
+          "values": [
+            {
+              "value": "end",
+              "label": "End"
+            },
+            {
+              "value": "base",
+              "label": "Base"
+            }
           ]
         },
         "ExternalPadding": {
@@ -3603,16 +4015,28 @@
         },
         "ResetButtonType": {
           "base_type": "STRING",
-          "options": [
-            "tertiary",
-            "transparent"
+          "values": [
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            },
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
           ]
         },
         "ShowHideLegendButtonType": {
           "base_type": "STRING",
-          "options": [
-            "tertiary",
-            "transparent"
+          "values": [
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            },
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
           ]
         },
         "DisableLegendGrouping": {
@@ -3633,10 +4057,19 @@
         "StepPosition": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "before",
-            "center",
-            "after"
+          "values": [
+            {
+              "value": "before",
+              "label": "Before"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "after",
+              "label": "After"
+            }
           ]
         }
       },
@@ -4394,22 +4827,52 @@
         "LabelType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "LabelPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "LabelAlignment": {
@@ -4417,28 +4880,73 @@
         },
         "ChartType": {
           "base_type": "STRING",
-          "options": [
-            "linechart",
-            "runchart",
-            "stepchart",
-            "areachart",
-            "scatterchart",
-            "streamgraphchart"
+          "values": [
+            {
+              "value": "linechart",
+              "label": "Line Chart"
+            },
+            {
+              "value": "runchart",
+              "label": "Run Chart"
+            },
+            {
+              "value": "stepchart",
+              "label": "Step Chart"
+            },
+            {
+              "value": "areachart",
+              "label": "Area Chart"
+            },
+            {
+              "value": "scatterchart",
+              "label": "Scatter Plot Chart"
+            },
+            {
+              "value": "streamgraphchart",
+              "label": "Streamgraph Chart"
+            }
           ]
         },
         "CurveFitting": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "linear",
-            "basis",
-            "bundle",
-            "cardinal",
-            "catmull-rom",
-            "monotone-x",
-            "monotone-y",
-            "natural",
-            "step"
+          "values": [
+            {
+              "value": "linear",
+              "label": "Linear"
+            },
+            {
+              "value": "basis",
+              "label": "Basis"
+            },
+            {
+              "value": "bundle",
+              "label": "Bundle"
+            },
+            {
+              "value": "cardinal",
+              "label": "Cardinal"
+            },
+            {
+              "value": "catmull-rom",
+              "label": "Catmull-Rom"
+            },
+            {
+              "value": "monotone-x",
+              "label": "Monotone-X"
+            },
+            {
+              "value": "monotone-y",
+              "label": "Monotone-Y"
+            },
+            {
+              "value": "natural",
+              "label": "Natural"
+            },
+            {
+              "value": "step",
+              "label": "Step"
+            }
           ]
         },
         "NumberOfSeries": {
@@ -4450,10 +4958,19 @@
         "StepPosition": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "before",
-            "center",
-            "after"
+          "values": [
+            {
+              "value": "before",
+              "label": "Before"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "after",
+              "label": "After"
+            }
           ]
         },
         "SeriesStacking": {
@@ -4463,13 +4980,31 @@
         "StackOrder": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "auto",
-            "reverse",
-            "appearance",
-            "ascending",
-            "descending",
-            "insideout"
+          "values": [
+            {
+              "value": "auto",
+              "label": "Auto"
+            },
+            {
+              "value": "reverse",
+              "label": "Reverse"
+            },
+            {
+              "value": "appearance",
+              "label": "Appearance"
+            },
+            {
+              "value": "ascending",
+              "label": "Ascending"
+            },
+            {
+              "value": "descending",
+              "label": "Descending"
+            },
+            {
+              "value": "insideout",
+              "label": "Insideout"
+            }
           ]
         },
         "Data": {
@@ -4510,11 +5045,23 @@
         },
         "LegendPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "right",
-            "bottom",
-            "left"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            },
+            {
+              "value": "left",
+              "label": "Left"
+            }
           ]
         },
         "LegendMaxWidth": {
@@ -4525,10 +5072,19 @@
         },
         "LegendMarkerShapes": {
           "base_type": "STRING",
-          "options": [
-            "none",
-            "square",
-            "circle"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "square",
+              "label": "Square"
+            },
+            {
+              "value": "circle",
+              "label": "Circle"
+            }
           ]
         },
         "LegendFilter": {
@@ -4543,10 +5099,19 @@
         "MarkerShape": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "circle",
-            "square",
-            "diamond"
+          "values": [
+            {
+              "value": "circle",
+              "label": "Circle"
+            },
+            {
+              "value": "square",
+              "label": "Square"
+            },
+            {
+              "value": "diamond",
+              "label": "Diamond"
+            }
           ]
         },
         "MarkerSize": {
@@ -4563,9 +5128,15 @@
         },
         "NotesPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "NotesAlignment": {
@@ -4598,20 +5169,44 @@
         },
         "PointerType": {
           "base_type": "STRING",
-          "options": [
-            "auto",
-            "horz",
-            "vert",
-            "cross"
+          "values": [
+            {
+              "value": "auto",
+              "label": "Standard"
+            },
+            {
+              "value": "horz",
+              "label": "Horizontal Line"
+            },
+            {
+              "value": "vert",
+              "label": "Vertical Line"
+            },
+            {
+              "value": "cross",
+              "label": "Crosshair"
+            }
           ]
         },
         "DataPointSelection": {
           "base_type": "STRING",
-          "options": [
-            "auto",
-            "horz",
-            "vert",
-            "both"
+          "values": [
+            {
+              "value": "auto",
+              "label": "Pointer Position"
+            },
+            {
+              "value": "horz",
+              "label": "Nearest Horizontal"
+            },
+            {
+              "value": "vert",
+              "label": "Nearest Vertical"
+            },
+            {
+              "value": "both",
+              "label": "Both Axes"
+            }
           ]
         },
         "HideXAxis": {
@@ -4635,27 +5230,54 @@
         },
         "XAxisLabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "start",
-            "center",
-            "end"
+          "values": [
+            {
+              "value": "start",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "end",
+              "label": "Right"
+            }
           ]
         },
         "YAxisLabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "end",
-            "center",
-            "start"
+          "values": [
+            {
+              "value": "end",
+              "label": "Top"
+            },
+            {
+              "value": "center",
+              "label": "Middle"
+            },
+            {
+              "value": "start",
+              "label": "Bottom"
+            }
           ]
         },
         "XAxisType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "label",
-            "number",
-            "date"
+          "values": [
+            {
+              "value": "label",
+              "label": "String"
+            },
+            {
+              "value": "number",
+              "label": "Numeric"
+            },
+            {
+              "value": "date",
+              "label": "Date/Time"
+            }
           ]
         },
         "XAxisFormat": {
@@ -4669,10 +5291,19 @@
         "YAxisType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "label",
-            "number",
-            "date"
+          "values": [
+            {
+              "value": "label",
+              "label": "String"
+            },
+            {
+              "value": "number",
+              "label": "Numeric"
+            },
+            {
+              "value": "date",
+              "label": "Date/Time"
+            }
           ]
         },
         "YAxisFormat": {
@@ -4723,19 +5354,37 @@
         },
         "SecondYAxisLabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "end",
-            "center",
-            "start"
+          "values": [
+            {
+              "value": "end",
+              "label": "Top"
+            },
+            {
+              "value": "center",
+              "label": "Middle"
+            },
+            {
+              "value": "start",
+              "label": "Bottom"
+            }
           ]
         },
         "SecondYAxisType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "label",
-            "number",
-            "date"
+          "values": [
+            {
+              "value": "label",
+              "label": "String"
+            },
+            {
+              "value": "number",
+              "label": "Numeric"
+            },
+            {
+              "value": "date",
+              "label": "Date/Time"
+            }
           ]
         },
         "SecondYAxisFormat": {
@@ -4781,9 +5430,15 @@
         "YAxisRulerAlignment": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "primary",
-            "secondary"
+          "values": [
+            {
+              "value": "primary",
+              "label": "Primary Y-axis"
+            },
+            {
+              "value": "secondary",
+              "label": "Second Y-axis"
+            }
           ]
         },
         "RulersInFront": {
@@ -4804,10 +5459,19 @@
         },
         "ValuesPosition": {
           "base_type": "STRING",
-          "options": [
-            "above",
-            "on",
-            "below"
+          "values": [
+            {
+              "value": "above",
+              "label": "Above"
+            },
+            {
+              "value": "on",
+              "label": "Overlap"
+            },
+            {
+              "value": "below",
+              "label": "Below"
+            }
           ]
         },
         "HorizontalZoom": {
@@ -4847,28 +5511,58 @@
         "DirectSelectionZoom": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "xaxis",
-            "yaxis",
-            "both"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "xaxis",
+              "label": "Horizontal Axis"
+            },
+            {
+              "value": "yaxis",
+              "label": "Vertical Axis"
+            },
+            {
+              "value": "both",
+              "label": "Both"
+            }
           ]
         },
         "DragSelectionZoom": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "xaxis",
-            "yaxis",
-            "both"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "xaxis",
+              "label": "Horizontal Axis"
+            },
+            {
+              "value": "yaxis",
+              "label": "Vertical Axis"
+            },
+            {
+              "value": "both",
+              "label": "Both"
+            }
           ]
         },
         "HorizontalIntervalControl": {
           "base_type": "STRING",
-          "options": [
-            "none",
-            "dropdown"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "dropdown",
+              "label": "Dropdown list"
+            }
           ]
         },
         "HorizontalIntervalControlLabel": {
@@ -4883,9 +5577,15 @@
         "HorizontalIntervalAnchorPoint": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "start",
-            "end"
+          "values": [
+            {
+              "value": "start",
+              "label": "Start"
+            },
+            {
+              "value": "end",
+              "label": "End"
+            }
           ]
         },
         "HorizontalIntervalAnchorPointLabel": {
@@ -4948,10 +5648,19 @@
         "SelectionMode": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "single",
-            "multiple"
+          "values": [
+            {
+              "value": "none",
+              "label": "Default"
+            },
+            {
+              "value": "single",
+              "label": "Single"
+            },
+            {
+              "value": "multiple",
+              "label": "Multiple"
+            }
           ]
         },
         "UseSampleDataInRuntime": {
@@ -4970,16 +5679,28 @@
         },
         "ResetButtonType": {
           "base_type": "STRING",
-          "options": [
-            "tertiary",
-            "transparent"
+          "values": [
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            },
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
           ]
         },
         "ShowHideLegendButtonType": {
           "base_type": "STRING",
-          "options": [
-            "tertiary",
-            "transparent"
+          "values": [
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            },
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
           ]
         },
         "ZoomInLabel": {
@@ -5224,15 +5945,39 @@
         "LabelType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "LabelAlignment": {
@@ -5240,9 +5985,15 @@
         },
         "LabelPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "ExternalPadding": {
@@ -5256,11 +6007,23 @@
         "ThresholdLine": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "horizontal",
-            "vertical",
-            "both",
-            "none"
+          "values": [
+            {
+              "value": "horizontal",
+              "label": "Horizontal"
+            },
+            {
+              "value": "vertical",
+              "label": "Vertical"
+            },
+            {
+              "value": "both",
+              "label": "Both"
+            },
+            {
+              "value": "none",
+              "label": "None"
+            }
           ]
         },
         "ThresholdValue": {
@@ -5330,11 +6093,23 @@
         },
         "LegendPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "right",
-            "bottom",
-            "left"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            },
+            {
+              "value": "left",
+              "label": "Left"
+            }
           ]
         },
         "LegendMaxWidth": {
@@ -5343,10 +6118,19 @@
         },
         "LegendMarkerShapes": {
           "base_type": "STRING",
-          "options": [
-            "none",
-            "square",
-            "circle"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "square",
+              "label": "Square"
+            },
+            {
+              "value": "circle",
+              "label": "Circle"
+            }
           ]
         },
         "LegendFilter": {
@@ -5362,9 +6146,15 @@
         },
         "NotesPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "NotesAlignment": {
@@ -5462,9 +6252,15 @@
         "YAxisRulerAlignment": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "primary",
-            "secondary"
+          "values": [
+            {
+              "value": "primary",
+              "label": "Primary Y-axis"
+            },
+            {
+              "value": "secondary",
+              "label": "Secondary Y-axis"
+            }
           ]
         },
         "RulersInFront": {
@@ -5486,9 +6282,15 @@
         },
         "ValuesPosition": {
           "base_type": "STRING",
-          "options": [
-            "outside",
-            "inside"
+          "values": [
+            {
+              "value": "outside",
+              "label": "Outside Bar"
+            },
+            {
+              "value": "inside",
+              "label": "Overlap Bar"
+            }
           ]
         },
         "ShowLineValues": {
@@ -5497,17 +6299,32 @@
         },
         "LineValuesPosition": {
           "base_type": "STRING",
-          "options": [
-            "above",
-            "overlap",
-            "below"
+          "values": [
+            {
+              "value": "above",
+              "label": "Above"
+            },
+            {
+              "value": "overlap",
+              "label": "Overlap"
+            },
+            {
+              "value": "below",
+              "label": "Below"
+            }
           ]
         },
         "ValuesAlignment": {
           "base_type": "STRING",
-          "options": [
-            "end",
-            "base"
+          "values": [
+            {
+              "value": "end",
+              "label": "End"
+            },
+            {
+              "value": "base",
+              "label": "Base"
+            }
           ]
         },
         "HorizontalZoom": {
@@ -5541,17 +6358,29 @@
         "DirectSelectionZoom": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "xaxis"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "xaxis",
+              "label": "Horizontal Axis"
+            }
           ]
         },
         "DragSelectionZoom": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "xaxis"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "xaxis",
+              "label": "Horizontal Axis"
+            }
           ]
         },
         "StringStart": {
@@ -5584,11 +6413,23 @@
         "CumulativeLineMarkerShape": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "circle",
-            "square",
-            "diamond",
-            "none"
+          "values": [
+            {
+              "value": "circle",
+              "label": "Circle"
+            },
+            {
+              "value": "square",
+              "label": "Square"
+            },
+            {
+              "value": "diamond",
+              "label": "Diamond"
+            },
+            {
+              "value": "none",
+              "label": "None"
+            }
           ]
         },
         "CumulativeLineMarkerSize": {
@@ -5598,10 +6439,19 @@
         "SelectionMode": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "single",
-            "multiple"
+          "values": [
+            {
+              "value": "none",
+              "label": "Default"
+            },
+            {
+              "value": "single",
+              "label": "Single"
+            },
+            {
+              "value": "multiple",
+              "label": "Multiple"
+            }
           ]
         },
         "NonSelectableData": {
@@ -5620,16 +6470,28 @@
         },
         "ResetButtonType": {
           "base_type": "STRING",
-          "options": [
-            "tertiary",
-            "transparent"
+          "values": [
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            },
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
           ]
         },
         "ShowHideLegendButtonType": {
           "base_type": "STRING",
-          "options": [
-            "tertiary",
-            "transparent"
+          "values": [
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            },
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
           ]
         },
         "ZoomInLabel": {
@@ -5725,30 +6587,69 @@
         "LabelType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "LabelPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "LabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "center",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "Data": {
@@ -5758,10 +6659,19 @@
         },
         "DataFieldType": {
           "base_type": "STRING",
-          "options": [
-            "string",
-            "date",
-            "number"
+          "values": [
+            {
+              "value": "string",
+              "label": "String"
+            },
+            {
+              "value": "date",
+              "label": "Date/Time"
+            },
+            {
+              "value": "number",
+              "label": "Numeric"
+            }
           ]
         },
         "DataFieldFormat": {
@@ -5803,11 +6713,23 @@
         },
         "LegendPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "right",
-            "bottom",
-            "left"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            },
+            {
+              "value": "left",
+              "label": "Left"
+            }
           ]
         },
         "LegendMaxWidth": {
@@ -5816,10 +6738,19 @@
         },
         "LegendMarkerShapes": {
           "base_type": "STRING",
-          "options": [
-            "none",
-            "square",
-            "circle"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "square",
+              "label": "Square"
+            },
+            {
+              "value": "circle",
+              "label": "Circle"
+            }
           ]
         },
         "LegendFilter": {
@@ -5835,17 +6766,32 @@
         },
         "NotesPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "NotesAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "center",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "LoadingIcon": {
@@ -5906,24 +6852,60 @@
         },
         "ValuesPosition": {
           "base_type": "STRING",
-          "options": [
-            "in",
-            "marker",
-            "out",
-            "out with line"
+          "values": [
+            {
+              "value": "in",
+              "label": "Inside Slices"
+            },
+            {
+              "value": "marker",
+              "label": "On Slices"
+            },
+            {
+              "value": "out",
+              "label": "Outside Slices"
+            },
+            {
+              "value": "out with line",
+              "label": "Outside Slices with Line"
+            }
           ]
         },
         "DonutSelectionLabelType": {
           "base_type": "STRING",
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "ShowDonutSliceLabel": {
@@ -5944,10 +6926,19 @@
         "SelectionMode": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "single",
-            "multiple"
+          "values": [
+            {
+              "value": "none",
+              "label": "Default"
+            },
+            {
+              "value": "single",
+              "label": "Single"
+            },
+            {
+              "value": "multiple",
+              "label": "Multiple"
+            }
           ]
         },
         "Width": {
@@ -5966,9 +6957,15 @@
         },
         "ShowHideLegendButtonType": {
           "base_type": "STRING",
-          "options": [
-            "tertiary",
-            "transparent"
+          "values": [
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            },
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
           ]
         },
         "ValuesTooltip": {
@@ -6300,22 +7297,52 @@
         "LabelType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "LabelPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "LabelAlignment": {
@@ -6376,11 +7403,23 @@
         },
         "LegendPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "right",
-            "bottom",
-            "left"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            },
+            {
+              "value": "left",
+              "label": "Left"
+            }
           ]
         },
         "LegendMaxWidth": {
@@ -6388,10 +7427,19 @@
         },
         "LegendMarkerShapes": {
           "base_type": "STRING",
-          "options": [
-            "none",
-            "square",
-            "circle"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "square",
+              "label": "Square"
+            },
+            {
+              "value": "circle",
+              "label": "Circle"
+            }
           ]
         },
         "LegendFilter": {
@@ -6407,9 +7455,15 @@
         },
         "NotesPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "NotesAlignment": {
@@ -6457,18 +7511,36 @@
         },
         "ResourcesAxisLabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "end",
-            "center",
-            "start"
+          "values": [
+            {
+              "value": "end",
+              "label": "Top"
+            },
+            {
+              "value": "center",
+              "label": "Middle"
+            },
+            {
+              "value": "start",
+              "label": "Bottom"
+            }
           ]
         },
         "TimeAxisLabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "start",
-            "center",
-            "end"
+          "values": [
+            {
+              "value": "start",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "end",
+              "label": "Right"
+            }
           ]
         },
         "TimeAxisDateFormatToken": {
@@ -6489,10 +7561,19 @@
         },
         "SecondTimeAxisLabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "start",
-            "center",
-            "end"
+          "values": [
+            {
+              "value": "start",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "end",
+              "label": "Right"
+            }
           ]
         },
         "SecondTimeAxisDateFormatToken": {
@@ -6537,21 +7618,45 @@
         "DirectSelectionZoom": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "x",
-            "y",
-            "xy"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "x",
+              "label": "Resources Axis"
+            },
+            {
+              "value": "y",
+              "label": "Time Axis"
+            },
+            {
+              "value": "xy",
+              "label": "Both"
+            }
           ]
         },
         "DragSelectionZoom": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "x",
-            "y",
-            "xy"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "x",
+              "label": "Resources Axis"
+            },
+            {
+              "value": "y",
+              "label": "Time Axis"
+            },
+            {
+              "value": "xy",
+              "label": "Both"
+            }
           ]
         },
         "AxisZoom": {
@@ -6573,9 +7678,15 @@
         "TimeAxisIntervalControl": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "dropdown"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "dropdown",
+              "label": "Dropdown list"
+            }
           ]
         },
         "TimeAxisIntervalControlLabel": {
@@ -6590,9 +7701,15 @@
         "TimeAxisIntervalAnchorPoint": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "start",
-            "end"
+          "values": [
+            {
+              "value": "start",
+              "label": "Start"
+            },
+            {
+              "value": "end",
+              "label": "End"
+            }
           ]
         },
         "TimeAxisIntervalAnchorPointLabel": {
@@ -6632,10 +7749,19 @@
         "SelectionMode": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "single",
-            "multiple"
+          "values": [
+            {
+              "value": "none",
+              "label": "Default"
+            },
+            {
+              "value": "single",
+              "label": "Single"
+            },
+            {
+              "value": "multiple",
+              "label": "Multiple"
+            }
           ]
         },
         "UseSampleDataInRuntime": {
@@ -6651,16 +7777,28 @@
         },
         "ResetButtonType": {
           "base_type": "STRING",
-          "options": [
-            "tertiary",
-            "transparent"
+          "values": [
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            },
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
           ]
         },
         "ShowHideLegendButtonType": {
           "base_type": "STRING",
-          "options": [
-            "tertiary",
-            "transparent"
+          "values": [
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            },
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
           ]
         },
         "ZoomInLabel": {
@@ -6997,22 +8135,52 @@
         "LabelType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "LabelPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "LabelAlignment": {
@@ -7059,11 +8227,23 @@
         },
         "LegendPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "right",
-            "bottom",
-            "left"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            },
+            {
+              "value": "left",
+              "label": "Left"
+            }
           ]
         },
         "LabelReset": {
@@ -7072,9 +8252,15 @@
         },
         "Orientation": {
           "base_type": "STRING",
-          "options": [
-            "vertical",
-            "horizontal"
+          "values": [
+            {
+              "value": "vertical",
+              "label": "Vertical"
+            },
+            {
+              "value": "horizontal",
+              "label": "Horizontal"
+            }
           ]
         },
         "LegendMaxWidth": {
@@ -7085,10 +8271,19 @@
         },
         "LegendMarkerShapes": {
           "base_type": "STRING",
-          "options": [
-            "none",
-            "square",
-            "circle"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "square",
+              "label": "Square"
+            },
+            {
+              "value": "circle",
+              "label": "Circle"
+            }
           ]
         },
         "LegendFilter": {
@@ -7108,9 +8303,15 @@
         },
         "NotesPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "NotesAlignment": {
@@ -7236,16 +8437,28 @@
         },
         "ValuesPosition": {
           "base_type": "STRING",
-          "options": [
-            "outside",
-            "inside"
+          "values": [
+            {
+              "value": "outside",
+              "label": "Outside Bar"
+            },
+            {
+              "value": "inside",
+              "label": "Overlap Bar"
+            }
           ]
         },
         "ValuesAlignment": {
           "base_type": "STRING",
-          "options": [
-            "end",
-            "base"
+          "values": [
+            {
+              "value": "end",
+              "label": "End"
+            },
+            {
+              "value": "base",
+              "label": "Base"
+            }
           ]
         },
         "HorizontalZoom": {
@@ -7295,30 +8508,63 @@
         "DirectSelectionZoom": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "xaxis",
-            "yaxis",
-            "both"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "xaxis",
+              "label": "Horizontal Axis"
+            },
+            {
+              "value": "yaxis",
+              "label": "Vertical Axis"
+            },
+            {
+              "value": "both",
+              "label": "Both"
+            }
           ]
         },
         "DragSelectionZoom": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "xaxis",
-            "yaxis",
-            "both"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "xaxis",
+              "label": "Horizontal Axis"
+            },
+            {
+              "value": "yaxis",
+              "label": "Vertical Axis"
+            },
+            {
+              "value": "both",
+              "label": "Both"
+            }
           ]
         },
         "SelectionMode": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "single",
-            "multiple"
+          "values": [
+            {
+              "value": "none",
+              "label": "Default"
+            },
+            {
+              "value": "single",
+              "label": "Single"
+            },
+            {
+              "value": "multiple",
+              "label": "Multiple"
+            }
           ]
         },
         "NonSelectableData": {
@@ -7361,16 +8607,28 @@
         },
         "ResetButtonType": {
           "base_type": "STRING",
-          "options": [
-            "tertiary",
-            "transparent"
+          "values": [
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            },
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
           ]
         },
         "ShowHideLegendButtonType": {
           "base_type": "STRING",
-          "options": [
-            "tertiary",
-            "transparent"
+          "values": [
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            },
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
           ]
         },
         "ZoomInLabel": {
@@ -7481,11 +8739,23 @@
         "ValidationState": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "undefined",
-            "unvalidated",
-            "valid",
-            "invalid"
+          "values": [
+            {
+              "value": "undefined",
+              "label": "Undefined"
+            },
+            {
+              "value": "unvalidated",
+              "label": "Unvalidated"
+            },
+            {
+              "value": "valid",
+              "label": "Valid"
+            },
+            {
+              "value": "invalid",
+              "label": "Invalid"
+            }
           ]
         },
         "TrueRequired": {
@@ -7963,11 +9233,23 @@
         },
         "DateOrder": {
           "base_type": "STRING",
-          "options": [
-            "auto",
-            "DMY",
-            "MDY",
-            "YMD"
+          "values": [
+            {
+              "value": "auto",
+              "label": "Auto"
+            },
+            {
+              "value": "DMY",
+              "label": "Day-Month-Year"
+            },
+            {
+              "value": "MDY",
+              "label": "Month-Day-Year"
+            },
+            {
+              "value": "YMD",
+              "label": "Year-Month-Day"
+            }
           ]
         },
         "ColumnFormat": {
@@ -8069,10 +9351,19 @@
         },
         "ItemLoadBehavior": {
           "base_type": "STRING",
-          "options": [
-            "lazy",
-            "load-once",
-            "load-all"
+          "values": [
+            {
+              "value": "lazy",
+              "label": "Load/Unload"
+            },
+            {
+              "value": "load-once",
+              "label": "Load On Demand"
+            },
+            {
+              "value": "load-all",
+              "label": "Load All"
+            }
           ]
         },
         "CellUnloadDelay": {
@@ -8081,10 +9372,19 @@
         "Layout": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "flex",
-            "grid",
-            "table"
+          "values": [
+            {
+              "value": "flex",
+              "label": "Flex"
+            },
+            {
+              "value": "grid",
+              "label": "Grid"
+            },
+            {
+              "value": "table",
+              "label": "Table"
+            }
           ]
         },
         "Mashup": {
@@ -8093,9 +9393,15 @@
         },
         "MashupBackground": {
           "base_type": "STRING",
-          "options": [
-            "transparent",
-            "visible"
+          "values": [
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            },
+            {
+              "value": "visible",
+              "label": "Visible"
+            }
           ]
         },
         "CellHeight": {
@@ -8112,10 +9418,19 @@
         },
         "CellPointer": {
           "base_type": "STRING",
-          "options": [
-            "auto",
-            "pointer",
-            "default"
+          "values": [
+            {
+              "value": "auto",
+              "label": "Auto"
+            },
+            {
+              "value": "pointer",
+              "label": "Hand"
+            },
+            {
+              "value": "default",
+              "label": "Arrow"
+            }
           ]
         },
         "UIDField": {
@@ -8126,30 +9441,69 @@
         },
         "RowHorizontalAlignment": {
           "base_type": "STRING",
-          "options": [
-            "space-evenly",
-            "space-between",
-            "left",
-            "center",
-            "right",
-            "stretch"
+          "values": [
+            {
+              "value": "space-evenly",
+              "label": "Space evenly"
+            },
+            {
+              "value": "space-between",
+              "label": "Space between"
+            },
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "stretch",
+              "label": "Stretch"
+            }
           ]
         },
         "RowVerticalAlignment": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "center",
-            "bottom",
-            "stretch"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            },
+            {
+              "value": "stretch",
+              "label": "Stretch"
+            }
           ]
         },
         "ContentAlignment": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "center",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "UniformRowHeight": {
@@ -8190,10 +9544,19 @@
         },
         "SelectionMode": {
           "base_type": "STRING",
-          "options": [
-            "none",
-            "single",
-            "multiple"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "single",
+              "label": "Single"
+            },
+            {
+              "value": "multiple",
+              "label": "Multiple"
+            }
           ]
         },
         "HasSelectedCells": {
@@ -8233,10 +9596,19 @@
         },
         "CellTabKeyScope": {
           "base_type": "STRING",
-          "options": [
-            "cell",
-            "collection",
-            "item"
+          "values": [
+            {
+              "value": "cell",
+              "label": "Cell"
+            },
+            {
+              "value": "collection",
+              "label": "Collection"
+            },
+            {
+              "value": "item",
+              "label": "Items Only"
+            }
           ]
         },
         "SectionField": {
@@ -8255,10 +9627,19 @@
         },
         "SectionHeaders": {
           "base_type": "STRING",
-          "options": [
-            "none",
-            "visible",
-            "pinned"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "visible",
+              "label": "Visible"
+            },
+            {
+              "value": "pinned",
+              "label": "Pinned"
+            }
           ]
         },
         "HeaderMashup": {
@@ -8272,10 +9653,19 @@
         },
         "SectionFooters": {
           "base_type": "STRING",
-          "options": [
-            "none",
-            "visible",
-            "pinned"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "visible",
+              "label": "Visible"
+            },
+            {
+              "value": "pinned",
+              "label": "Pinned"
+            }
           ]
         },
         "FooterMashup": {
@@ -8325,11 +9715,23 @@
         },
         "CellActionsPosition": {
           "base_type": "STRING",
-          "options": [
-            "bottom",
-            "left",
-            "right",
-            "top"
+          "values": [
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            },
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "top",
+              "label": "Top"
+            }
           ]
         },
         "DragActionsData": {
@@ -8636,26 +10038,53 @@
         },
         "DateOrder": {
           "base_type": "STRING",
-          "options": [
-            "auto",
-            "DMY",
-            "MDY",
-            "YMD"
+          "values": [
+            {
+              "value": "auto",
+              "label": "Auto"
+            },
+            {
+              "value": "DMY",
+              "label": "Day-Month-Year"
+            },
+            {
+              "value": "MDY",
+              "label": "Month-Day-Year"
+            },
+            {
+              "value": "YMD",
+              "label": "Year-Month-Day"
+            }
           ]
         },
         "WeeklyCalendarStart": {
           "base_type": "STRING",
-          "options": [
-            "monday",
-            "sunday"
+          "values": [
+            {
+              "value": "monday",
+              "label": "Monday"
+            },
+            {
+              "value": "sunday",
+              "label": "Sunday"
+            }
           ]
         },
         "MonthFormat": {
           "base_type": "STRING",
-          "options": [
-            "full",
-            "short",
-            "numeric"
+          "values": [
+            {
+              "value": "full",
+              "label": "Full"
+            },
+            {
+              "value": "short",
+              "label": "Short"
+            },
+            {
+              "value": "numeric",
+              "label": "Numeric"
+            }
           ]
         },
         "TwelveHourClock": {
@@ -8681,10 +10110,19 @@
         },
         "LabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "center",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "FormatToken": {
@@ -8721,11 +10159,23 @@
         },
         "IntervalType": {
           "base_type": "STRING",
-          "options": [
-            "h",
-            "m",
-            "s",
-            "d"
+          "values": [
+            {
+              "value": "h",
+              "label": "Hours"
+            },
+            {
+              "value": "m",
+              "label": "Minutes"
+            },
+            {
+              "value": "s",
+              "label": "Seconds"
+            },
+            {
+              "value": "d",
+              "label": "Days"
+            }
           ]
         },
         "Interval": {
@@ -8785,11 +10235,23 @@
         "ValidationState": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "undefined",
-            "unvalidated",
-            "valid",
-            "invalid"
+          "values": [
+            {
+              "value": "undefined",
+              "label": "Undefined"
+            },
+            {
+              "value": "unvalidated",
+              "label": "Unvalidated"
+            },
+            {
+              "value": "valid",
+              "label": "Valid"
+            },
+            {
+              "value": "invalid",
+              "label": "Invalid"
+            }
           ]
         },
         "ShowValidationSuccess": {
@@ -9036,18 +10498,36 @@
         },
         "LabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "center",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "Alignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "center",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "TabSequence": {
@@ -9154,11 +10634,23 @@
         "ValidationState": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "undefined",
-            "invalid",
-            "unvalidated",
-            "valid"
+          "values": [
+            {
+              "value": "undefined",
+              "label": "Undefined"
+            },
+            {
+              "value": "invalid",
+              "label": "Invalid"
+            },
+            {
+              "value": "unvalidated",
+              "label": "Unvalidated"
+            },
+            {
+              "value": "valid",
+              "label": "Valid"
+            }
           ]
         },
         "ValidationOutput": {
@@ -9276,16 +10768,28 @@
         "Behavior": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "push",
-            "flyover"
+          "values": [
+            {
+              "value": "push",
+              "label": "Push Content"
+            },
+            {
+              "value": "flyover",
+              "label": "Flyover"
+            }
           ]
         },
         "DynamicPanelType": {
           "base_type": "STRING",
-          "options": [
-            "adjustablepanel",
-            "expandablesection"
+          "values": [
+            {
+              "value": "adjustablepanel",
+              "label": "Adjustable Panel"
+            },
+            {
+              "value": "expandablesection",
+              "label": "Expandable Section"
+            }
           ]
         },
         "SectionHeaderHeight": {
@@ -9305,10 +10809,19 @@
         "AnimationSpeed": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "100ms",
-            "200ms",
-            "300ms"
+          "values": [
+            {
+              "value": "100ms",
+              "label": "Fast"
+            },
+            {
+              "value": "200ms",
+              "label": "Medium"
+            },
+            {
+              "value": "300ms",
+              "label": "Slow"
+            }
           ]
         },
         "HideDragHandle": {
@@ -9333,11 +10846,23 @@
         "AnchorLocation": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "left",
-            "top",
-            "right",
-            "bottom"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "ClickOutsideToClose": {
@@ -9356,40 +10881,85 @@
         "TriggerButtonLocation": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "left",
-            "top",
-            "right",
-            "bottom",
-            "center",
-            "panel",
-            "none"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "panel",
+              "label": "Panel"
+            },
+            {
+              "value": "none",
+              "label": "None"
+            }
           ]
         },
         "TriggerButtonType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "type1",
-            "type3",
-            "type4",
-            "type2"
+          "values": [
+            {
+              "value": "type1",
+              "label": "Double Carets"
+            },
+            {
+              "value": "type3",
+              "label": "Single Caret"
+            },
+            {
+              "value": "type4",
+              "label": "Plus/Minus"
+            },
+            {
+              "value": "type2",
+              "label": "Close"
+            }
           ]
         },
         "TriggerButtonSide": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "left",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "TriggerButtonIcon": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "triangle",
-            "caret"
+          "values": [
+            {
+              "value": "triangle",
+              "label": "Triangle"
+            },
+            {
+              "value": "caret",
+              "label": "Single Caret"
+            }
           ]
         },
         "Width": {
@@ -9526,15 +11096,39 @@
         },
         "LabelType": {
           "base_type": "STRING",
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "DropZoneLabel": {
@@ -9552,10 +11146,19 @@
         },
         "UploadDescriptionType": {
           "base_type": "STRING",
-          "options": [
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "DisableInstantUpload": {
@@ -9566,9 +11169,15 @@
         },
         "FileUploadMode": {
           "base_type": "STRING",
-          "options": [
-            "select",
-            "drag"
+          "values": [
+            {
+              "value": "select",
+              "label": "Browse Button"
+            },
+            {
+              "value": "drag",
+              "label": "Drag and Drop"
+            }
           ]
         },
         "MaxHeight": {
@@ -9585,10 +11194,19 @@
         },
         "UploadButtonType": {
           "base_type": "STRING",
-          "options": [
-            "primary",
-            "secondary",
-            "tertiary"
+          "values": [
+            {
+              "value": "primary",
+              "label": "Primary"
+            },
+            {
+              "value": "secondary",
+              "label": "Secondary"
+            },
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            }
           ]
         },
         "BrowseButtonLabel": {
@@ -9596,10 +11214,19 @@
         },
         "BrowseButtonType": {
           "base_type": "STRING",
-          "options": [
-            "primary",
-            "secondary",
-            "tertiary"
+          "values": [
+            {
+              "value": "primary",
+              "label": "Primary"
+            },
+            {
+              "value": "secondary",
+              "label": "Secondary"
+            },
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            }
           ]
         },
         "ShowRemoveAllButton": {
@@ -9678,11 +11305,23 @@
         "ValidationState": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "undefined",
-            "invalid",
-            "unvalidated",
-            "valid"
+          "values": [
+            {
+              "value": "undefined",
+              "label": "Undefined"
+            },
+            {
+              "value": "invalid",
+              "label": "Invalid"
+            },
+            {
+              "value": "unvalidated",
+              "label": "Unvalidated"
+            },
+            {
+              "value": "valid",
+              "label": "Valid"
+            }
           ]
         },
         "ValidationOutput": {
@@ -9981,12 +11620,27 @@
         },
         "ColumnLazyLoadingIndicator": {
           "base_type": "STRING",
-          "options": [
-            "bar",
-            "pulse",
-            "sweeping",
-            "spinner",
-            "custom"
+          "values": [
+            {
+              "value": "bar",
+              "label": "Static Bar"
+            },
+            {
+              "value": "pulse",
+              "label": "Pulse Bar"
+            },
+            {
+              "value": "sweeping",
+              "label": "Animated Bar"
+            },
+            {
+              "value": "spinner",
+              "label": "Spinner"
+            },
+            {
+              "value": "custom",
+              "label": "Custom"
+            }
           ]
         },
         "DelayedLoadingTooltip": {
@@ -10008,11 +11662,23 @@
         },
         "RowLazyLoading": {
           "base_type": "STRING",
-          "options": [
-            "disabled",
-            "all",
-            "auto",
-            "manual"
+          "values": [
+            {
+              "value": "disabled",
+              "label": "Disabled"
+            },
+            {
+              "value": "all",
+              "label": "Load All in Chunks"
+            },
+            {
+              "value": "auto",
+              "label": "On-Demand"
+            },
+            {
+              "value": "manual",
+              "label": "Manual"
+            }
           ]
         },
         "RuntimeErrorMessage": {
@@ -10035,10 +11701,19 @@
         },
         "HeaderVerticalAlignment": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "center",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "center",
+              "label": "Middle"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "MaxRowHeight": {
@@ -10055,10 +11730,19 @@
         },
         "RowsVerticalAlignment": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "center",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "center",
+              "label": "Middle"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "ShowRowNumbers": {
@@ -10101,10 +11785,19 @@
         "RowSelection": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "none",
-            "single",
-            "multiple"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "single",
+              "label": "Single"
+            },
+            {
+              "value": "multiple",
+              "label": "Multiple"
+            }
           ]
         },
         "DefaultSelectedRows": {
@@ -10139,22 +11832,52 @@
         },
         "RowsInfoLabelType": {
           "base_type": "STRING",
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "RowsInfoLabelPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "RowTotalNumber": {
@@ -10190,23 +11913,56 @@
         },
         "LabelType": {
           "base_type": "STRING",
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "LabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "center",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "FilterLabel": {
@@ -10261,10 +12017,19 @@
         },
         "EditLevel": {
           "base_type": "STRING",
-          "options": [
-            "grid",
-            "row",
-            "cell"
+          "values": [
+            {
+              "value": "grid",
+              "label": "Entire Grid"
+            },
+            {
+              "value": "row",
+              "label": "Single Row"
+            },
+            {
+              "value": "cell",
+              "label": "Single Cell"
+            }
           ]
         },
         "EditButton": {
@@ -10322,10 +12087,19 @@
         },
         "EditControlVisibility": {
           "base_type": "STRING",
-          "options": [
-            "hover",
-            "always",
-            "never"
+          "values": [
+            {
+              "value": "hover",
+              "label": "On hover or focus"
+            },
+            {
+              "value": "always",
+              "label": "Always"
+            },
+            {
+              "value": "never",
+              "label": "Never"
+            }
           ]
         },
         "InlineEditing": {
@@ -10333,9 +12107,15 @@
         },
         "EditControlType": {
           "base_type": "STRING",
-          "options": [
-            "icon",
-            "link"
+          "values": [
+            {
+              "value": "icon",
+              "label": "Icon"
+            },
+            {
+              "value": "link",
+              "label": "Link"
+            }
           ]
         },
         "EditControlLabel": {
@@ -10386,11 +12166,23 @@
         },
         "ColumnsMenuOptions": {
           "base_type": "STRING",
-          "options": [
-            "none",
-            "show",
-            "reorder",
-            "both"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "show",
+              "label": "Visibility"
+            },
+            {
+              "value": "reorder",
+              "label": "Order"
+            },
+            {
+              "value": "both",
+              "label": "Visibility and Order"
+            }
           ]
         },
         "ColumnsMenuVisibleItems": {
@@ -10475,10 +12267,19 @@
         },
         "ExpandCollapseIcon": {
           "base_type": "STRING",
-          "options": [
-            "singlecaret",
-            "arrow",
-            "plus/minus"
+          "values": [
+            {
+              "value": "singlecaret",
+              "label": "Caret"
+            },
+            {
+              "value": "arrow",
+              "label": "Arrow"
+            },
+            {
+              "value": "plus/minus",
+              "label": "Plus/Minus"
+            }
           ]
         },
         "SelectFocusedItem": {
@@ -10489,10 +12290,19 @@
         },
         "FocusNavigationMode": {
           "base_type": "STRING",
-          "options": [
-            "row-first",
-            "cell-first",
-            "cell-only"
+          "values": [
+            {
+              "value": "row-first",
+              "label": "Row First"
+            },
+            {
+              "value": "cell-first",
+              "label": "Cell First"
+            },
+            {
+              "value": "cell-only",
+              "label": "Cell Only"
+            }
           ]
         },
         "PrimaryColumnFixedSize": {
@@ -10516,10 +12326,19 @@
         },
         "ToolbarActionsPosition": {
           "base_type": "STRING",
-          "options": [
-            "none",
-            "before",
-            "after"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "before",
+              "label": "Before"
+            },
+            {
+              "value": "after",
+              "label": "After"
+            }
           ]
         },
         "SelectTextDropdown": {
@@ -10610,12 +12429,27 @@
         "Size": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "small",
-            "medium",
-            "large",
-            "xlarge",
-            "custom"
+          "values": [
+            {
+              "value": "small",
+              "label": "Small"
+            },
+            {
+              "value": "medium",
+              "label": "Medium"
+            },
+            {
+              "value": "large",
+              "label": "Large"
+            },
+            {
+              "value": "xlarge",
+              "label": "XLarge"
+            },
+            {
+              "value": "custom",
+              "label": "Custom"
+            }
           ]
         },
         "Height": {
@@ -10683,26 +12517,68 @@
         },
         "Scaling": {
           "base_type": "STRING",
-          "options": [
-            "fit-x",
-            "fit-y",
-            "fit",
-            "contain",
-            "cover",
-            "auto",
-            "25%",
-            "50%",
-            "75%"
+          "values": [
+            {
+              "value": "fit-x",
+              "label": "Width"
+            },
+            {
+              "value": "fit-y",
+              "label": "Height"
+            },
+            {
+              "value": "fit",
+              "label": "Fit"
+            },
+            {
+              "value": "contain",
+              "label": "Contain"
+            },
+            {
+              "value": "cover",
+              "label": "Cover"
+            },
+            {
+              "value": "auto",
+              "label": "Actual size"
+            },
+            {
+              "value": "25%",
+              "label": "25% size"
+            },
+            {
+              "value": "50%",
+              "label": "50% size"
+            },
+            {
+              "value": "75%",
+              "label": "75% size"
+            }
           ]
         },
         "Position": {
           "base_type": "STRING",
-          "options": [
-            "center",
-            "bottom",
-            "left",
-            "right",
-            "top"
+          "values": [
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            },
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "top",
+              "label": "Top"
+            }
           ]
         },
         "PreventCaching": {
@@ -10791,10 +12667,19 @@
         },
         "Layout": {
           "base_type": "STRING",
-          "options": [
-            "dial",
-            "horizontal",
-            "vertical"
+          "values": [
+            {
+              "value": "dial",
+              "label": "Dial"
+            },
+            {
+              "value": "horizontal",
+              "label": "Horizontal Bar"
+            },
+            {
+              "value": "vertical",
+              "label": "Vertical Column"
+            }
           ]
         },
         "StartAngle": {
@@ -10813,23 +12698,56 @@
         "LabelAlignment": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "left",
-            "center",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "LabelType": {
           "base_type": "STRING",
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "MinimumValue": {
@@ -10876,10 +12794,19 @@
         "ValidationState": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "undefined",
-            "invalid",
-            "valid"
+          "values": [
+            {
+              "value": "undefined",
+              "label": "Undefined"
+            },
+            {
+              "value": "invalid",
+              "label": "Invalid"
+            },
+            {
+              "value": "valid",
+              "label": "Valid"
+            }
           ]
         },
         "ValidationOutput": {
@@ -10979,15 +12906,39 @@
         "LabelType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "MaxHeight": {
@@ -11002,25 +12953,49 @@
         "DisclosureControl": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "show-more",
-            "ellipsis"
+          "values": [
+            {
+              "value": "show-more",
+              "label": "Use 'Show more...' link"
+            },
+            {
+              "value": "ellipsis",
+              "label": "Display ellipsis (...)"
+            }
           ]
         },
         "HorizontalAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "VerticalAlignment": {
           "base_type": "STRING",
-          "options": [
-            "flex-start",
-            "center",
-            "flex-end"
+          "values": [
+            {
+              "value": "flex-start",
+              "label": "Top"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "flex-end",
+              "label": "Bottom"
+            }
           ]
         },
         "overflowShowMoreTxt": {
@@ -11106,35 +13081,68 @@
         },
         "Alignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "center",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "VerticalAlignment": {
           "base_type": "STRING",
-          "options": [
-            "flex-start",
-            "center",
-            "flex-end"
+          "values": [
+            {
+              "value": "flex-start",
+              "label": "Top"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "flex-end",
+              "label": "Bottom"
+            }
           ]
         },
         "LinkType": {
           "base_type": "STRING",
           "source": true,
           "target": true,
-          "options": [
-            "primary",
-            "secondary"
+          "values": [
+            {
+              "value": "primary",
+              "label": "Primary"
+            },
+            {
+              "value": "secondary",
+              "label": "Secondary"
+            }
           ]
         },
         "TargetWindow": {
           "base_type": "STRING",
-          "options": [
-            "_blank",
-            "_self",
-            "_popup"
+          "values": [
+            {
+              "value": "_blank",
+              "label": "New Window"
+            },
+            {
+              "value": "_self",
+              "label": "Same Window"
+            },
+            {
+              "value": "_popup",
+              "label": "Popup Window"
+            }
           ]
         },
         "TabSequence": {
@@ -11241,10 +13249,19 @@
         },
         "LabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "center",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "LabelType": {
@@ -11252,10 +13269,19 @@
         },
         "Alignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "center",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "Disabled": {
@@ -11338,11 +13364,23 @@
         "ValidationState": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "undefined",
-            "invalid",
-            "unvalidated",
-            "valid"
+          "values": [
+            {
+              "value": "undefined",
+              "label": "Undefined"
+            },
+            {
+              "value": "invalid",
+              "label": "Invalid"
+            },
+            {
+              "value": "unvalidated",
+              "label": "Unvalidated"
+            },
+            {
+              "value": "valid",
+              "label": "Valid"
+            }
           ]
         },
         "ValidationOutput": {
@@ -11509,24 +13547,57 @@
         "ListShuttleLabelAlignment": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "ListShuttleLabelType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "SingleSelect": {
@@ -11545,24 +13616,57 @@
         "SourceListLabelAlignment": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "SourceListLabelType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "TargetListLabel": {
@@ -11572,24 +13676,57 @@
         "TargetListLabelAlignment": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "TargetListLabelType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "TargetListMaxItems": {
@@ -11630,11 +13767,23 @@
         "ValidationState": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "undefined",
-            "unvalidated",
-            "valid",
-            "invalid"
+          "values": [
+            {
+              "value": "undefined",
+              "label": "Undefined"
+            },
+            {
+              "value": "unvalidated",
+              "label": "Unvalidated"
+            },
+            {
+              "value": "valid",
+              "label": "Valid"
+            },
+            {
+              "value": "invalid",
+              "label": "Invalid"
+            }
           ]
         },
         "ValueRequired": {
@@ -11749,23 +13898,56 @@
         },
         "LabelType": {
           "base_type": "STRING",
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "LabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "Data": {
@@ -11794,15 +13976,39 @@
         },
         "MediaTitleLableType ": {
           "base_type": "STRING",
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "HideMediaDescription": {
@@ -11811,15 +14017,39 @@
         },
         "MediaDescriptionLableType ": {
           "base_type": "STRING",
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "CustomClass": {
@@ -11923,9 +14153,15 @@
         },
         "DataSource": {
           "base_type": "STRING",
-          "options": [
-            "menuentity",
-            "infotable"
+          "values": [
+            {
+              "value": "menuentity",
+              "label": "Menu Entity"
+            },
+            {
+              "value": "infotable",
+              "label": "Infotable"
+            }
           ]
         },
         "PrimaryNavData": {
@@ -11944,9 +14180,15 @@
         },
         "MashupControl": {
           "base_type": "STRING",
-          "options": [
-            "pagemashup",
-            "bound"
+          "values": [
+            {
+              "value": "pagemashup",
+              "label": "Control Current Mashup"
+            },
+            {
+              "value": "bound",
+              "label": "Bind To Mashup Parameters"
+            }
           ]
         },
         "Mashup": {
@@ -11956,18 +14198,33 @@
         },
         "DisplayItems": {
           "base_type": "STRING",
-          "options": [
-            "allitems",
-            "primaryonly",
-            "excludeprimary"
+          "values": [
+            {
+              "value": "allitems",
+              "label": "All Items"
+            },
+            {
+              "value": "primaryonly",
+              "label": "Primary Only"
+            },
+            {
+              "value": "excludeprimary",
+              "label": "Exclude Primary"
+            }
           ]
         },
         "SubMenuType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "flyout",
-            "nested"
+          "values": [
+            {
+              "value": "flyout",
+              "label": "Cascading Menu"
+            },
+            {
+              "value": "nested",
+              "label": "Nested Accordion"
+            }
           ]
         },
         "AlwaysOpen": {
@@ -12008,9 +14265,15 @@
         },
         "FooterLinkTargetWindow": {
           "base_type": "STRING",
-          "options": [
-            "self",
-            "new"
+          "values": [
+            {
+              "value": "self",
+              "label": "Same Window"
+            },
+            {
+              "value": "new",
+              "label": "New Window"
+            }
           ]
         },
         "HideFooter": {
@@ -12048,9 +14311,15 @@
         },
         "MenuOutsideClick": {
           "base_type": "STRING",
-          "options": [
-            "closeMenuOnly",
-            "activateElements"
+          "values": [
+            {
+              "value": "closeMenuOnly",
+              "label": "Close Menu Only"
+            },
+            {
+              "value": "activateElements",
+              "label": "Activate Elements"
+            }
           ]
         },
         "IconWidth": {
@@ -12122,9 +14391,15 @@
         },
         "ItemConfigurationMode": {
           "base_type": "STRING",
-          "options": [
-            "infotableData",
-            "widgetProperties"
+          "values": [
+            {
+              "value": "infotableData",
+              "label": "Infotable Data"
+            },
+            {
+              "value": "widgetProperties",
+              "label": "Widget Properties"
+            }
           ]
         },
         "MenuOffset": {
@@ -12133,12 +14408,27 @@
         "ButtonType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "primary",
-            "secondary",
-            "tertiary",
-            "danger",
-            "transparent"
+          "values": [
+            {
+              "value": "primary",
+              "label": "Primary"
+            },
+            {
+              "value": "secondary",
+              "label": "Secondary"
+            },
+            {
+              "value": "tertiary",
+              "label": "Tertiary"
+            },
+            {
+              "value": "danger",
+              "label": "Danger"
+            },
+            {
+              "value": "transparent",
+              "label": "Transparent"
+            }
           ]
         },
         "TooltipField": {
@@ -12160,11 +14450,23 @@
         },
         "ButtonIconPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom",
-            "left",
-            "right"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            },
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "ButtonMaxWidth": {
@@ -12172,10 +14474,19 @@
         },
         "ButtonLabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "ButtonLabel": {
@@ -12184,12 +14495,27 @@
         },
         "ButtonSize": {
           "base_type": "STRING",
-          "options": [
-            "standard",
-            "medium",
-            "large",
-            "xl",
-            "fill"
+          "values": [
+            {
+              "value": "standard",
+              "label": "Standard"
+            },
+            {
+              "value": "medium",
+              "label": "Medium"
+            },
+            {
+              "value": "large",
+              "label": "Large"
+            },
+            {
+              "value": "xl",
+              "label": "X-Large"
+            },
+            {
+              "value": "fill",
+              "label": "Fill"
+            }
           ]
         },
         "MoreItemsLabel": {
@@ -12214,9 +14540,15 @@
         },
         "MenuDirection": {
           "base_type": "STRING",
-          "options": [
-            "horizontal",
-            "vertical"
+          "values": [
+            {
+              "value": "horizontal",
+              "label": "Horizontal"
+            },
+            {
+              "value": "vertical",
+              "label": "Vertical"
+            }
           ]
         },
         "Width": {
@@ -12396,10 +14728,19 @@
         },
         "StepSize": {
           "base_type": "STRING",
-          "options": [
-            "small",
-            "medium",
-            "large"
+          "values": [
+            {
+              "value": "small",
+              "label": "Small"
+            },
+            {
+              "value": "medium",
+              "label": "Medium"
+            },
+            {
+              "value": "large",
+              "label": "Large"
+            }
           ]
         },
         "MinStepSpacing": {
@@ -12534,23 +14875,56 @@
         },
         "LabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "LabelType": {
           "base_type": "STRING",
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "HideLabel": {
@@ -12558,19 +14932,40 @@
         },
         "GroupTitleAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "GroupTitleType": {
           "base_type": "STRING",
-          "options": [
-            "header",
-            "sub-header",
-            "label",
-            "body"
+          "values": [
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            }
           ]
         },
         "HideGroupTitles": {
@@ -12598,10 +14993,19 @@
         },
         "DisclosureControl": {
           "base_type": "STRING",
-          "options": [
-            "disclosure",
-            "showmore",
-            "ellipsis"
+          "values": [
+            {
+              "value": "disclosure",
+              "label": "Display info button"
+            },
+            {
+              "value": "showmore",
+              "label": "Use 'Show More' link"
+            },
+            {
+              "value": "ellipsis",
+              "label": "Display ellipsis (...)"
+            }
           ]
         },
         "overflowShowMoreTxt": {
@@ -12767,21 +15171,48 @@
         },
         "LabelType": {
           "base_type": "STRING",
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            }
           ]
         },
         "LabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "center",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "Data": {
@@ -12849,43 +15280,133 @@
         "DefaultFontFamily": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "Arial",
-            "Brush Script MT",
-            "Courier New",
-            "Georgia",
-            "Garamond",
-            "Tahoma",
-            "Times New Roman",
-            "Trebuchet MS",
-            "Verdana",
-            "serif",
-            "sans-serif",
-            "system-ui",
-            "monospace",
-            "cursive",
-            "fantasy",
-            "math"
+          "values": [
+            {
+              "value": "Arial",
+              "label": "Arial"
+            },
+            {
+              "value": "Brush Script MT",
+              "label": "Brush Script MT"
+            },
+            {
+              "value": "Courier New",
+              "label": "Courier New"
+            },
+            {
+              "value": "Georgia",
+              "label": "Georgia"
+            },
+            {
+              "value": "Garamond",
+              "label": "Garamond"
+            },
+            {
+              "value": "Tahoma",
+              "label": "Tahoma"
+            },
+            {
+              "value": "Times New Roman",
+              "label": "Times New Roman"
+            },
+            {
+              "value": "Trebuchet MS",
+              "label": "Trebuchet MS"
+            },
+            {
+              "value": "Verdana",
+              "label": "Verdana"
+            },
+            {
+              "value": "serif",
+              "label": "Serif"
+            },
+            {
+              "value": "sans-serif",
+              "label": "Sans-Serif"
+            },
+            {
+              "value": "system-ui",
+              "label": "System UI"
+            },
+            {
+              "value": "monospace",
+              "label": "Monospace"
+            },
+            {
+              "value": "cursive",
+              "label": "Cursive"
+            },
+            {
+              "value": "fantasy",
+              "label": "Fantasy"
+            },
+            {
+              "value": "math",
+              "label": "Math"
+            }
           ]
         },
         "DefaultFontSize": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "8px",
-            "10px",
-            "12px",
-            "14px",
-            "16px",
-            "18px",
-            "20px",
-            "22px",
-            "24px",
-            "26px",
-            "28px",
-            "36px",
-            "48px",
-            "72px"
+          "values": [
+            {
+              "value": "8px",
+              "label": "8 px"
+            },
+            {
+              "value": "10px",
+              "label": "10 px"
+            },
+            {
+              "value": "12px",
+              "label": "12 px"
+            },
+            {
+              "value": "14px",
+              "label": "14 px"
+            },
+            {
+              "value": "16px",
+              "label": "16 px"
+            },
+            {
+              "value": "18px",
+              "label": "18 px"
+            },
+            {
+              "value": "20px",
+              "label": "20 px"
+            },
+            {
+              "value": "22px",
+              "label": "22 px"
+            },
+            {
+              "value": "24px",
+              "label": "24 px"
+            },
+            {
+              "value": "26px",
+              "label": "26 px"
+            },
+            {
+              "value": "28px",
+              "label": "28 px"
+            },
+            {
+              "value": "36px",
+              "label": "36 px"
+            },
+            {
+              "value": "48px",
+              "label": "48 px"
+            },
+            {
+              "value": "72px",
+              "label": "72 px"
+            }
           ]
         },
         "DefaultTextColor": {
@@ -13019,23 +15540,56 @@
         "LabelType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "LabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "ValidationOutput": {
@@ -13046,11 +15600,23 @@
         "ValidationState": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "undefined",
-            "unvalidated",
-            "valid",
-            "invalid"
+          "values": [
+            {
+              "value": "undefined",
+              "label": "Undefined"
+            },
+            {
+              "value": "unvalidated",
+              "label": "Unvalidated"
+            },
+            {
+              "value": "valid",
+              "label": "Valid"
+            },
+            {
+              "value": "invalid",
+              "label": "Invalid"
+            }
           ]
         },
         "Value": {
@@ -13146,10 +15712,19 @@
         },
         "DisplayValueLabel": {
           "base_type": "STRING",
-          "options": [
-            "yes",
-            "no",
-            "drag"
+          "values": [
+            {
+              "value": "yes",
+              "label": "Yes"
+            },
+            {
+              "value": "no",
+              "label": "No"
+            },
+            {
+              "value": "drag",
+              "label": "On Drag"
+            }
           ]
         },
         "EditableValue": {
@@ -13168,10 +15743,19 @@
         },
         "TrackAlignment": {
           "base_type": "STRING",
-          "options": [
-            "center",
-            "start",
-            "end"
+          "values": [
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "start",
+              "label": "Start"
+            },
+            {
+              "value": "end",
+              "label": "End"
+            }
           ]
         },
         "FullTrack": {
@@ -13187,18 +15771,36 @@
         },
         "HandleIcon": {
           "base_type": "STRING",
-          "options": [
-            "#none",
-            "#circle",
-            "#split"
+          "values": [
+            {
+              "value": "#none",
+              "label": "None"
+            },
+            {
+              "value": "#circle",
+              "label": "Circle"
+            },
+            {
+              "value": "#split",
+              "label": "Split"
+            }
           ]
         },
         "SecondHandleIcon": {
           "base_type": "STRING",
-          "options": [
-            "#none",
-            "#circle",
-            "#split"
+          "values": [
+            {
+              "value": "#none",
+              "label": "None"
+            },
+            {
+              "value": "#circle",
+              "label": "Circle"
+            },
+            {
+              "value": "#split",
+              "label": "Split"
+            }
           ]
         },
         "MinSideIcon": {
@@ -13207,11 +15809,23 @@
         "MinIconSize": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "small",
-            "medium",
-            "large",
-            "xlarge"
+          "values": [
+            {
+              "value": "small",
+              "label": "Small"
+            },
+            {
+              "value": "medium",
+              "label": "Medium"
+            },
+            {
+              "value": "large",
+              "label": "Large"
+            },
+            {
+              "value": "xlarge",
+              "label": "XLarge"
+            }
           ]
         },
         "MaxSideIcon": {
@@ -13220,11 +15834,23 @@
         "MaxIconSize": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "small",
-            "medium",
-            "large",
-            "xlarge"
+          "values": [
+            {
+              "value": "small",
+              "label": "Small"
+            },
+            {
+              "value": "medium",
+              "label": "Medium"
+            },
+            {
+              "value": "large",
+              "label": "Large"
+            },
+            {
+              "value": "xlarge",
+              "label": "XLarge"
+            }
           ]
         },
         "RangeSelection": {
@@ -13408,9 +16034,15 @@
         },
         "TabStyle": {
           "base_type": "STRING",
-          "options": [
-            "open-tabs",
-            "contained-tabs"
+          "values": [
+            {
+              "value": "open-tabs",
+              "label": "Frameless Tabs"
+            },
+            {
+              "value": "contained-tabs",
+              "label": "Framed Tabs"
+            }
           ]
         },
         "NumberOfTabs": {
@@ -13456,18 +16088,36 @@
         },
         "TabMode": {
           "base_type": "STRING",
-          "options": [
-            "label",
-            "icon",
-            "iconlabel"
+          "values": [
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "icon",
+              "label": "Icon"
+            },
+            {
+              "value": "iconlabel",
+              "label": "Icon + Label"
+            }
           ]
         },
         "TabWidthConfig": {
           "base_type": "STRING",
-          "options": [
-            "auto",
-            "even",
-            "fixed"
+          "values": [
+            {
+              "value": "auto",
+              "label": "Auto"
+            },
+            {
+              "value": "even",
+              "label": "Even"
+            },
+            {
+              "value": "fixed",
+              "label": "Fixed"
+            }
           ]
         },
         "TabNameMaxWidth": {
@@ -13483,20 +16133,44 @@
         },
         "TabsPosition": {
           "base_type": "STRING",
-          "options": [
-            "horizontal-top",
-            "horizontal-bottom",
-            "vertical-left",
-            "vertical-right"
+          "values": [
+            {
+              "value": "horizontal-top",
+              "label": "Top"
+            },
+            {
+              "value": "horizontal-bottom",
+              "label": "Bottom"
+            },
+            {
+              "value": "vertical-left",
+              "label": "Left"
+            },
+            {
+              "value": "vertical-right",
+              "label": "Right"
+            }
           ]
         },
         "TabIconPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom",
-            "left",
-            "right"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            },
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "OverflowButtonLabel": {
@@ -13575,10 +16249,19 @@
         },
         "TextAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "center",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "Label": {
@@ -13587,10 +16270,19 @@
         },
         "LabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "center",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "Counter": {
@@ -13639,11 +16331,23 @@
         "ValidationState": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "undefined",
-            "unvalidated",
-            "valid",
-            "invalid"
+          "values": [
+            {
+              "value": "undefined",
+              "label": "Undefined"
+            },
+            {
+              "value": "unvalidated",
+              "label": "Unvalidated"
+            },
+            {
+              "value": "valid",
+              "label": "Valid"
+            },
+            {
+              "value": "invalid",
+              "label": "Invalid"
+            }
           ]
         },
         "PersistValidationState": {
@@ -13718,10 +16422,19 @@
         },
         "ResizeDirection": {
           "base_type": "STRING",
-          "options": [
-            "both",
-            "horizontal",
-            "vertical"
+          "values": [
+            {
+              "value": "both",
+              "label": "Both"
+            },
+            {
+              "value": "horizontal",
+              "label": "Horizontal"
+            },
+            {
+              "value": "vertical",
+              "label": "Vertical"
+            }
           ]
         }
       },
@@ -13811,10 +16524,19 @@
         },
         "TextAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "center",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "HintText": {
@@ -13827,10 +16549,19 @@
         },
         "LabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "center",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "Mask": {
@@ -13897,11 +16628,23 @@
         "ValidationState": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "undefined",
-            "unvalidated",
-            "valid",
-            "invalid"
+          "values": [
+            {
+              "value": "undefined",
+              "label": "Undefined"
+            },
+            {
+              "value": "unvalidated",
+              "label": "Unvalidated"
+            },
+            {
+              "value": "valid",
+              "label": "Valid"
+            },
+            {
+              "value": "invalid",
+              "label": "Invalid"
+            }
           ]
         },
         "PersistValidationState": {
@@ -14082,45 +16825,111 @@
         },
         "LabelType": {
           "base_type": "STRING",
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "LabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "ValueLabelType": {
           "base_type": "STRING",
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "HorizontalAlignment": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "Icon": {
@@ -14132,9 +16941,15 @@
         },
         "IconAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "AlternateIcon": {
@@ -14146,9 +16961,15 @@
         },
         "AlternateIconAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "AlternateStyle": {
@@ -14158,9 +16979,15 @@
         "TimerMode": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "countdown",
-            "stopwatch"
+          "values": [
+            {
+              "value": "countdown",
+              "label": "Countdown"
+            },
+            {
+              "value": "stopwatch",
+              "label": "Stopwatch"
+            }
           ]
         },
         "InitialValue": {
@@ -14266,9 +17093,15 @@
         },
         "LabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            }
           ]
         },
         "LabelMaxWidth": {
@@ -14382,10 +17215,19 @@
         },
         "FilterType": {
           "base_type": "STRING",
-          "options": [
-            "chip",
-            "none",
-            "simple"
+          "values": [
+            {
+              "value": "chip",
+              "label": "Data Filter Widget"
+            },
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "simple",
+              "label": "Filter Box"
+            }
           ]
         },
         "SimpleFilterString": {
@@ -14396,25 +17238,49 @@
         },
         "SimpleFilterPosition": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "SimpleFilterAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "FilterChipPosition": {
           "base_type": "STRING",
-          "options": [
-            "top",
-            "bottom"
+          "values": [
+            {
+              "value": "top",
+              "label": "Top"
+            },
+            {
+              "value": "bottom",
+              "label": "Bottom"
+            }
           ]
         },
         "FilterFormatToken": {
@@ -14422,18 +17288,36 @@
         },
         "FilterDateOrder": {
           "base_type": "STRING",
-          "options": [
-            "auto",
-            "DMY",
-            "MDY",
-            "YMD"
+          "values": [
+            {
+              "value": "auto",
+              "label": "Auto"
+            },
+            {
+              "value": "DMY",
+              "label": "Day-Month-Year"
+            },
+            {
+              "value": "MDY",
+              "label": "Month-Day-Year"
+            },
+            {
+              "value": "YMD",
+              "label": "Year-Month-Day"
+            }
           ]
         },
         "FilterDisclosureType": {
           "base_type": "STRING",
-          "options": [
-            "link",
-            "icon"
+          "values": [
+            {
+              "value": "link",
+              "label": "Show Link"
+            },
+            {
+              "value": "icon",
+              "label": "Button"
+            }
           ]
         },
         "ShowHideFilters": {
@@ -14650,9 +17534,15 @@
         },
         "SearchItemHeight": {
           "base_type": "STRING",
-          "options": [
-            "short",
-            "tall"
+          "values": [
+            {
+              "value": "short",
+              "label": "44 pixels"
+            },
+            {
+              "value": "tall",
+              "label": "74 pixels"
+            }
           ]
         },
         "NoChildrenMessage": {
@@ -14742,18 +17632,36 @@
         },
         "HorizontalAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "VerticalAlignment": {
           "base_type": "STRING",
-          "options": [
-            "flex-start",
-            "flex-end",
-            "center"
+          "values": [
+            {
+              "value": "flex-start",
+              "label": "Top"
+            },
+            {
+              "value": "flex-end",
+              "label": "Bottom"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "Label": {
@@ -14762,23 +17670,56 @@
         },
         "LabelType": {
           "base_type": "STRING",
-          "options": [
-            "large-header",
-            "header",
-            "sub-header",
-            "large-title",
-            "title",
-            "label",
-            "body",
-            "caption"
+          "values": [
+            {
+              "value": "large-header",
+              "label": "Large Header"
+            },
+            {
+              "value": "header",
+              "label": "Header"
+            },
+            {
+              "value": "sub-header",
+              "label": "Sub-Header"
+            },
+            {
+              "value": "large-title",
+              "label": "Large Title"
+            },
+            {
+              "value": "title",
+              "label": "Title"
+            },
+            {
+              "value": "label",
+              "label": "Label"
+            },
+            {
+              "value": "body",
+              "label": "Body"
+            },
+            {
+              "value": "caption",
+              "label": "Caption"
+            }
           ]
         },
         "LabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "MaxHeight": {
@@ -14796,17 +17737,32 @@
         },
         "DisclosureControl": {
           "base_type": "STRING",
-          "options": [
-            "disclosure",
-            "showmore",
-            "ellipsis"
+          "values": [
+            {
+              "value": "disclosure",
+              "label": "Display info button"
+            },
+            {
+              "value": "showmore",
+              "label": "Use 'Show More' link"
+            },
+            {
+              "value": "ellipsis",
+              "label": "Display ellipsis (...)"
+            }
           ]
         },
         "ImageDisclosureControl": {
           "base_type": "STRING",
-          "options": [
-            "none",
-            "button"
+          "values": [
+            {
+              "value": "none",
+              "label": "None"
+            },
+            {
+              "value": "button",
+              "label": "Display info button"
+            }
           ]
         },
         "overflowShowMoreTxt": {
@@ -14894,10 +17850,19 @@
         },
         "LabelAlignment": {
           "base_type": "STRING",
-          "options": [
-            "left",
-            "right",
-            "center"
+          "values": [
+            {
+              "value": "left",
+              "label": "Left"
+            },
+            {
+              "value": "right",
+              "label": "Right"
+            },
+            {
+              "value": "center",
+              "label": "Center"
+            }
           ]
         },
         "VideoURL": {
@@ -15024,11 +17989,23 @@
         },
         "ShapeType": {
           "base_type": "STRING",
-          "options": [
-            "rectangle",
-            "roundrect",
-            "circle",
-            "ellipse"
+          "values": [
+            {
+              "value": "rectangle",
+              "label": "rectangle"
+            },
+            {
+              "value": "roundrect",
+              "label": "roundrect"
+            },
+            {
+              "value": "circle",
+              "label": "circle"
+            },
+            {
+              "value": "ellipse",
+              "label": "ellipse"
+            }
           ]
         },
         "Width": {
@@ -15048,16 +18025,28 @@
         },
         "GradientType": {
           "base_type": "STRING",
-          "options": [
-            "linear",
-            "radial"
+          "values": [
+            {
+              "value": "linear",
+              "label": "linear"
+            },
+            {
+              "value": "radial",
+              "label": "radial"
+            }
           ]
         },
         "GradientOrientation": {
           "base_type": "STRING",
-          "options": [
-            "vertical",
-            "horizontal"
+          "values": [
+            {
+              "value": "vertical",
+              "label": "vertical"
+            },
+            {
+              "value": "horizontal",
+              "label": "horizontal"
+            }
           ]
         },
         "EnableDynamicFill": {
@@ -15073,9 +18062,15 @@
         },
         "DynamicFillOrientation": {
           "base_type": "STRING",
-          "options": [
-            "vertical",
-            "horizontal"
+          "values": [
+            {
+              "value": "vertical",
+              "label": "vertical"
+            },
+            {
+              "value": "horizontal",
+              "label": "horizontal"
+            }
           ]
         },
         "UnfilledBackgroundStyle": {
@@ -15130,10 +18125,19 @@
         },
         "DataChangeType": {
           "base_type": "STRING",
-          "options": [
-            "VALUE",
-            "ALWAYS",
-            "NEVER"
+          "values": [
+            {
+              "value": "VALUE",
+              "label": "VALUE"
+            },
+            {
+              "value": "ALWAYS",
+              "label": "ALWAYS"
+            },
+            {
+              "value": "NEVER",
+              "label": "NEVER"
+            }
           ]
         },
         "Output": {
@@ -15194,10 +18198,19 @@
         },
         "DataChangeType": {
           "base_type": "STRING",
-          "options": [
-            "VALUE",
-            "ALWAYS",
-            "NEVER"
+          "values": [
+            {
+              "value": "VALUE",
+              "label": "VALUE"
+            },
+            {
+              "value": "ALWAYS",
+              "label": "ALWAYS"
+            },
+            {
+              "value": "NEVER",
+              "label": "NEVER"
+            }
           ]
         },
         "Output": {
@@ -15508,12 +18521,27 @@
         "TargetWindowType": {
           "base_type": "STRING",
           "target": true,
-          "options": [
-            "new",
-            "replace",
-            "popup",
-            "modal-popup",
-            "fullscreen"
+          "values": [
+            {
+              "value": "new",
+              "label": "new"
+            },
+            {
+              "value": "replace",
+              "label": "replace"
+            },
+            {
+              "value": "popup",
+              "label": "popup"
+            },
+            {
+              "value": "modal-popup",
+              "label": "modal-popup"
+            },
+            {
+              "value": "fullscreen",
+              "label": "fullscreen"
+            }
           ]
         },
         "MissingMashupMessage": {
@@ -15549,9 +18577,15 @@
         },
         "PopupScrollbar": {
           "base_type": "STRING",
-          "options": [
-            "auto",
-            "hidden"
+          "values": [
+            {
+              "value": "auto",
+              "label": "auto"
+            },
+            {
+              "value": "hidden",
+              "label": "hidden"
+            }
           ]
         },
         "Result": {
@@ -15627,10 +18661,19 @@
         },
         "MessageType": {
           "base_type": "STRING",
-          "options": [
-            "info",
-            "warning",
-            "error"
+          "values": [
+            {
+              "value": "info",
+              "label": "info"
+            },
+            {
+              "value": "warning",
+              "label": "warning"
+            },
+            {
+              "value": "error",
+              "label": "error"
+            }
           ]
         }
       },

@@ -23,6 +23,14 @@ pub trait Remote {
         parameters: &Value,
     ) -> Result<Option<Value>, ServerError>;
 
+    /// Export XML when the inspection caller can read it.
+    fn entity_export(
+        &self,
+        _key: &super::super::entity::key::EntityKey,
+    ) -> Result<Option<Vec<u8>>, ServerError> {
+        Ok(None)
+    }
+
     /// A file the web application serves; `None` where this remote cannot serve files.
     fn web_file(&self, _path: &str) -> Result<Option<Vec<u8>>, ServerError> {
         Ok(None)
@@ -30,6 +38,13 @@ pub trait Remote {
 }
 
 impl Remote for Client {
+    fn entity_export(
+        &self,
+        key: &super::super::entity::key::EntityKey,
+    ) -> Result<Option<Vec<u8>>, ServerError> {
+        super::super::backup::Remote::export(self, key)
+    }
+
     fn web_file(&self, path: &str) -> Result<Option<Vec<u8>>, ServerError> {
         self.fetch_web_file(path).map(Some)
     }

@@ -234,6 +234,31 @@ pub(crate) fn entity_inspect_cmd(solution: &Solution, args: &EntityInspect) -> u
                 .unwrap_or_default(),
         );
     }
+    for subscription in &found.subscriptions {
+        let events: Vec<_> = subscription
+            .events
+            .iter()
+            .map(|event| event.address())
+            .collect();
+        let stateful = if subscription.stateful {
+            " (stateful)"
+        } else {
+            ""
+        };
+        let distributed = if subscription.distributed {
+            " (distributed)"
+        } else {
+            ""
+        };
+        println!(
+            "  subscription {}{stateful}{distributed} listens to {}",
+            subscription.name,
+            events.join(", ")
+        );
+    }
+    if let Some(note) = found.subscription_note {
+        println!("  {note}");
+    }
     if !found.unreadable.is_empty() {
         println!(
             "  not readable with this profile's rights: {}",

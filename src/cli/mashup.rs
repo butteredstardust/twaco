@@ -302,6 +302,12 @@ pub(crate) struct Place {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct MashupAdd {
+    #[arg(long = "tabs", value_name = "names")]
+    pub(crate) tabs: Option<String>,
+    #[arg(long = "tab-style", value_name = "style")]
+    pub(crate) tab_style: Option<String>,
+    #[arg(long = "tab-width", value_name = "mode")]
+    pub(crate) tab_width: Option<String>,
     #[command(flatten)]
     pub(crate) place: Place,
     #[arg(long = "end")]
@@ -328,6 +334,8 @@ pub(crate) struct MashupAdd {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct MashupSet {
+    #[arg(long = "force")]
+    pub(crate) force: bool,
     #[arg(long = "prop", value_name = "name=value")]
     pub(crate) props: Vec<String>,
     #[arg(long = "style-from", value_name = "mashup:widget")]
@@ -362,6 +370,8 @@ pub(crate) struct MashupAddContained {
 #[derive(Debug, clap::Args)]
 #[group(skip)]
 pub(crate) struct MashupBind {
+    #[arg(long = "force")]
+    pub(crate) force: bool,
     #[arg(long = "from", value_name = "address")]
     pub(crate) from: Option<String>,
     #[arg(long = "to", value_name = "address")]
@@ -1547,6 +1557,14 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
     };
     let request = commands::mashup::MashupAddRequest {
         request: mashup::authoring::AddRequest {
+            tabs: mashup::authoring::TabSetOptions {
+                labels: args
+                    .tabs
+                    .as_ref()
+                    .map(|names| names.split(',').map(str::to_owned).collect()),
+                style: args.tab_style.clone(),
+                width: args.tab_width.clone(),
+            },
             mashup: mashup.clone(),
             widget: widget.clone(),
             inputs: args.inputs.clone(),
@@ -1606,6 +1624,12 @@ pub(crate) fn mashup_add_cmd(solution: &Solution, args: &MashupAdd) -> u8 {
     );
     for note in &plan.notes {
         println!("  {note}");
+    }
+    if !plan.container_tree.is_empty() {
+        println!("  resulting container tree");
+        for line in &plan.container_tree {
+            println!("    {line}");
+        }
     }
     for container in &plan.container_contents {
         println!(
@@ -1910,6 +1934,7 @@ pub(crate) fn mashup_set_cmd(solution: &Solution, args: &MashupSet) -> u8 {
     };
     let request = commands::mashup::MashupSetRequest {
         request: mashup::authoring::SetRequest {
+            force: args.force,
             mashup: mashup_name.clone(),
             widget: widget.clone(),
             properties,
@@ -2160,6 +2185,7 @@ pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &MashupBind) -> u8 {
     };
     let request = commands::mashup::MashupBindRequest {
         request: mashup::authoring::BindRequest {
+            force: args.force,
             mashup: mashup.clone(),
             from: from.clone(),
             to: to.clone(),
@@ -2209,10 +2235,11 @@ pub(crate) fn mashup_bind_cmd(solution: &Solution, args: &MashupBind) -> u8 {
     }
     println!(
         "{} {} -> {} in {}",
-        if outcome.applied {
-            "bound"
-        } else {
-            "would bind"
+        match (from.starts_with("literal:"), outcome.applied) {
+            (true, true) => "set",
+            (true, false) => "would set",
+            (false, true) => "bound",
+            (false, false) => "would bind",
         },
         outcome.plan.from,
         outcome.plan.to,
@@ -3475,8 +3502,8 @@ pub(crate) fn mashup_migrate_cmd(solution: &Solution, args: &MashupMigrate) -> u
         );
         for item in &outcome.plan.migrations {
             println!(
-                "  {} ({}): {} -> {}",
-                item.name, item.id, item.from, item.to
+                "  {} ({}): {} -> {} [{}]",
+                item.name, item.id, item.from, item.to, item.source
             );
         }
         for item in &outcome.plan.kept {

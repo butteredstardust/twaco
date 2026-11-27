@@ -253,6 +253,7 @@ fn dispatch(command: Command) -> u8 {
         Command::Group(member) => run(|solution| entity_edit_cmd(solution, member.edit("Groups"))),
         Command::Role(member) => run(|solution| entity_edit_cmd(solution, member.edit("Roles"))),
         Command::Thing(thing) => run(|solution| entity_edit_cmd(solution, thing.edit())),
+        Command::DataShape(shape) => run(|solution| entity_edit_cmd(solution, shape.edit())),
         Command::Timer(timer) => run(|solution| entity_edit_cmd(solution, timer.edit())),
         Command::Scheduler(scheduler) => {
             run(|solution| entity_edit_cmd(solution, scheduler.edit()))

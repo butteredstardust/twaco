@@ -150,13 +150,15 @@ renderer. The shared columns recipe writes `cellEditor` and the boolean
 ## Legacy widget migration
 
 Before deriving a legacy page, `twaco mashup migrate Acme.View_MU --json` plans supported
-Composer 10.2 replacements. Inspect the dropped-property and dropped-connection warnings,
-then use `--apply` to write atomically. Widgets with no migrator (and current widgets such as
-shape or mashupcontainer, which have no replacement) are kept as they are and listed. Collection and numericentry
-have mappings; container converts only inside a dynamic panel. Gauge, radiobuttonlist, menu,
-tree and leddisplay have no newtype migrator. Legacy theme style callbacks are not executed;
-unmapped style properties are reported. Validate and derive the result before deploying.
-MCP: `mashup_migrate`, with `dry_run` true by default.
+replacements. The plan marks generated Composer 10.2 rules `source: "composer"` and twaco's
+gauge, LED display and configured menu alternatives `source: "twaco"`. Inspect the dropped
+properties and connections, then use `--apply` to write atomically. Widgets whose configuration
+needs Composer or a manual redesign are listed as kept. Theme styles may need review. Validate
+and derive the result before deploying. MCP `mashup_migrate` defaults to `dry_run: true`.
+
+For a grid, derivation uses `columns:` when rebuilding with the recipe reproduces the stored
+grid properties. A grid with native formatting or extra configuration the recipe cannot
+reproduce keeps `column_config:`.
 
 MCP `widgets` refreshes contracts with `platform: true` and optional `profile`, or with a local
 `webapp` folder. Refresh takes no widget/search selector and writes `.twaco/widgets.json`

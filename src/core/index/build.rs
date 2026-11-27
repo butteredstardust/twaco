@@ -296,7 +296,7 @@ impl Builder<'_> {
         };
         // An entity that names itself in a script is no dependency, but one that inherits from
         // itself is a cycle, and the cycle report needs the edge.
-        if to == from && !kind.is_inheritance() {
+        if to == from && !kind.is_inheritance() && kind != EdgeKind::SubscriptionEvent {
             return;
         }
         // A project has no file of its own: what it names is written in `twaco.toml`.

@@ -1436,6 +1436,7 @@ pub(super) fn wire(
                 .set(
                     solution,
                     &crate::core::mashup::authoring::SetRequest {
+                        force: false,
                         mashup: page.name.value.clone(),
                         widget: id.clone(),
                         properties: vec![("DisplayField".into(), json!(display))],
@@ -1538,6 +1539,7 @@ pub(super) fn wire(
             .set(
                 solution,
                 &crate::core::mashup::authoring::SetRequest {
+                    force: false,
                     mashup: page.name.value.clone(),
                     widget: dot.clone(),
                     properties: vec![("ShapeFormatter".into(), snapshot)],
@@ -1574,6 +1576,7 @@ pub(super) fn wire(
             .set(
                 solution,
                 &crate::core::mashup::authoring::SetRequest {
+                    force: false,
                     mashup: page.name.value.clone(),
                     widget: id.clone(),
                     properties,
@@ -1637,6 +1640,7 @@ pub(super) fn wire_values(
                     .set(
                         solution,
                         &crate::core::mashup::authoring::SetRequest {
+                            force: false,
                             mashup: page.name.value.clone(),
                             widget: labels[1].id.clone(),
                             properties: vec![],

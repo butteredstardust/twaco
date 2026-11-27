@@ -1,15 +1,16 @@
 use super::requests::common::Absent;
 use super::requests::refactor::{
-    AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, EntityEditAction,
-    EntityEditRequest, EntityNewRequest, HandoffAction, HandoffRequest, MashupAddContainedRequest,
-    MashupAddRequest, MashupBindRequest, MashupCollectionAddRequest, MashupDescribeRequest,
-    MashupDiffRequest, MashupEventRequest, MashupGapRequest, MashupMigrateRequest,
-    MashupMoveRequest, MashupNewRequest, MashupOffRequest, MashupOnRequest, MashupParameterAction,
-    MashupParameterRequest, MashupRecipeRequest, MashupRemoveRequest, MashupSetRequest,
-    MashupSourceAddRequest, MashupSourceListRequest, MashupSourceRemoveRequest,
-    MashupSourceRetargetRequest, MashupTemplatesRequest, MashupUnbindRequest,
-    MashupValidateRequest, MashupWhyRequest, MoveMemberAction, MoveMemberRequest,
-    NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest, WidgetsRequest,
+    AdoptApplyRequest, AdoptKind, AdoptReportRequest, AdoptTakeSide, DataShapeFieldAction,
+    DataShapeFieldRequest, EntityEditAction, EntityEditRequest, EntityNewRequest, HandoffAction,
+    HandoffRequest, MashupAddContainedRequest, MashupAddRequest, MashupBindRequest,
+    MashupCollectionAddRequest, MashupDescribeRequest, MashupDiffRequest, MashupEventRequest,
+    MashupGapRequest, MashupMigrateRequest, MashupMoveRequest, MashupNewRequest, MashupOffRequest,
+    MashupOnRequest, MashupParameterAction, MashupParameterRequest, MashupRecipeRequest,
+    MashupRemoveRequest, MashupSetRequest, MashupSourceAddRequest, MashupSourceListRequest,
+    MashupSourceRemoveRequest, MashupSourceRetargetRequest, MashupTemplatesRequest,
+    MashupUnbindRequest, MashupValidateRequest, MashupWhyRequest, MoveMemberAction,
+    MoveMemberRequest, NewBuildingBlockRequest, RenameRequest, ReprojectRequest, RetemplateRequest,
+    WidgetsRequest,
 };
 use super::source::add_types_refresh;
 use super::{
@@ -231,7 +232,7 @@ pub(crate) fn entity_edit_tool(
     arguments: EntityEditRequest,
 ) -> Result<Value, ToolError> {
     use crate::core::entity::edit::{
-        Action, AgentChange, OverrideSource, Property, Request, Service, StyleChange,
+        Action, AgentChange, OverrideSource, Property, Service, StyleChange,
     };
     use crate::mcp::requests::common::Absent;
     let text = |value: &Absent<String>| value.as_ref().cloned();
@@ -256,6 +257,12 @@ pub(crate) fn entity_edit_tool(
             units: text(&arguments.units),
             data_shape: text(&arguments.data_shape),
             description: text(&arguments.description),
+            data_change_type: text(&arguments.data_change_type),
+            data_change_threshold: arguments
+                .data_change_threshold
+                .as_ref()
+                .map(ToString::to_string),
+            no_data_change_threshold: arguments.no_data_change_threshold,
         })
     };
     if arguments.from_parent && !matches!(arguments.action, EntityEditAction::ServiceOverride) {
@@ -306,13 +313,24 @@ pub(crate) fn entity_edit_tool(
             name: need(&arguments.name, "name")?,
             force: arguments.force,
         },
-        EntityEditAction::SubscriptionAdd => Action::SubscriptionAdd {
-            name: need(&arguments.name, "name")?,
-            event: need(&arguments.event, "event")?,
-            source: text(&arguments.source),
-            source_property: text(&arguments.source_property),
-            code: need(&arguments.then, "then (the script)")?,
-        },
+        EntityEditAction::SubscriptionAdd => {
+            if arguments.event.as_ref().is_some() && arguments.events.as_ref().is_some() {
+                return Err(ToolError::invalid("give event or events"));
+            }
+            let events = match arguments.events.as_ref() {
+                Some(events) => events.clone(),
+                None => vec![need(&arguments.event, "event or events")?],
+            };
+            Action::SubscriptionAdd {
+                name: need(&arguments.name, "name")?,
+                events,
+                source: text(&arguments.source),
+                source_property: text(&arguments.source_property),
+                stateful: arguments.stateful,
+                distributed: arguments.distributed,
+                code: need(&arguments.then, "then (the script)")?,
+            }
+        }
         EntityEditAction::SubscriptionRemove => Action::SubscriptionRemove {
             name: need(&arguments.name, "name")?,
         },
@@ -458,14 +476,59 @@ pub(crate) fn entity_edit_tool(
             display_name: arguments.display_name.as_ref().cloned(),
         }),
     };
-    let dry_run = arguments.dry_run;
+    run_entity_edit(
+        solution,
+        &arguments.entity,
+        action,
+        arguments.dry_run,
+        "mcp entity_edit",
+    )
+}
+
+pub(crate) fn data_shape_field_tool(
+    solution: &Solution,
+    arguments: DataShapeFieldRequest,
+) -> Result<Value, ToolError> {
+    use crate::core::entity::edit::Action;
+    let field = nonempty(&arguments.field, "field")?.to_string();
+    let action = match arguments.action {
+        DataShapeFieldAction::Add => Action::FieldAdd {
+            field,
+            description: arguments.description.as_ref().cloned(),
+            data_shape: arguments.data_shape.as_ref().cloned(),
+        },
+        DataShapeFieldAction::Remove => {
+            if !arguments.description.is_absent() || !arguments.data_shape.is_absent() {
+                return Err(ToolError::invalid(
+                    "description and data_shape belong to field add",
+                ));
+            }
+            Action::FieldRemove { name: field }
+        }
+    };
+    run_entity_edit(
+        solution,
+        &arguments.entity,
+        action,
+        arguments.dry_run,
+        "mcp data_shape_field",
+    )
+}
+
+fn run_entity_edit(
+    solution: &Solution,
+    entity: &str,
+    action: crate::core::entity::edit::Action,
+    dry_run: bool,
+    lock_label: &'static str,
+) -> Result<Value, ToolError> {
     let request = commands::entity_edit::EditRequest {
-        request: Request {
-            entity: nonempty(&arguments.entity, "entity")?.to_string(),
+        request: crate::core::entity::edit::Request {
+            entity: nonempty(entity, "entity")?.to_string(),
             action,
         },
         mode: if dry_run { Mode::Plan } else { Mode::Apply },
-        lock_label: "mcp entity_edit",
+        lock_label,
     };
     let mut notices = commands::Notices::default();
     let outcome = commands::entity_edit::execute(solution, &request, &mut notices)
@@ -806,6 +869,11 @@ pub(crate) fn mashup_add_tool(
     )?;
     let request = commands::mashup::MashupAddRequest {
         request: crate::core::mashup::authoring::AddRequest {
+            tabs: crate::core::mashup::authoring::TabSetOptions {
+                labels: arguments.tabs.as_ref().cloned(),
+                style: arguments.tab_style.as_ref().cloned(),
+                width: arguments.tab_width.as_ref().cloned(),
+            },
             mashup: nonempty(&arguments.mashup, "mashup")?.to_string(),
             widget: nonempty(&arguments.widget, "widget")?.to_string(),
             inputs: arguments.inputs.items().to_vec(),
@@ -951,6 +1019,7 @@ pub(crate) fn mashup_set_tool(
     }
     let request = commands::mashup::MashupSetRequest {
         request: crate::core::mashup::authoring::SetRequest {
+            force: arguments.force,
             mashup: nonempty(&arguments.mashup, "mashup")?.to_string(),
             widget: nonempty(&arguments.widget, "widget")?.to_string(),
             properties: arguments.properties.into_iter().collect(),
@@ -1230,6 +1299,7 @@ pub(crate) fn mashup_bind_tool(
     let dry_run = arguments.dry_run;
     let request = commands::mashup::MashupBindRequest {
         request: crate::core::mashup::authoring::BindRequest {
+            force: arguments.force,
             mashup: nonempty(&arguments.mashup, "mashup")?.to_string(),
             from: nonempty(&arguments.from, "from")?.to_string(),
             to: nonempty(&arguments.to, "to")?.to_string(),

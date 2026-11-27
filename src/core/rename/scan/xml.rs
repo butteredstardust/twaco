@@ -524,7 +524,31 @@ fn attribute_collection(element: &str, attribute: &str) -> Option<&'static str> 
         "aspect.thingShape" => Some("ThingShapes"),
         "aspect.dataShape" | "dataShapeName" => Some("DataShapes"),
         "valueStream" | "inheritedValueStream" => Some("Things"),
+        "source" if matches!(element, "Subscription" | "Event") => Some("Things"),
         "name" if element == "ImplementedShape" => Some("ThingShapes"),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod subscription_tests {
+    use super::*;
+
+    #[test]
+    fn brief99_rename_thing_follows_sources_in_both_subscription_shapes() {
+        let src = br#"<Entities><Things><Thing name="Acme.Watcher"><Subscriptions><Subscription name="Old" eventName="ThingStart" source="Clock" sourceType="Thing"/><Subscription name="New" version="2"><Events><Event eventName="Timer" alias="Clock_Timer" source="Clock" sourceType="Thing"/></Events></Subscription></Subscriptions></Thing></Things></Entities>"#;
+        let plan = scan_xml_with_identity(
+            src,
+            "Clock",
+            refs::Mode::Entity,
+            "Acme.Clock",
+            false,
+            Some("Things"),
+        )
+        .unwrap();
+        let changed = splice::splice(src, &plan.edits).unwrap();
+        let xml = String::from_utf8(changed).unwrap();
+        assert_eq!(xml.matches("source=\"Acme.Clock\"").count(), 2);
+        assert!(xml.contains("alias=\"Clock_Timer\""));
     }
 }

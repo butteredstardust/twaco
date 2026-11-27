@@ -27,8 +27,8 @@ properties:
   ColumnFormat STRING setting (default "")
   ColumnLazyLoadingBlockSize INTEGER setting (default 10)
   ColumnLazyLoadingBuffer INTEGER setting (default 10)
-  ColumnLazyLoadingIndicator STRING setting (default "pulse")
-  ColumnsMenuOptions STRING setting (default "none")
+  ColumnLazyLoadingIndicator STRING setting (default "pulse"); allowed: bar ("Static Bar"), pulse ("Pulse Bar"), sweeping ("Animated Bar"), spinner ("Spinner"), custom ("Custom")
+  ColumnsMenuOptions STRING setting (default "none"); allowed: none ("None"), show ("Visibility"), reorder ("Order"), both ("Visibility and Order")
   ColumnsMenuVisibleItems NUMBER setting (default 6)
   Configuration JSON in
   CurrentToolbarActions STRING setting (default "")
@@ -49,25 +49,25 @@ properties:
   EditButtonText setting (default "[[edit]]")
   EditControlIcon IMAGELINK setting
   EditControlLabel STRING setting (default "[[edit]]")
-  EditControlType STRING setting (default "link")
-  EditControlVisibility STRING setting (default "hover")
-  EditLevel STRING setting (default "cell")
+  EditControlType STRING setting (default "link"); allowed: icon ("Icon"), link ("Link")
+  EditControlVisibility STRING setting (default "hover"); allowed: hover ("On hover or focus"), always ("Always"), never ("Never")
+  EditLevel STRING setting (default "cell"); allowed: grid ("Entire Grid"), row ("Single Row"), cell ("Single Cell")
   EditedData INFOTABLE out
   EditedRow INFOTABLE in/out
   EnableSorting BOOLEAN setting (default false)
   ExpandAllText STRING setting (default "[[expandAll]]")
   ExpandCollapseAll BOOLEAN setting (default false)
-  ExpandCollapseIcon STRING setting (default "singlecaret")
+  ExpandCollapseIcon STRING setting (default "singlecaret"); allowed: singlecaret ("Caret"), arrow ("Arrow"), plus/minus ("Plus/Minus")
   ExpandLoadedRows BOOLEAN in (default false)
   ExpandableRows INFOTABLE in
   FilterHintText STRING setting (default "[[filter]]")
   FilterLabel STRING in (default "")
   FilterString STRING in/out (default "")
   FilterWidth NUMBER setting (default 273)
-  FocusNavigationMode STRING setting (default "row-first")
+  FocusNavigationMode STRING setting (default "row-first"); allowed: row-first ("Row First"), cell-first ("Cell First"), cell-only ("Cell Only")
   FooterData INFOTABLE in
   HasChildrenFieldName STRING setting (default "hasChildren")
-  HeaderVerticalAlignment STRING setting (default "top")
+  HeaderVerticalAlignment STRING setting (default "top"); allowed: top ("Top"), center ("Middle"), bottom ("Bottom")
   Height NUMBER setting (default 368)
   HideHeaderRow BOOLEAN in (default false)
   HideSelectedRowsCount BOOLEAN setting (default false)
@@ -80,8 +80,8 @@ properties:
   InlineEditing BOOLEAN setting (default false)
   IsEditable BOOLEAN in/out (default false)
   Label STRING in (default "[[Grid]]")
-  LabelAlignment STRING setting (default "left")
-  LabelType STRING setting (default "sub-header")
+  LabelAlignment STRING setting (default "left"); allowed: left ("Left"), center ("Center"), right ("Right")
+  LabelType STRING setting (default "sub-header"); allowed: large-header ("Large Header"), header ("Header"), sub-header ("Sub-Header"), large-title ("Large Title"), title ("Title"), label ("Label"), body ("Body"), caption ("Caption")
   LastClickedRow INFOTABLE out
   LegacyConfiguration STRING in (default "")
   MaxExpandedRows NUMBER setting
@@ -113,13 +113,13 @@ properties:
   RowDeleteButton BOOLEAN setting (default false)
   RowEditFormTitle STRING in (default "[[EditRecord]]")
   RowFormat STATEFORMATTING setting
-  RowLazyLoading STRING setting (default "disabled")
+  RowLazyLoading STRING setting (default "disabled"); allowed: disabled ("Disabled"), all ("Load All in Chunks"), auto ("On-Demand"), manual ("Manual")
   RowSelected BOOLEAN out
-  RowSelection STRING in (default "none")
+  RowSelection STRING in (default "none"); allowed: none ("None"), single ("Single"), multiple ("Multiple")
   RowTotalNumber INTEGER in
-  RowsInfoLabelPosition STRING setting (default "top")
-  RowsInfoLabelType STRING setting (default "label")
-  RowsVerticalAlignment STRING setting (default "top")
+  RowsInfoLabelPosition STRING setting (default "top"); allowed: top ("Top"), bottom ("Bottom")
+  RowsInfoLabelType STRING setting (default "label"); allowed: large-header ("Large Header"), header ("Header"), sub-header ("Sub-Header"), large-title ("Large Title"), title ("Title"), label ("Label"), body ("Body"), caption ("Caption")
+  RowsVerticalAlignment STRING setting (default "top"); allowed: top ("Top"), center ("Middle"), bottom ("Bottom")
   RuntimeErrorMessage STRING setting (default "[[GridRuntimeError]]")
   SaveEditButtonText setting (default "[[save]]")
   SecondsLabel STRING setting (default "[[Seconds]]")
@@ -149,7 +149,7 @@ properties:
   SortSelectionColumn BOOLEAN setting (default false)
   TabSequence NUMBER setting (default 0)
   ToolbarActionsData INFOTABLE in
-  ToolbarActionsPosition STRING setting (default "after")
+  ToolbarActionsPosition STRING setting (default "after"); allowed: none ("None"), before ("Before"), after ("After")
   TriggerEventOnConfigChange BOOLEAN setting (default true)
   UpdateButtonText setting (default "[[update]]")
   ValidationCriteriaIcon IMAGELINK setting

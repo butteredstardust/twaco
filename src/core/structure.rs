@@ -106,13 +106,7 @@ pub(crate) fn run(solution: &Solution, discovered: &workspace::Discovery) -> Rep
             }
         });
     let Some(source) = source else {
-        return Report {
-            examined: 0,
-            findings: vec![],
-            notes: vec!["structure skipped: set gates.structure_xsd or TWACO_STRUCTURE_XSD".into()],
-            broken: None,
-            skipped: Some("no XSD source configured".into()),
-        };
+        return subscription_structure(solution, discovered);
     };
     let bytes = match schema_bytes(&source) {
         Ok(bytes) => bytes,
@@ -638,6 +632,177 @@ impl Schema {
     }
 }
 
+/// Subscription attributes and event rows can be checked without the platform XSD.
+fn subscription_structure(solution: &Solution, discovered: &workspace::Discovery) -> Report {
+    let mut report = Report {
+        examined: 0,
+        findings: Vec::new(),
+        notes: Vec::new(),
+        broken: None,
+        skipped: None,
+    };
+    for file in &discovered.entities {
+        if !matches!(
+            file.info.collection.as_str(),
+            "Things" | "ThingTemplates" | "ThingShapes"
+        ) {
+            continue;
+        }
+        let Ok(bytes) = std::fs::read(&file.path) else {
+            continue;
+        };
+        if !bytes.windows(b"<Subscription".len() + 1).any(|part| {
+            let (last, tag) = part.split_last().expect("nonempty window");
+            tag == b"<Subscription" && (last.is_ascii_whitespace() || matches!(last, b'>' | b'/'))
+        }) {
+            continue;
+        }
+        let Ok(node) = parse_xml(&bytes, false) else {
+            continue;
+        };
+        let mut path = Vec::new();
+        let examined = validate_local_subscriptions(
+            &node,
+            &mut path,
+            &solution.relative(&file.path),
+            &mut report.findings,
+        );
+        report.examined += usize::from(examined);
+    }
+    if report.examined == 0 {
+        report
+            .notes
+            .push("structure skipped: set gates.structure_xsd or TWACO_STRUCTURE_XSD".into());
+        report.skipped = Some("no XSD source configured".into());
+    } else {
+        report.notes.push(
+            "full structure validation requires gates.structure_xsd or TWACO_STRUCTURE_XSD".into(),
+        );
+    }
+    report
+}
+
+fn validate_local_subscriptions(
+    node: &Node,
+    path: &mut Vec<String>,
+    file: &str,
+    findings: &mut Vec<Finding>,
+) -> bool {
+    if node.name == "Subscription" && path.last().is_some_and(|name| name == "Subscriptions") {
+        let mut expected = Decl {
+            name: "Subscription".into(),
+            any: true,
+            ..Decl::default()
+        };
+        for name in [
+            "name",
+            "description",
+            "enabled",
+            "eventName",
+            "source",
+            "sourceType",
+            "sourceProperty",
+            "version",
+        ] {
+            expected.attrs.insert(
+                name.into(),
+                Attr {
+                    required: false,
+                    simple: None,
+                },
+            );
+        }
+        validate(
+            &expected,
+            node,
+            path,
+            file,
+            findings,
+            &mut BTreeSet::new(),
+            false,
+        );
+        return true;
+    }
+    path.push(node.name.clone());
+    let mut examined = false;
+    for child in &node.children {
+        examined |= validate_local_subscriptions(child, path, file, findings);
+    }
+    path.pop();
+    examined
+}
+
+fn subscription_decl(expected: &Decl, version_two: bool) -> Decl {
+    let mut decl = expected.clone();
+    for name in [
+        "aspect.isAsync",
+        "aspect.isDistributed",
+        "aspect.isStateful",
+    ] {
+        decl.attrs.insert(
+            name.into(),
+            Attr {
+                required: false,
+                simple: Some(Simple::Boolean),
+            },
+        );
+    }
+    if version_two {
+        decl.attrs.insert(
+            "version".into(),
+            Attr {
+                required: true,
+                simple: Some(Simple::Int),
+            },
+        );
+        for name in ["eventName", "source", "sourceProperty", "sourceType"] {
+            decl.attrs.remove(name);
+        }
+        let attrs = [
+            "alias",
+            "eventName",
+            "source",
+            "sourceProperty",
+            "sourceType",
+        ]
+        .into_iter()
+        .map(|name| {
+            (
+                name.into(),
+                Attr {
+                    required: true,
+                    simple: None,
+                },
+            )
+        })
+        .collect();
+        let event = Decl {
+            name: "Event".into(),
+            attrs,
+            ..Decl::default()
+        };
+        let events = Decl {
+            name: "Events".into(),
+            particles: vec![Particle {
+                decl: event,
+                min: 1,
+                max: None,
+                choice: false,
+            }],
+            ..Decl::default()
+        };
+        decl.particles
+            .retain(|particle| particle.decl.name != "Events");
+        decl.particles.push(Particle {
+            decl: events,
+            min: 1,
+            max: Some(1),
+            choice: false,
+        });
+    }
+    decl
+}
+
 fn validate(
     expected: &Decl,
     actual: &Node,
@@ -647,10 +812,24 @@ fn validate(
     unknown_collections: &mut BTreeSet<String>,
     entities_root: bool,
 ) {
+    let subscription =
+        actual.name == "Subscription" && path.last().is_some_and(|name| name == "Subscriptions");
+    let version_two = subscription
+        && actual
+            .attrs
+            .get("version")
+            .is_some_and(|value| value == "2");
+    let authored;
+    let expected = if subscription {
+        authored = subscription_decl(expected, version_two);
+        &authored
+    } else {
+        expected
+    };
     path.push(actual.name.clone());
     let shown = format!("/{}", path.join("/"));
     for (name, attr) in &actual.attrs {
-        if name.starts_with("aspect.") || expected.attrs.contains_key(name) {
+        if (!version_two && name.starts_with("aspect.")) || expected.attrs.contains_key(name) {
             if let Some(simple) = expected.attrs.get(name).and_then(|a| a.simple) {
                 if !valid(simple, attr) {
                     findings.push(finding(
@@ -979,6 +1158,42 @@ mod tests {
       <xs:element name="Thing" type="ThingType"/>
       <xs:complexType name="ThingType"><xs:sequence><xs:element name="Needed"/><xs:element name="One" minOccurs="0"/></xs:sequence><xs:attribute name="enabled" type="xs:boolean" use="required"/></xs:complexType>
     </xs:schema>"#;
+
+    #[test]
+    fn brief99_structure_checks_event_rows_and_aspects_without_an_xsd() {
+        let src = r#"<Entities><Things><Thing name="Acme.T"><ThingShape><Subscriptions><Subscription name="Watch" version="2" aspect.isStateful="true" aspect.isDistributed="false"><ServiceImplementation handlerName="Script"/><Events><Event alias="M" eventName="DataChange" source="" sourceProperty="Speed" sourceType="Thing"/></Events></Subscription></Subscriptions></ThingShape></Thing></Things></Entities>"#;
+        let validate = |text: &str| {
+            let tree = parse_xml(text.as_bytes(), false).unwrap();
+            let mut findings = Vec::new();
+            assert!(validate_local_subscriptions(
+                &tree,
+                &mut Vec::new(),
+                "Acme.T.xml",
+                &mut findings
+            ));
+            findings
+                .into_iter()
+                .map(|finding| finding.message)
+                .collect::<Vec<_>>()
+        };
+        assert!(validate(src).is_empty());
+        let sequential = src.replace("version=\"2\"", "version=\"2\" sequential=\"true\"");
+        assert!(validate(&sequential)
+            .iter()
+            .any(|message| message.ends_with("/@sequential")));
+        let bad = src
+            .replace("aspect.isStateful=\"true\"", "aspect.isStateful=\"yes\"")
+            .replace(" alias=\"M\"", "");
+        let findings = validate(&bad);
+        assert!(findings
+            .iter()
+            .any(|message| message.contains("@aspect.isStateful")));
+        assert!(findings
+            .iter()
+            .any(|message| message.contains("missing @alias")));
+        let legacy = r#"<Thing><Subscriptions><Subscription name="Old" eventName="ThingStart" source="" sourceType="Thing" sourceProperty=""/></Subscriptions></Thing>"#;
+        assert!(validate(legacy).is_empty());
+    }
 
     #[test]
     fn scanner_reader_and_model_report_the_structural_kinds() {

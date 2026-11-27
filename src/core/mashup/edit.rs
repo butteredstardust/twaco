@@ -2294,6 +2294,25 @@ impl MashupDocument {
                 anchor = self.find(widget_id(self.at(&anchor.path[..depth])))?;
             }
         }
+        // A leaf filling its generated cell is positioned relative to that cell's siblings.
+        // The first pair already has a row, so a third cell belongs to the same row.
+        if self.rules().version() == "v1" && side.axis() == "row" && anchor.path.len() >= 3 {
+            let cell_path = &anchor.path[..anchor.path.len() - 1];
+            let cell = self.at(cell_path);
+            let row = self.at(&cell_path[..cell_path.len() - 1]);
+            if is_generated_container(cell)
+                && !authored_layout(cell)
+                && children(cell).len() == 1
+                && holds_filler(cell)
+                && type_of(row) == Some("flexcontainer")
+                && row["Properties"]["flex-direction"] == "row"
+                && children(row)
+                    .iter()
+                    .all(|child| type_of(child) == Some("flexcontainer"))
+            {
+                anchor = self.find(widget_id(cell))?;
+            }
+        }
         // A control row twaco made running the other way is part of the anchor, not the place to
         // put a sibling: below a field in its row, or below a toolbar button, means a new row in
         // the enclosing column, not turning the row into a column. A named container, or a cell

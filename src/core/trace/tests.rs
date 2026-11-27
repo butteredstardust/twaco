@@ -310,3 +310,43 @@ fn a_caller_through_thing_templates_is_found_and_a_rebound_variable_is_not_follo
         .iter()
         .any(|call| call.caller == "Things/Acme.Orders.Batch.Elsewhere"));
 }
+
+#[test]
+fn brief99_trace_reports_legacy_and_multi_event_subscription_callers() {
+    let (dir, solution) = fixture();
+    let name = "Acme.Orders.Watcher";
+    let script = r#"Things["Acme.Orders.Manager"].GetOrders({id:"a"});"#;
+    let old =
+        crate::core::entity::new::subscription_xml("Legacy", "ThingStart", "", "", script).unwrap();
+    let events = [
+        ("Speed".into(), "DataChange", "", "Speed"),
+        ("Timer".into(), "Timer", "Acme.Orders.Clock", ""),
+    ];
+    let new = crate::core::entity::new::subscription_v2_xml("Multi", &events, false, false, script)
+        .unwrap();
+    let src = thing(name, &[]).replace(
+        "<Subscriptions></Subscriptions>",
+        &format!("<Subscriptions>{old}{new}</Subscriptions>"),
+    );
+    std::fs::write(dir.path().join(format!("Things/{name}.xml")), src).unwrap();
+    let trace = run(&solution, "Acme.Orders.Manager.GetOrders", None).unwrap();
+    let caller = |name: &str| {
+        trace
+            .scripts
+            .iter()
+            .find(|call| call.caller.ends_with(name))
+            .unwrap()
+    };
+    assert_eq!(
+        caller(".Legacy").subscription_events[0].address(),
+        "me:ThingStart"
+    );
+    assert_eq!(
+        caller(".Multi")
+            .subscription_events
+            .iter()
+            .map(crate::core::subscriptions::Event::address)
+            .collect::<Vec<_>>(),
+        ["me:DataChange:Speed=Speed", "Acme.Orders.Clock:Timer=Timer"]
+    );
+}

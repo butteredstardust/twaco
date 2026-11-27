@@ -217,6 +217,31 @@ pub(crate) fn script_services(src: &[u8]) -> Result<Vec<ScriptService>, SidecarE
     Ok(scripts)
 }
 
+/// Subscription scripts stay in the entity XML and carry the event(s) that run them.
+pub(crate) fn subscription_scripts(
+    src: &[u8],
+) -> Result<Vec<(ScriptService, Vec<super::subscriptions::Event>)>, SidecarError> {
+    let tokens = scan::tokenize(src)?;
+    let entity = entity_element(&tokens, src).ok_or(SidecarError::NotAnEntity)?;
+    let mut scripts = Vec::new();
+    for index in super::subscriptions::tags(&tokens, src, entity) {
+        let subscription = super::subscriptions::read(&tokens, src, index);
+        for implementation in scan::child_tags(&tokens, src, "ServiceImplementation", index) {
+            if handler_of(&tokens, src, implementation)? == "Script" {
+                let script = script_of(&tokens, src, implementation, &subscription.name)?;
+                scripts.push((
+                    ScriptService {
+                        name: subscription.name.clone(),
+                        script,
+                    },
+                    subscription.events.clone(),
+                ));
+            }
+        }
+    }
+    Ok(scripts)
+}
+
 /// The entity element: the first child of the first collection that has one.
 ///
 /// An export can open with an empty collection — `<Entities><Things/><DataShapes>…` — so taking

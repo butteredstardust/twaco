@@ -1,0 +1,45 @@
+{
+  "source": "ThingWorx 10.2 Composer same-type compatibility renames and values that require conversion. The newtype rules have their own generated provenance.",
+  "renames": {
+    "ptcsbutton": {"Alignment": "LabelAlignment", "ContextId": "ContextID", "Text": "Label", "ToolTipField": "TooltipField"},
+    "ptcscheckbox": {"Prompt": "Label", "ToolTipField": "TooltipField"},
+    "ptcschartbar": {"ChartTitle": "Label", "LegendLocation": "LegendPosition", "SecondaryYAxisFormat": "SecondYAxisFormat", "SecondaryYAxisTitle": "SecondYAxisLabel", "XAxisLabelRotation": "HorizontalAxisLabelsRotation"},
+    "ptcschartline": {"ChartTitle": "Label", "LegendLocation": "LegendPosition", "SecondaryYAxisFormat": "SecondYAxisFormat", "SecondaryYAxisTitle": "SecondYAxisLabel", "XAxisLabelRotation": "HorizontalAxisLabelsRotation"},
+    "ptcschartpie": {"ChartTitle": "Label", "ColorFormat": "DataStyle", "LabelField": "DataField", "LegendLocation": "LegendPosition", "LegendWidth": "LegendMaxWidth"},
+    "ptcscollection": {"CellMashupSelectedField": "SelectedCellMashupField", "CellMenuStates": "CellMenu", "CellMenuStatesIconSize": "CellMenuIconSize", "EmptyMashupName": "EmptyMashup", "MashupHeight": "CellHeight"},
+    "ptcsdatepicker": {"DateDisplay": "MonthFormat", "DateFormatToken": "FormatToken", "ToolTipField": "TooltipField"},
+    "ptcsdropdown": {"TextIfNoSelection": "HintText"},
+    "ptcsdynamicpanel": {"CollapseByDefault": "Collapsed"},
+    "ptcsfileupload": {"DeleteAllButtonLabel": "RemoveAllButtonLabel", "DisplayPathTextBox": "ShowRepositoryPath", "DisplayRepositorySelector": "ShowRepositorySelector", "FileName": "FileNames", "FullPath": "FullPaths", "MaximumFileSize": "MaxFileSize", "ShowDeleteAllButton": "ShowRemoveAllButton"},
+    "ptcsgrid": {"CookiePersistence": "CacheRuntimeChanges", "DeletedTable": "DeletedData", "EditedTable": "EditedData", "RowHeight": "MinRowHeight"},
+    "ptcslabel": {"Alignment": "HorizontalAlignment", "Text": "LabelText", "ToolTipField": "TooltipField"},
+    "ptcslink": {"Href": "LinkURL", "SourceURL": "LinkURL"},
+    "ptcsslider": {"Step": "StepSize"},
+    "ptcstabset": {"CurrentTab": "SelectedTab", "DefaultTabAtRuntime": "DefaultTabNumber", "MaxTabWidth": "TabNameMaxWidth"},
+    "ptcstextarea": {"PlaceholderText": "HintText", "ToolTipField": "TooltipField"},
+    "ptcstextfield": {"AllowNegatives": "AllowNegativeValues", "FixedDigits": "DecimalPlaces", "Maximum": "MaxValue", "MaskInputCharacters": "Password", "Minimum": "MinValue", "PlaceholderText": "HintText", "TextAlign": "TextAlignment", "ToolTipField": "TooltipField", "ValueAlign": "TextAlignment"},
+    "ptcsvaluedisplay": {"Alignment": "HorizontalAlignment", "ToolTipField": "TooltipField"},
+    "navigationfunction": {"FixedPopupHeight": "PopupHeight", "FixedPopupWidth": "PopupWidth", "MashupName": "TargetMashup", "MessageToShow": "MissingMashupMessage", "PopupScrolling": "PopupScrollbar", "ShowCloseButton": "CloseButton", "TargetWindow": "TargetWindowType"}
+  },
+  "values_differ": {"navigationfunction": ["TargetWindow"]},
+  "twaco_newtypes": {
+    "gauge": {
+      "newtype": "ptcskpidial",
+      "why": "A KPI dial displays the same numeric input and range.",
+      "mappings": {"Data": "Value", "MinValue": "MinimumValue", "MaxValue": "MaximumValue", "Legend": "Label"}
+    },
+    "leddisplay": {
+      "newtype": "ptcsvaluedisplay",
+      "why": "A numeric Value Display preserves the input and label while replacing the LED presentation.",
+      "create": {"DataBaseType": "NUMBER"},
+      "mappings": {"Data": "Data", "ToolTipField": "TooltipField"}
+    },
+    "menu": {
+      "newtype": "ptcsmenubar",
+      "why": "A Menu Bar can use the same Menu entity and drive the page mashup.",
+      "when": {"ConfiguredOrDataDriven": "configured", "DrivePageMashupOrBindToMashup": "pagemashup"},
+      "create": {"DataSource": "menuentity", "MashupControl": "pagemashup"},
+      "mappings": {"Menu": "PrimaryNavMenu"}
+    }
+  }
+}
